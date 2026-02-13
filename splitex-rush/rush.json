@@ -1,0 +1,43 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/rush/v5/rush.schema.json",
+  "rushVersion": "5.167.0",
+  "pnpmVersion": "9.15.9",
+  "nodeSupportedVersionRange": ">=24.11.1 <25.0.0",
+  "repository": {
+    "url": "https://github.com/splitex/splitex",
+    "defaultBranch": "main"
+  },
+  "eventHooks": {
+    "preRushInstall": [],
+    "postRushInstall": [],
+    "preRushBuild": [],
+    "postRushBuild": []
+  },
+  "projects": [
+    {
+      "packageName": "@splitex/web",
+      "projectFolder": "apps/web",
+      "reviewCategory": "production"
+    },
+    {
+      "packageName": "@splitex/mobile",
+      "projectFolder": "apps/mobile",
+      "reviewCategory": "production"
+    },
+    {
+      "packageName": "@splitex/api",
+      "projectFolder": "apps/api",
+      "reviewCategory": "production"
+    },
+    {
+      "packageName": "@splitex/shared",
+      "projectFolder": "libraries/shared",
+      "reviewCategory": "production"
+    },
+    {
+      "packageName": "@splitex/ui",
+      "projectFolder": "libraries/ui",
+      "reviewCategory": "production"
+    }
+  ]
+}

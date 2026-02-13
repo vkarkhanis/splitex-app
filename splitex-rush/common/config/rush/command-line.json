@@ -1,0 +1,59 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/rush/v5/command-line.schema.json",
+  "commands": [
+    {
+      "commandKind": "global",
+      "name": "dev",
+      "summary": "Alias for dev:web",
+      "shellCommand": "bash -lc \"cd apps/web && rushx dev\""
+    },
+    {
+      "commandKind": "global",
+      "name": "dev:web",
+      "summary": "Start the Next.js web app dev server",
+      "shellCommand": "bash -lc \"cd apps/web && rushx dev\""
+    },
+    {
+      "commandKind": "global",
+      "name": "dev:api",
+      "summary": "Start the API dev server",
+      "shellCommand": "bash -lc \"cd apps/api && rushx dev\""
+    },
+    {
+      "commandKind": "global",
+      "name": "dev:mobile",
+      "summary": "Start the Expo dev server",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx start\""
+    },
+    {
+      "commandKind": "bulk",
+      "name": "clean",
+      "summary": "Clean build outputs for all projects",
+      "enableParallelism": true,
+      "ignoreDependencyOrder": true,
+      "ignoreMissingScript": true
+    },
+    {
+      "commandKind": "bulk",
+      "name": "lint",
+      "summary": "Run lint for all projects that define a lint script",
+      "enableParallelism": true,
+      "ignoreMissingScript": true
+    },
+    {
+      "commandKind": "bulk",
+      "name": "typecheck",
+      "summary": "Run TypeScript typecheck for all projects that define a typecheck script",
+      "enableParallelism": true,
+      "ignoreMissingScript": true
+    },
+    {
+      "commandKind": "bulk",
+      "name": "test",
+      "summary": "Run unit tests for all projects that define a test script",
+      "enableParallelism": true,
+      "ignoreMissingScript": true
+    }
+  ],
+  "parameters": []
+}
