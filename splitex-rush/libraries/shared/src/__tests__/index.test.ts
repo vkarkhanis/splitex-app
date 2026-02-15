@@ -7,6 +7,7 @@ import {
   SettlementStatus,
   NotificationType,
   PaymentStatus,
+  InvitationStatus,
 } from '../index';
 
 import type {
@@ -35,6 +36,11 @@ import type {
   ValidationError,
   LoginRequest,
   RegisterRequest,
+  Invitation,
+  CreateInvitationDto,
+  UpdateEventDto,
+  UpdateGroupDto,
+  UpdateExpenseDto,
 } from '../index';
 
 describe('Shared types - Enums', () => {
@@ -84,6 +90,13 @@ describe('Shared types - Enums', () => {
     expect(PaymentStatus.PROCESSING).toBe('processing');
     expect(PaymentStatus.SUCCEEDED).toBe('succeeded');
     expect(PaymentStatus.FAILED).toBe('failed');
+  });
+
+  it('InvitationStatus should have PENDING, ACCEPTED, DECLINED, EXPIRED', () => {
+    expect(InvitationStatus.PENDING).toBe('pending');
+    expect(InvitationStatus.ACCEPTED).toBe('accepted');
+    expect(InvitationStatus.DECLINED).toBe('declined');
+    expect(InvitationStatus.EXPIRED).toBe('expired');
   });
 });
 
@@ -249,5 +262,146 @@ describe('Shared types - Type shape validation', () => {
 
     expect(register.email).toBe('new@example.com');
     expect(register.displayName).toBe('New User');
+  });
+
+  it('should create a valid Invitation object', () => {
+    const invitation: Invitation = {
+      id: 'inv-1',
+      eventId: 'event-1',
+      invitedBy: 'user-1',
+      inviteeEmail: 'friend@example.com',
+      groupId: 'group-1',
+      role: 'member',
+      status: 'pending',
+      token: 'abc123token',
+      message: 'Join our trip!',
+      emailSent: true,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    };
+
+    expect(invitation.id).toBe('inv-1');
+    expect(invitation.status).toBe('pending');
+    expect(invitation.token).toBe('abc123token');
+    expect(invitation.inviteeEmail).toBe('friend@example.com');
+    expect(invitation.groupId).toBe('group-1');
+    expect(invitation.emailSent).toBe(true);
+  });
+
+  it('should create an Invitation without groupId (independent invitee)', () => {
+    const invitation: Invitation = {
+      id: 'inv-2',
+      eventId: 'event-1',
+      invitedBy: 'user-1',
+      inviteeUserId: 'user-2',
+      role: 'member',
+      status: 'pending',
+      token: 'xyz789token',
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    };
+
+    expect(invitation.groupId).toBeUndefined();
+    expect(invitation.emailSent).toBeUndefined();
+    expect(invitation.emailError).toBeUndefined();
+  });
+
+  it('should create a valid CreateInvitationDto', () => {
+    const dto: CreateInvitationDto = {
+      eventId: 'event-1',
+      inviteeEmail: 'friend@example.com',
+      role: 'admin',
+      message: 'Please join',
+    };
+
+    expect(dto.eventId).toBe('event-1');
+    expect(dto.role).toBe('admin');
+  });
+
+  it('should create a CreateInvitationDto with groupId', () => {
+    const dto: CreateInvitationDto = {
+      eventId: 'event-1',
+      inviteeEmail: 'friend@example.com',
+      groupId: 'group-1',
+      role: 'member',
+    };
+
+    expect(dto.groupId).toBe('group-1');
+  });
+
+  it('should create a valid UpdateEventDto', () => {
+    const dto: UpdateEventDto = {
+      name: 'Updated Name',
+      status: 'settled',
+    };
+
+    expect(dto.name).toBe('Updated Name');
+    expect(dto.status).toBe('settled');
+  });
+
+  it('should create a valid UpdateGroupDto', () => {
+    const dto: UpdateGroupDto = {
+      name: 'New Group Name',
+      memberIds: ['u1', 'u2', 'u3'],
+    };
+
+    expect(dto.name).toBe('New Group Name');
+    expect(dto.memberIds).toHaveLength(3);
+  });
+
+  it('should create a valid UpdateExpenseDto', () => {
+    const dto: UpdateExpenseDto = {
+      title: 'Updated Expense',
+      amount: 150,
+      splitType: 'custom',
+    };
+
+    expect(dto.title).toBe('Updated Expense');
+    expect(dto.amount).toBe(150);
+    expect(dto.splitType).toBe('custom');
+  });
+
+  it('should create a valid Group object', () => {
+    const group: Group = {
+      id: 'group-1',
+      eventId: 'event-1',
+      name: 'Family',
+      description: 'My family',
+      createdBy: 'user-1',
+      members: ['user-1', 'user-2'],
+      representative: 'user-1',
+      payerUserId: 'user-1',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    expect(group.id).toBe('group-1');
+    expect(group.members).toHaveLength(2);
+    expect(group.payerUserId).toBe('user-1');
+  });
+
+  it('should create a valid CreateGroupDto', () => {
+    const dto: CreateGroupDto = {
+      eventId: 'event-1',
+      name: 'Couple',
+      memberIds: ['u1', 'u2'],
+      payerUserId: 'u1',
+    };
+
+    expect(dto.name).toBe('Couple');
+    expect(dto.memberIds).toEqual(['u1', 'u2']);
+  });
+
+  it('should create a valid EventParticipant', () => {
+    const participant: EventParticipant = {
+      userId: 'user-1',
+      role: 'admin',
+      joinedAt: new Date(),
+      invitedBy: 'user-1',
+      status: 'accepted',
+    };
+
+    expect(participant.role).toBe('admin');
+    expect(participant.status).toBe('accepted');
   });
 });

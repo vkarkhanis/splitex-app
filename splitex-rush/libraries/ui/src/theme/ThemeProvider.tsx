@@ -32,12 +32,19 @@ const GlobalStyle = createGlobalStyle<{ $t: SplitexTheme }>`
     color-scheme: ${(p) => (p.$t.name === 'light' ? 'light' : 'dark')};
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   html, body {
     padding: 0;
     margin: 0;
     background: ${(p) => p.$t.colors.background};
     color: ${(p) => p.$t.colors.text};
     font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   *, *::before, *::after {
@@ -47,6 +54,48 @@ const GlobalStyle = createGlobalStyle<{ $t: SplitexTheme }>`
   a {
     color: inherit;
     text-decoration: none;
+  }
+
+  ::selection {
+    background: ${(p) => p.$t.colors.primary};
+    color: #fff;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: ${(p) => p.$t.colors.border};
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: ${(p) => p.$t.colors.borderHover};
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
   }
 `;
 

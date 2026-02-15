@@ -2,19 +2,7 @@
 
 import styled from 'styled-components';
 
-export const Field = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-`;
-
-export const Label = styled.label`
-  font-size: 13px;
-  font-weight: 600;
-  color: ${(p) => p.theme.colors.text};
-`;
-
-export const Input = styled.input<{ $hasError?: boolean }>`
+export const Select = styled.select<{ $hasError?: boolean }>`
   border-radius: ${(p) => p.theme.radii.md};
   padding: 11px 14px;
   font-size: 14px;
@@ -23,12 +11,13 @@ export const Input = styled.input<{ $hasError?: boolean }>`
   background: ${(p) => (p.$hasError ? p.theme.colors.errorBg : p.theme.colors.surface)};
   color: ${(p) => p.theme.colors.text};
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
-
-  &::placeholder {
-    color: ${(p) => p.theme.colors.muted};
-    opacity: 0.6;
-  }
+  appearance: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
 
   &:hover:not(:focus):not(:disabled) {
     border-color: ${(p) => p.theme.colors.borderHover};
@@ -43,10 +32,4 @@ export const Input = styled.input<{ $hasError?: boolean }>`
     opacity: 0.6;
     cursor: not-allowed;
   }
-`;
-
-export const ErrorText = styled.div`
-  font-size: 12px;
-  color: ${(p) => p.theme.colors.error};
-  font-weight: 500;
 `;

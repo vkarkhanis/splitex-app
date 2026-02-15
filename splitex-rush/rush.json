@@ -38,6 +38,11 @@
       "packageName": "@splitex/ui",
       "projectFolder": "libraries/ui",
       "reviewCategory": "production"
+    },
+    {
+      "packageName": "@splitex/e2e",
+      "projectFolder": "e2e",
+      "reviewCategory": "production"
     }
   ]
 }

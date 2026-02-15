@@ -2,19 +2,7 @@
 
 import styled from 'styled-components';
 
-export const Field = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-`;
-
-export const Label = styled.label`
-  font-size: 13px;
-  font-weight: 600;
-  color: ${(p) => p.theme.colors.text};
-`;
-
-export const Input = styled.input<{ $hasError?: boolean }>`
+export const TextArea = styled.textarea<{ $hasError?: boolean }>`
   border-radius: ${(p) => p.theme.radii.md};
   padding: 11px 14px;
   font-size: 14px;
@@ -23,7 +11,9 @@ export const Input = styled.input<{ $hasError?: boolean }>`
   background: ${(p) => (p.$hasError ? p.theme.colors.errorBg : p.theme.colors.surface)};
   color: ${(p) => p.theme.colors.text};
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  resize: vertical;
+  min-height: 80px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 
   &::placeholder {
     color: ${(p) => p.theme.colors.muted};
@@ -43,10 +33,4 @@ export const Input = styled.input<{ $hasError?: boolean }>`
     opacity: 0.6;
     cursor: not-allowed;
   }
-`;
-
-export const ErrorText = styled.div`
-  font-size: 12px;
-  color: ${(p) => p.theme.colors.error};
-  font-weight: 500;
 `;

@@ -276,11 +276,13 @@ class GroupService {
 // services/expense.service.ts
 class ExpenseService {
   createExpense(expenseData: CreateExpenseDto): Promise<Expense>
-  updateExpense(expenseId: string, data: Partial<Expense>): Promise<Expense>
-  deleteExpense(expenseId: string): Promise<void>
+  updateExpense(expenseId: string, userId: string, data: UpdateExpenseDto, isAdmin?: boolean): Promise<Expense>
+  deleteExpense(expenseId: string, userId: string, isAdmin?: boolean): Promise<boolean>
   getEventExpenses(eventId: string): Promise<Expense[]>
-  calculateUserBalance(eventId: string, userId: string): Promise<Balance>
-  calculateGroupBalance(eventId: string, groupId: string): Promise<Balance>
+  getExpense(expenseId: string): Promise<Expense | null>
+  calculateEqualSplits(amount: number, entityIds: string[]): ExpenseSplit[]
+  calculateRatioSplits(amount: number, entries: RatioEntry[]): ExpenseSplit[]
+  getEventBalances(eventId: string): Promise<Balance[]>
 }
 ```
 
@@ -288,12 +290,16 @@ class ExpenseService {
 ```typescript
 // services/settlement.service.ts
 class SettlementService {
-  calculateSettlement(eventId: string): Promise<SettlementPlan>
-  createSettlement(settlementData: CreateSettlementDto): Promise<Settlement>
-  updateSettlementStatus(settlementId: string, status: SettlementStatus): Promise<void>
-  getPendingSettlements(userId: string): Promise<Settlement[]>
-  processPayment(settlementId: string, paymentData: PaymentDto): Promise<PaymentResult>
+  calculateEntityBalances(eventId: string): Promise<EntityBalance[]>
+  calculateSettlementPlan(balances: EntityBalance[], eventId: string, currency: string): SettlementPlan
+  generateSettlement(eventId: string, userId: string): Promise<SettlementPlan> // admin-only; sets event status to 'settled'
+  getEventSettlements(eventId: string): Promise<Settlement[]>
+  getPendingSettlementTotal(eventId: string): Promise<number>
 }
+
+// Greedy algorithm minimizes number of transactions
+// Groups treated as single entities in balance calculation
+// Private expenses excluded from settlement
 ```
 
 **Notification Service:**
@@ -484,12 +490,16 @@ interface Event {
   startDate: Timestamp;
   endDate?: Timestamp;
   currency: string;
-  status: 'active' | 'settled' | 'closed';
+  status: 'active' | 'settled' | 'closed'; // Active → Settled (on settlement generation) → Closed (admin action)
   createdBy: string; // User ID
   admins: string[]; // User IDs
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+// Event lifecycle rules:
+// - Active: all operations allowed
+// - Settled: only status→closed allowed (admin); all other mutations blocked
+// - Closed: all mutations blocked; event hidden from dashboard
 
 // Event Participants Subcollection
 interface EventParticipant {
@@ -504,12 +514,14 @@ interface EventParticipant {
 // Groups Collection
 interface Group {
   id: string;
-  eventId: string; // Group belongs to specific event
+  eventId: string; // Primary event
+  eventIds: string[]; // All events this group is part of (reusability)
   name: string;
   description?: string;
   createdBy: string;
   members: string[]; // User IDs
   payerUserId: string; // Designated payer for group settlements
+  representative: string; // Group representative (first member by default)
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -560,7 +572,7 @@ interface Settlement {
 interface Notification {
   id: string;
   userId: string;
-  type: 'expense_added' | 'settlement_requested' | 'event_closed' | 'invitation';
+  type: 'expense_added' | 'expense_updated' | 'expense_deleted' | 'settlement_requested' | 'settlement_calculated' | 'event_closed' | 'event_deleted' | 'group_deleted' | 'invitation';
   title: string;
   message: string;
   data?: Record<string, any>;
@@ -853,31 +865,44 @@ Total external transactions: 1 (minimum possible)
 - **Deliverables**: Login/registration, user profiles, theme system, toast notifications
 - **Tech decisions**: styled-components (not Tailwind), pnpm via Rush (not npm), Firebase Auth + Firestore
 
-### Phase 2: Core Features (6-8 weeks)
-- **Week 1-2**: Event creation and management
-- **Week 3-4**: Expense tracking and basic splitting
-- **Week 5-6**: Group management
-- **Week 7-8**: Invitation system
-- **Deliverables**: Complete event and expense management
+### Phase 2: Core Features (6-8 weeks) ✅ COMPLETED
+- **Week 1-2**: Event CRUD (create, read, update, delete), dashboard page, event detail page with tabbed UI
+- **Week 3-4**: Expense tracking with equal/ratio/custom splitting, entity selection (groups + individuals), private expenses
+- **Week 5-6**: Group management (create, update, delete, add/remove members, representative, reusability, suggestions)
+- **Week 7-8**: Invitation system (email/phone/userId, accept/decline/revoke, token-based links, group assignment)
+- **Deliverables**: Complete event and expense management, 332 tests, 31 E2E tests, 48 regression tests
+- **Key files**: Event detail page, expense create page, group/invitation routes, Playwright E2E suite
 
-### Phase 3: Advanced Features (6-8 weeks)
-- **Week 1-2**: Settlement algorithm implementation
-- **Week 3-4**: Payment gateway integration
-- **Week 5-6**: Notification system
-- **Week 7-8**: Real-time updates
-- **Deliverables**: Settlement and payment processing
+### Phase 3: Advanced Features (6-8 weeks) ✅ COMPLETED
+- **Week 1-2**: Settlement algorithm (greedy, entity-level balances, admin-only generation)
+- **Week 3-4**: Group-as-entity splitting, group reusability across events, group suggestions (70% overlap)
+- **Week 5-6**: WebSocket real-time updates (Socket.IO), granular event handlers, email notifications (Nodemailer SMTP + mock mode)
+- **Week 7-8**: UI/UX overhaul (5 themes, semantic colors, shadows, radii, responsive shell, skeleton loading, gradient accents)
+- **Deliverables**: Settlement service, WebSocket infrastructure, email service, professional UI
+- **Key files**: settlement.service.ts, websocket.ts, email.service.ts, ThemeProvider.tsx, WebAppShell.tsx
 
-### Phase 4: Mobile App (8-10 weeks)
-- **Week 1-3**: React Native setup and navigation
-- **Week 4-6**: Core features porting
-- **Week 7-8**: Native features (camera, contacts)
-- **Week 9-10**: Testing and optimization
-- **Deliverables**: Fully functional mobile app
+### Phase 3.5: Expense Management Refinement ✅ COMPLETED
+- **Ratio split fix**: Fixed `useEffect` dependency array so ratio changes trigger recalculation
+- **Split validation**: Sum of splits must equal total expense; submit disabled with mismatch error message
+- **Expense editing**: Dedicated edit page with pre-populated form; accessible to creator or event admin
+- **Admin permissions**: Event admins can edit/delete any expense (not just the payer)
+- **Event lifecycle**: Active → Settled → Closed; backend guards (`requireActiveEvent`) block all mutations on settled/closed events
+- **Event lock UI**: All mutating buttons hidden when event is not active; "Close Event" button for admins on settled events
+- **Dashboard filtering**: Closed events hidden from all users' dashboards
+- **Deliverables**: 362 tests across 14 suites, 92.7% statement / 80.3% branch coverage
+- **Key files**: event-guards.ts, expense edit page, event detail page (conditional rendering), dashboard page (filter)
+
+### Phase 4: Mobile App & Advanced Features (8-10 weeks)
+- **Week 1-3**: React Native setup and navigation, core features porting
+- **Week 4-6**: Payment gateway integration (Stripe/Razorpay), mark settlement as paid
+- **Week 7-8**: Native features (camera for receipts, contacts for invites)
+- **Week 9-10**: Advanced analytics, multi-currency, CI/CD pipeline
+- **Deliverables**: Fully functional mobile app, payment processing, production deployment
 
 ### Phase 5: Polish & Launch (4-6 weeks)
-- **Week 1-2**: Testing and bug fixes
-- **Week 3-4**: Performance optimization
-- **Week 5-6**: Deployment and monitoring
+- **Week 1-2**: Closed events archive section, expense categories/tags
+- **Week 3-4**: Performance optimization, accessibility (WCAG)
+- **Week 5-6**: Deployment, monitoring, documentation
 - **Deliverables**: Production-ready application
 
 ## 12. Risk Assessment & Mitigation

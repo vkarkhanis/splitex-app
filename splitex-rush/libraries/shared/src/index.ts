@@ -44,6 +44,8 @@ export interface Event {
 
 export interface EventParticipant {
   userId: string;
+  displayName?: string;
+  email?: string;
   groupId?: string;
   role: 'admin' | 'member';
   joinedAt: Date;
@@ -69,10 +71,12 @@ export interface ParticipantDto {
 export interface Group {
   id: string;
   eventId: string;
+  eventIds?: string[];
   name: string;
   description?: string;
   createdBy: string;
   members: string[];
+  representative: string;
   payerUserId: string;
   createdAt: Date;
   updatedAt: Date;
@@ -84,6 +88,7 @@ export interface CreateGroupDto {
   description?: string;
   memberIds: string[];
   payerUserId: string;
+  representative?: string;
 }
 
 // Expense Types
@@ -96,12 +101,20 @@ export interface Expense {
   currency: string;
   paidBy: string;
   paidOnBehalfOf?: string;
+  paidOnBehalfOfType?: 'user' | 'group';
   isPrivate: boolean;
   splitType: 'equal' | 'ratio' | 'custom';
   splits: ExpenseSplit[];
+  selectedEntities?: SplitEntity[];
   attachments: string[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface SplitEntity {
+  entityType: 'user' | 'group';
+  entityId: string;
+  name?: string;
 }
 
 export interface ExpenseSplit {
@@ -119,8 +132,11 @@ export interface CreateExpenseDto {
   currency: string;
   splitType: 'equal' | 'ratio' | 'custom';
   splits: ExpenseSplit[];
+  selectedEntities?: SplitEntity[];
   attachments?: string[];
   isPrivate?: boolean;
+  paidOnBehalfOf?: string;
+  paidOnBehalfOfType?: 'user' | 'group';
 }
 
 // Settlement Types
@@ -216,6 +232,75 @@ export interface PaymentMethod {
   isDefault: boolean;
 }
 
+// Invitation Types
+export interface Invitation {
+  id: string;
+  eventId: string;
+  invitedBy: string;
+  inviteeEmail?: string;
+  inviteePhone?: string;
+  inviteeUserId?: string;
+  groupId?: string;
+  role: 'admin' | 'member';
+  status: 'pending' | 'accepted' | 'declined' | 'expired';
+  token: string;
+  message?: string;
+  emailSent?: boolean;
+  emailError?: string;
+  createdAt: Date;
+  expiresAt: Date;
+  respondedAt?: Date;
+}
+
+export interface CreateInvitationDto {
+  eventId: string;
+  inviteeEmail?: string;
+  inviteePhone?: string;
+  inviteeUserId?: string;
+  groupId?: string;
+  role?: 'admin' | 'member';
+  message?: string;
+}
+
+export interface UpdateEventDto {
+  name?: string;
+  description?: string;
+  type?: 'trip' | 'event';
+  startDate?: Date;
+  endDate?: Date;
+  currency?: string;
+  status?: 'active' | 'settled' | 'closed';
+}
+
+export interface UpdateGroupDto {
+  name?: string;
+  description?: string;
+  memberIds?: string[];
+  payerUserId?: string;
+  representative?: string;
+}
+
+export interface UpdateExpenseDto {
+  title?: string;
+  description?: string;
+  amount?: number;
+  currency?: string;
+  splitType?: 'equal' | 'ratio' | 'custom';
+  splits?: ExpenseSplit[];
+  selectedEntities?: SplitEntity[];
+  attachments?: string[];
+  isPrivate?: boolean;
+  paidOnBehalfOf?: string;
+  paidOnBehalfOfType?: 'user' | 'group';
+}
+
+export enum InvitationStatus {
+  PENDING = 'pending',
+  ACCEPTED = 'accepted',
+  DECLINED = 'declined',
+  EXPIRED = 'expired'
+}
+
 // Enums
 export enum UserRole {
   ADMIN = 'admin',
@@ -253,8 +338,13 @@ export enum SettlementStatus {
 
 export enum NotificationType {
   EXPENSE_ADDED = 'expense_added',
+  EXPENSE_UPDATED = 'expense_updated',
+  EXPENSE_DELETED = 'expense_deleted',
   SETTLEMENT_REQUESTED = 'settlement_requested',
+  SETTLEMENT_CALCULATED = 'settlement_calculated',
   EVENT_CLOSED = 'event_closed',
+  EVENT_DELETED = 'event_deleted',
+  GROUP_DELETED = 'group_deleted',
   INVITATION = 'invitation'
 }
 
