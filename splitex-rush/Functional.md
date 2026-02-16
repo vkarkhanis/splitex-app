@@ -38,14 +38,14 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
 | 2.1 | Create event (trip or event) | ✅ Supported | Name, type, dates, currency, description |
-| 2.2 | View event list (dashboard) | ✅ Supported | Shows all events user created or is admin of |
+| 2.2 | View event list (dashboard) | ✅ Supported | Shows all events user created or is admin of; real-time status updates via WebSocket |
 | 2.3 | View event details | ✅ Supported | Tabbed UI: Expenses, Participants, Groups, Invitations |
 | 2.4 | Update event | ✅ Supported | Admin-only; name, description, dates, currency, status |
 | 2.5 | Delete event | ✅ Supported | Creator or admin; blocked for settled/closed events; confirmation modal shows pending settlement amount |
-| 2.6 | Event status management | ✅ Supported | Active → Settled → Closed lifecycle; auto-set to Settled on settlement generation; Close Event button for admins on settled events |
+| 2.6 | Event status management | ✅ Supported | Active → Payment → Settled → Closed lifecycle; settlement generation enters Payment mode; auto-transitions to Settled when all payments confirmed; Close Event button for admins on settled events |
 | 2.7 | Event types | ✅ Supported | Trip and Event |
-| 2.8 | Event lock on settle/close | ✅ Supported | Settled/closed events block all mutations (expenses, groups, invitations, participants); only status→closed allowed on settled events |
-| 2.9 | Hide closed events from dashboard | ✅ Supported | Closed events filtered out of dashboard; not visible to any user |
+| 2.8 | Event lock on settle/close | ✅ Supported | Payment/settled/closed events block all mutations (expenses, groups, invitations, participants); only status→closed allowed on settled events |
+| 2.9 | Hide closed events from dashboard | ✅ Supported | Closed events filtered out of dashboard; not visible to any user; removed in real-time when closed via WebSocket |
 | 2.10 | Multi-currency per event | ❌ Not Currently Supported | Each event has one currency |
 | 2.11 | Event archiving / closed events section | ❌ Not Currently Supported | Planned: view past closed events and their details |
 | 2.12 | Event search / filter | ❌ Not Currently Supported | — |
@@ -151,12 +151,18 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | 7.3 | Entity-level balance calculation | ✅ Supported | `GET /api/settlements/event/:eventId/balances` — groups as single entities |
 | 7.4 | Get event settlements | ✅ Supported | `GET /api/settlements/event/:eventId` |
 | 7.5 | Pending settlement total | ✅ Supported | `GET /api/settlements/event/:eventId/pending-total` |
-| 7.6 | Mark settlement as paid | ❌ Not Currently Supported | — |
-| 7.7 | Payment gateway integration | ❌ Not Currently Supported | — |
-| 7.8 | UPI / bank transfer support | ❌ Not Currently Supported | — |
-| 7.9 | Partial settlements | ❌ Not Currently Supported | — |
-| 7.10 | Settlement reminders | ❌ Not Currently Supported | — |
-| 7.11 | Real-time settlement broadcast | ✅ Supported | WebSocket emits `settlement:generated` to all event room clients |
+| 7.6 | Initiate payment (mock) | ✅ Supported | `POST /api/settlements/:id/pay` — payer-only; mock payment with toast notification; sets transaction to `initiated` |
+| 7.7 | Approve/confirm payment | ✅ Supported | `POST /api/settlements/:id/approve` — payee-only; confirms receipt; sets transaction to `completed` |
+| 7.8 | Auto-settle on all complete | ✅ Supported | When all transactions are confirmed, event auto-transitions from `payment` to `settled` |
+| 7.9 | Payment mode (event lock) | ✅ Supported | Settlement generation puts event in `payment` mode; all mutations blocked; only pay/approve allowed |
+| 7.10 | No-payment edge case | ✅ Supported | If all balances are zero, event goes directly to `settled`; admin can close immediately |
+| 7.11 | Settlement summary UI | ✅ Supported | Card-based layout with progress bar, per-transaction status (pending/initiated/completed), Pay/Confirm Receipt buttons |
+| 7.12 | Group payer resolution | ✅ Supported | For group entities, the group's designated payer sees Pay button; group's payer receives Confirm Receipt button |
+| 7.13 | Real-time settlement broadcast | ✅ Supported | WebSocket emits `settlement:generated`, `settlement:updated`, and `event:updated` to all event room clients; dashboard tiles update in real-time |
+| 7.14 | Payment gateway integration | ❌ Not Currently Supported | Mock only for now |
+| 7.15 | UPI / bank transfer support | ❌ Not Currently Supported | — |
+| 7.16 | Partial settlements | ❌ Not Currently Supported | — |
+| 7.17 | Settlement reminders | ❌ Not Currently Supported | — |
 
 ---
 
@@ -178,14 +184,16 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | 8.11 | Edit event modal | ✅ Supported | In-page modal on event detail |
 | 8.12 | Invite user modal | ✅ Supported | In-page modal on event detail |
 | 8.13 | Create group modal | ✅ Supported | In-page modal on event detail |
-| 8.14 | Toast notifications | ✅ Supported | Success/error feedback on actions |
+| 8.14 | Toast notifications | ✅ Supported | Success/error/warning feedback on all actions; no browser `alert()` or `confirm()` dialogs used anywhere |
 | 8.15 | Loading states | ✅ Supported | CSS spinner animation and skeleton states |
-| 8.16a | Real-time updates (WebSocket) | ✅ Supported | Socket.IO; auto-refresh event detail page on expense/group/settlement changes |
+| 8.16a | Real-time updates (WebSocket) | ✅ Supported | Socket.IO; auto-refresh event detail page on expense/group/settlement changes; dashboard event tiles update status in real-time via multi-event room subscription |
 | 8.16 | Error states | ✅ Supported | Error messages with retry |
-| 8.17 | Responsive design | ❌ Not Currently Supported | Desktop-first, mobile not optimized |
-| 8.18 | Dark mode | ❌ Not Currently Supported | — |
-| 8.19 | PWA support | ❌ Not Currently Supported | — |
-| 8.20 | Accessibility (WCAG) | ❌ Not Currently Supported | — |
+| 8.17 | Confirmation modals | ✅ Supported | All destructive/important actions (settle, close event, delete group/expense, remove participant) use themed modals with danger/warning variants instead of browser dialogs |
+| 8.18 | Consistent status badges | ✅ Supported | Event status badges (active/payment/settled) use identical color mapping across Dashboard tiles and Event detail page: active=success, payment=info, settled=warning |
+| 8.19 | Responsive design | ❌ Not Currently Supported | Desktop-first, mobile not optimized |
+| 8.20 | Dark mode | ❌ Not Currently Supported | — |
+| 8.21 | PWA support | ❌ Not Currently Supported | — |
+| 8.22 | Accessibility (WCAG) | ❌ Not Currently Supported | — |
 
 ---
 
@@ -222,12 +230,12 @@ This document tracks all functionalities of the Splitex application. It is kept 
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 11.1 | API unit tests (Jest + Supertest) | ✅ Supported | 362 tests across 14 suites, 92.7% statement / 80.3% branch coverage |
+| 11.1 | API unit tests (Jest + Supertest) | ✅ Supported | 375 tests across 14 suites, 92.5% statement / 80.7% branch coverage |
 | 11.2 | Shared library unit tests | ✅ Supported | 28 tests, 100% coverage |
 | 11.3 | E2E tests (Playwright) | ✅ Supported | 31 tests: navigation, events, expenses, invitations, groups |
 | 11.4 | Regression test suite | ✅ Supported | 48 tests covering all Phase 2 functionality; `rush test:regression` |
-| 11.5a | Settlement service tests | ✅ Supported | 25+ tests, 100% coverage — greedy algorithm, entity balances, generation, entity-aware tile calculations |
-| 11.5b | Event guards tests | ✅ Supported | 8 tests — getEventLockStatus, requireActiveEvent for active/settled/closed states |
+| 11.5a | Settlement service tests | ✅ Supported | 38+ tests — greedy algorithm, entity balances, generation, entity-aware tile calculations, initiatePayment, approvePayment, auto-settle, edge cases |
+| 11.5b | Event guards tests | ✅ Supported | 10 tests — getEventLockStatus, requireActiveEvent for active/payment/settled/closed states |
 | 11.5c | Expense admin auth tests | ✅ Supported | Tests for admin update/delete permissions, ratio split edge cases |
 | 11.6 | EmailService unit tests | ✅ Supported | Mock mode, SMTP mode, error handling, email content |
 | 11.7 | Web component unit tests | ❌ Not Currently Supported | — |
@@ -288,7 +296,9 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | **Phase 2** | Event CRUD, expense tracking with splits, groups, invitations, web UI pages, unit + E2E tests | ✅ Complete |
 | **Phase 3** | Settlement algorithm, group-as-entity splitting, group reusability, private expenses, WebSocket real-time, UI/UX overhaul, email notifications | ✅ Complete |
 | **Phase 3.5** | Expense editing, admin permissions, split validation, event lifecycle (settled/closed lock), dashboard filtering, comprehensive tests | ✅ Complete |
-| **Phase 4** | Advanced analytics, multi-currency, receipt processing, admin dashboard, CI/CD | ❌ Not Started |
+| **Phase 4** | Settlement flow overhaul: payment mode, pay/approve endpoints, real-time status, settlement summary UI, auto-settle, edge cases | ✅ Complete |
+| **Phase 4.5** | UX polish: confirmation modals (replace all browser dialogs), consistent badge colors, real-time dashboard updates via WebSocket | ✅ Complete |
+| **Phase 5** | Advanced analytics, multi-currency, receipt processing, admin dashboard, CI/CD | ❌ Not Started |
 
 ---
 

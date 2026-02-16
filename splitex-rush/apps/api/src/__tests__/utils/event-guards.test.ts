@@ -25,6 +25,12 @@ describe('Event Guards', () => {
       expect(result).toBeNull();
     });
 
+    it('should return "payment" for payment events', async () => {
+      mockGetEvent.mockResolvedValue({ id: 'e1', status: 'payment' });
+      const result = await getEventLockStatus('e1');
+      expect(result).toBe('payment');
+    });
+
     it('should return "settled" for settled events', async () => {
       mockGetEvent.mockResolvedValue({ id: 'e1', status: 'settled' });
       const result = await getEventLockStatus('e1');
@@ -50,14 +56,19 @@ describe('Event Guards', () => {
       await expect(requireActiveEvent('e1')).resolves.not.toThrow();
     });
 
+    it('should throw for payment events', async () => {
+      mockGetEvent.mockResolvedValue({ id: 'e1', status: 'payment' });
+      await expect(requireActiveEvent('e1')).rejects.toThrow('Payments are in progress');
+    });
+
     it('should throw for settled events', async () => {
       mockGetEvent.mockResolvedValue({ id: 'e1', status: 'settled' });
-      await expect(requireActiveEvent('e1')).rejects.toThrow('Cannot modify a settled event');
+      await expect(requireActiveEvent('e1')).rejects.toThrow('The event is settled');
     });
 
     it('should throw for closed events', async () => {
       mockGetEvent.mockResolvedValue({ id: 'e1', status: 'closed' });
-      await expect(requireActiveEvent('e1')).rejects.toThrow('Cannot modify a closed event');
+      await expect(requireActiveEvent('e1')).rejects.toThrow('The event is closed');
     });
 
     it('should not throw if event does not exist (guard passes through)', async () => {

@@ -125,3 +125,21 @@ dist-storybook/
 # Heft temporary files
 .cache/
 .heft/
+
+# ── Test results & reports ───────────────────────────────────────────────
+
+# Playwright E2E test outputs
+**/playwright-report/
+**/test-results/
+**/blob-report/
+**/playwright/.cache/
+
+# Jest / unit test artifacts (coverage already handled above)
+**/junit.xml
+**/test-report.xml
+
+# Rush build logs (generated per-project)
+**/rush-logs/
+
+# Windsurf / Cascade
+.windsurf/

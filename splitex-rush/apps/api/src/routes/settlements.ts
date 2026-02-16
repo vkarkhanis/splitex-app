@@ -47,6 +47,9 @@ router.post('/event/:eventId/generate', requireAuth, async (req: AuthenticatedRe
     const uid = req.user!.uid;
     const plan = await settlementService.generateSettlement(req.params.eventId, uid);
     emitToEvent(req.params.eventId, 'settlement:generated', { plan });
+    // Emit event:updated so dashboard tiles reflect the new status (payment or settled)
+    const newStatus = (plan as any)?.settlements?.length > 0 ? 'payment' : 'settled';
+    emitToEvent(req.params.eventId, 'event:updated', { event: { status: newStatus } });
     notifyEventParticipants(req.params.eventId, uid, 'settlement_generated', {
       'Settlements': `${(plan as any)?.settlements?.length || 0} payment(s) calculated`,
     });
@@ -60,6 +63,47 @@ router.post('/event/:eventId/generate', requireAuth, async (req: AuthenticatedRe
       return res.status(404).json({ success: false, error: err.message } as ApiResponse);
     }
     return res.status(500).json({ success: false, error: 'Failed to generate settlement' } as ApiResponse);
+  }
+});
+
+// Initiate payment for a settlement transaction (payer only)
+router.post('/:settlementId/pay', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const settlement = await settlementService.initiatePayment(req.params.settlementId, uid);
+    emitToEvent(settlement.eventId, 'settlement:updated', { settlement });
+    return res.json({ success: true, data: settlement } as ApiResponse);
+  } catch (err: any) {
+    console.error('POST /settlements/:settlementId/pay error:', err);
+    if (err.message?.includes('Forbidden')) {
+      return res.status(403).json({ success: false, error: err.message } as ApiResponse);
+    }
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ success: false, error: err.message } as ApiResponse);
+    }
+    return res.status(400).json({ success: false, error: err.message } as ApiResponse);
+  }
+});
+
+// Approve (confirm receipt of) payment for a settlement transaction (payee only)
+router.post('/:settlementId/approve', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const { settlement, allComplete } = await settlementService.approvePayment(req.params.settlementId, uid);
+    emitToEvent(settlement.eventId, 'settlement:updated', { settlement, allComplete });
+    if (allComplete) {
+      emitToEvent(settlement.eventId, 'event:updated', { status: 'settled' });
+    }
+    return res.json({ success: true, data: { settlement, allComplete } } as ApiResponse);
+  } catch (err: any) {
+    console.error('POST /settlements/:settlementId/approve error:', err);
+    if (err.message?.includes('Forbidden')) {
+      return res.status(403).json({ success: false, error: err.message } as ApiResponse);
+    }
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ success: false, error: err.message } as ApiResponse);
+    }
+    return res.status(400).json({ success: false, error: err.message } as ApiResponse);
   }
 });
 

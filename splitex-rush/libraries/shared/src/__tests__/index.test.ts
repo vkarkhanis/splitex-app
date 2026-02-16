@@ -54,8 +54,9 @@ describe('Shared types - Enums', () => {
     expect(EventType.EVENT).toBe('event');
   });
 
-  it('EventStatus should have ACTIVE, SETTLED, CLOSED', () => {
+  it('EventStatus should have ACTIVE, PAYMENT, SETTLED, CLOSED', () => {
     expect(EventStatus.ACTIVE).toBe('active');
+    expect(EventStatus.PAYMENT).toBe('payment');
     expect(EventStatus.SETTLED).toBe('settled');
     expect(EventStatus.CLOSED).toBe('closed');
   });
@@ -71,11 +72,10 @@ describe('Shared types - Enums', () => {
     expect(SplitType.CUSTOM).toBe('custom');
   });
 
-  it('SettlementStatus should have PENDING, PROCESSING, COMPLETED, FAILED', () => {
+  it('SettlementStatus should have PENDING, INITIATED, COMPLETED', () => {
     expect(SettlementStatus.PENDING).toBe('pending');
-    expect(SettlementStatus.PROCESSING).toBe('processing');
+    expect(SettlementStatus.INITIATED).toBe('initiated');
     expect(SettlementStatus.COMPLETED).toBe('completed');
-    expect(SettlementStatus.FAILED).toBe('failed');
   });
 
   it('NotificationType should have all notification types', () => {
@@ -196,6 +196,8 @@ describe('Shared types - Type shape validation', () => {
       fromEntityType: 'group',
       toEntityId: 'user-1',
       toEntityType: 'user',
+      fromUserId: 'user-charlie',
+      toUserId: 'user-1',
       amount: 216.67,
       currency: 'USD',
       status: 'pending',

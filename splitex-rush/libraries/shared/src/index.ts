@@ -35,7 +35,7 @@ export interface Event {
   startDate: Date;
   endDate?: Date;
   currency: string;
-  status: 'active' | 'settled' | 'closed';
+  status: 'active' | 'payment' | 'settled' | 'closed';
   createdBy: string;
   admins: string[];
   createdAt: Date;
@@ -153,11 +153,16 @@ export interface Settlement {
   fromEntityType: 'user' | 'group';
   toEntityId: string;
   toEntityType: 'user' | 'group';
+  /** The actual user who must pay (for groups, this is the group payer) */
+  fromUserId: string;
+  /** The actual user who receives payment (for groups, this is the group payer) */
+  toUserId: string;
   amount: number;
   currency: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'initiated' | 'completed';
   paymentMethod?: string;
   paymentId?: string;
+  initiatedAt?: Date;
   createdAt: Date;
   completedAt?: Date;
 }
@@ -269,7 +274,7 @@ export interface UpdateEventDto {
   startDate?: Date;
   endDate?: Date;
   currency?: string;
-  status?: 'active' | 'settled' | 'closed';
+  status?: 'active' | 'payment' | 'settled' | 'closed';
 }
 
 export interface UpdateGroupDto {
@@ -314,6 +319,7 @@ export enum EventType {
 
 export enum EventStatus {
   ACTIVE = 'active',
+  PAYMENT = 'payment',
   SETTLED = 'settled',
   CLOSED = 'closed'
 }
@@ -331,9 +337,8 @@ export enum SplitType {
 
 export enum SettlementStatus {
   PENDING = 'pending',
-  PROCESSING = 'processing',
-  COMPLETED = 'completed',
-  FAILED = 'failed'
+  INITIATED = 'initiated',
+  COMPLETED = 'completed'
 }
 
 export enum NotificationType {

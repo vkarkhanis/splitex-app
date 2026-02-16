@@ -10,6 +10,10 @@ let docIdCounter = 0;
 jest.mock('../../config/firebase', () => ({
   auth: { verifyIdToken: jest.fn() },
   db: {
+    batch: jest.fn().mockImplementation(() => ({
+      delete: jest.fn(),
+      commit: jest.fn().mockResolvedValue(undefined),
+    })),
     collection: jest.fn().mockImplementation((collectionPath: string) => {
       const getStore = () => {
         if (collectionPath === 'expenses') return mockExpenses;
@@ -51,7 +55,7 @@ jest.mock('../../config/firebase', () => ({
                 if (op === 'array-contains') return Array.isArray(data[field]) && data[field].includes(value);
                 return false;
               })
-              .map(([id, data]) => ({ id, data: () => data, exists: true }));
+              .map(([id, data]) => ({ id, data: () => data, exists: true, ref: { id } }));
             return Promise.resolve({ docs, empty: docs.length === 0 });
           }),
           where: jest.fn().mockImplementation(() => ({
@@ -322,8 +326,8 @@ describe('SettlementService', () => {
       expect(plan.eventId).toBe('evt-1');
       expect(plan.totalTransactions).toBe(1);
       expect(plan.settlements[0].amount).toBe(100);
-      // Event should be marked as settled
-      expect(mockEvents['evt-1'].status).toBe('settled');
+      // Event should be in 'payment' mode (has pending transactions)
+      expect(mockEvents['evt-1'].status).toBe('payment');
     });
   });
 
@@ -571,6 +575,194 @@ describe('SettlementService', () => {
       expect(outsider.yourShared).toBe(0);
       expect(outsider.privateExpense).toBe(0);
       expect(outsider.visibleCount).toBe(0);
+    });
+  });
+
+  describe('generateSettlement edge cases', () => {
+    it('should set event to settled when no payments needed (all balanced)', async () => {
+      mockEvents['evt-balanced'] = {
+        createdBy: 'admin-1',
+        admins: ['admin-1'],
+        currency: 'USD',
+      };
+
+      // Single expense where payer is also the only split entity → net zero
+      mockExpenses['exp-balanced'] = {
+        eventId: 'evt-balanced',
+        paidBy: 'user-A',
+        amount: 100,
+        isPrivate: false,
+        splits: [
+          { entityType: 'user', entityId: 'user-A', amount: 100 },
+        ],
+      };
+
+      const plan = await service.generateSettlement('evt-balanced', 'admin-1');
+      expect(plan.totalTransactions).toBe(0);
+      expect(plan.settlements).toHaveLength(0);
+      // No payments needed → directly settled
+      expect(mockEvents['evt-balanced'].status).toBe('settled');
+    });
+
+    it('should resolve group payer userIds in settlements', async () => {
+      mockEvents['evt-grp'] = {
+        createdBy: 'admin-1',
+        admins: ['admin-1'],
+        currency: 'USD',
+      };
+
+      mockGroups['grp-1'] = {
+        eventId: 'evt-grp',
+        members: ['user-B', 'user-C'],
+        payerUserId: 'user-B',
+      };
+
+      mockExpenses['exp-grp'] = {
+        eventId: 'evt-grp',
+        paidBy: 'user-A',
+        amount: 200,
+        isPrivate: false,
+        splits: [
+          { entityType: 'user', entityId: 'user-A', amount: 100 },
+          { entityType: 'group', entityId: 'grp-1', amount: 100 },
+        ],
+      };
+
+      const plan = await service.generateSettlement('evt-grp', 'admin-1');
+      expect(plan.totalTransactions).toBe(1);
+      // fromUserId should be the group's payer (user-B), toUserId should be user-A
+      expect(plan.settlements[0].fromUserId).toBe('user-B');
+      expect(plan.settlements[0].toUserId).toBe('user-A');
+    });
+  });
+
+  describe('initiatePayment', () => {
+    it('should throw if settlement not found', async () => {
+      await expect(service.initiatePayment('nonexistent', 'user-1'))
+        .rejects.toThrow('Settlement not found');
+    });
+
+    it('should throw if user is not the payer', async () => {
+      mockSettlements['s-pay-1'] = {
+        eventId: 'evt-1',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'pending',
+        amount: 100,
+      };
+
+      await expect(service.initiatePayment('s-pay-1', 'user-B'))
+        .rejects.toThrow('Forbidden: Only the payer can initiate payment');
+    });
+
+    it('should throw if settlement is not pending', async () => {
+      mockSettlements['s-pay-2'] = {
+        eventId: 'evt-1',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'initiated',
+        amount: 100,
+      };
+
+      await expect(service.initiatePayment('s-pay-2', 'user-A'))
+        .rejects.toThrow('Cannot initiate payment: transaction is already initiated');
+    });
+
+    it('should initiate payment successfully', async () => {
+      mockEvents['evt-1'] = { status: 'payment' };
+      mockSettlements['s-pay-3'] = {
+        eventId: 'evt-1',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'pending',
+        amount: 100,
+      };
+
+      const result = await service.initiatePayment('s-pay-3', 'user-A');
+      expect(result.status).toBe('initiated');
+      expect(mockSettlements['s-pay-3'].status).toBe('initiated');
+      expect(mockSettlements['s-pay-3'].paymentMethod).toBe('mock');
+    });
+  });
+
+  describe('approvePayment', () => {
+    it('should throw if settlement not found', async () => {
+      await expect(service.approvePayment('nonexistent', 'user-1'))
+        .rejects.toThrow('Settlement not found');
+    });
+
+    it('should throw if user is not the payee', async () => {
+      mockSettlements['s-appr-1'] = {
+        eventId: 'evt-1',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'initiated',
+        amount: 100,
+      };
+
+      await expect(service.approvePayment('s-appr-1', 'user-A'))
+        .rejects.toThrow('Forbidden: Only the payee can approve payment');
+    });
+
+    it('should throw if settlement is not initiated', async () => {
+      mockSettlements['s-appr-2'] = {
+        eventId: 'evt-1',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'pending',
+        amount: 100,
+      };
+
+      await expect(service.approvePayment('s-appr-2', 'user-B'))
+        .rejects.toThrow('Cannot approve payment: transaction is pending, expected initiated');
+    });
+
+    it('should approve payment and not auto-settle if other transactions remain', async () => {
+      mockEvents['evt-1'] = { status: 'payment' };
+      mockSettlements['s-appr-3'] = {
+        eventId: 'evt-1',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'initiated',
+        amount: 100,
+      };
+      mockSettlements['s-appr-4'] = {
+        eventId: 'evt-1',
+        fromUserId: 'user-C',
+        toUserId: 'user-B',
+        status: 'pending',
+        amount: 50,
+      };
+
+      const { settlement, allComplete } = await service.approvePayment('s-appr-3', 'user-B');
+      expect(settlement.status).toBe('completed');
+      expect(allComplete).toBe(false);
+      // Event should still be in payment mode
+      expect(mockEvents['evt-1'].status).toBe('payment');
+    });
+
+    it('should approve payment and auto-settle event when all transactions complete', async () => {
+      mockEvents['evt-2'] = { status: 'payment' };
+      mockSettlements['s-final-1'] = {
+        eventId: 'evt-2',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'completed',
+        amount: 100,
+      };
+      mockSettlements['s-final-2'] = {
+        eventId: 'evt-2',
+        fromUserId: 'user-C',
+        toUserId: 'user-B',
+        status: 'initiated',
+        amount: 50,
+      };
+
+      const { settlement, allComplete } = await service.approvePayment('s-final-2', 'user-B');
+      expect(settlement.status).toBe('completed');
+      expect(allComplete).toBe(true);
+      // Event should be auto-settled
+      expect(mockEvents['evt-2'].status).toBe('settled');
     });
   });
 

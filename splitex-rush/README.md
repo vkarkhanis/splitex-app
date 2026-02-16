@@ -1,6 +1,6 @@
 # Splitex - Expense Splitting Application
 
-A comprehensive expense splitting application built as a Rush.js monorepo. Supports web (React/Next.js) and mobile (React Native) platforms. Users can create events/trips, invite participants, track expenses with flexible splitting (equal, ratio, custom), manage groups as single entities, generate settlements using a greedy algorithm, and receive real-time updates via WebSocket. Events follow an Active → Settled → Closed lifecycle with full mutation locking once settled.
+A comprehensive expense splitting application built as a Rush.js monorepo. Supports web (React/Next.js) and mobile (React Native) platforms. Users can create events/trips, invite participants, track expenses with flexible splitting (equal, ratio, custom), manage groups as single entities, generate settlements using a greedy algorithm, and receive real-time updates via WebSocket. Events follow an Active → Payment → Settled → Closed lifecycle with full mutation locking once payments begin. Settlement includes mock payment initiation by debtors and receipt confirmation by payees, with real-time status updates. The dashboard reflects event status changes in real-time. All destructive actions use themed confirmation modals—no browser dialogs.
 
 ---
 
@@ -364,7 +364,7 @@ Open in browser: [http://localhost:3000](http://localhost:3000)
 # Run all unit tests
 rush test
 
-# Run only API tests (362 tests across 14 suites, ~93% statement coverage)
+# Run only API tests (375 tests across 14 suites, ~93% statement coverage)
 rush test:api
 
 # Run only shared library tests (28 tests, 100% coverage)
@@ -403,7 +403,7 @@ rush test:e2e:report
 
 | Package | Tests | Statements | Branches | Functions | Lines |
 |---------|-------|------------|----------|-----------|-------|
-| `@splitex/api` | 362 | 92.73% | 80.31% | 91.03% | 93.70% |
+| `@splitex/api` | 375 | 92.53% | 80.68% | 90.72% | 93.50% |
 | `@splitex/shared` | 28 | 100% | 100% | 100% | 100% |
 | `@splitex/e2e` | 31 | — | — | — | — |
 
@@ -459,7 +459,7 @@ Base URL: `http://localhost:3001`
 | `GET` | `/api/events` | Yes | List all events for current user |
 | `GET` | `/api/events/:eventId` | Yes | Get single event details |
 | `POST` | `/api/events` | Yes | Create a new event |
-| `PUT` | `/api/events/:eventId` | Yes | Update an event (admin only; settled events only allow status→closed) |
+| `PUT` | `/api/events/:eventId` | Yes | Update an event (admin only; payment events block all edits; settled events only allow status→closed) |
 | `DELETE` | `/api/events/:eventId` | Yes | Delete an event (creator only; blocked for settled/closed events) |
 | `GET` | `/api/events/:eventId/participants` | Yes | List event participants |
 | `POST` | `/api/events/:eventId/participants` | Yes | Add participant (admin only) |
@@ -509,7 +509,9 @@ Base URL: `http://localhost:3001`
 | `GET` | `/api/settlements/event/:eventId/balances` | Yes | Get entity-level balances (groups as single entities) |
 | `GET` | `/api/settlements/event/:eventId` | Yes | Get existing settlements for an event |
 | `GET` | `/api/settlements/event/:eventId/pending-total` | Yes | Get pending settlement total |
-| `POST` | `/api/settlements/event/:eventId/generate` | Yes | Generate settlement plan (admin only; greedy algorithm) |
+| `POST` | `/api/settlements/event/:eventId/generate` | Yes | Generate settlement plan (admin only; greedy algorithm); enters payment mode |
+| `POST` | `/api/settlements/:settlementId/pay` | Yes | Initiate mock payment (payer only); sets transaction to `initiated` |
+| `POST` | `/api/settlements/:settlementId/approve` | Yes | Confirm receipt of payment (payee only); sets transaction to `completed`; auto-settles event when all complete |
 
 ### WebSocket (Socket.IO)
 | Event | Direction | Description |
@@ -520,11 +522,14 @@ Base URL: `http://localhost:3001`
 | `expense:updated` | Server → Client | Expense was updated |
 | `expense:deleted` | Server → Client | Expense was deleted |
 | `group:updated` | Server → Client | Group was created/updated/deleted |
-| `event:updated` | Server → Client | Event details changed |
+| `event:updated` | Server → Client | Event details or status changed (also emitted on settlement generation and auto-settle) |
 | `event:deleted` | Server → Client | Event was deleted |
 | `settlement:generated` | Server → Client | Settlement plan generated |
+| `settlement:updated` | Server → Client | Settlement transaction status changed (pay/approve) |
 
 WebSocket path: `ws://localhost:3001/ws`
+
+**Dashboard Real-time:** The dashboard subscribes to all visible event rooms via `useMultiEventSocket` and updates event tiles in-place when status changes (e.g., `active` → `payment` → `settled`). Closed events are removed from the dashboard automatically.
 
 ---
 

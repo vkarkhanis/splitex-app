@@ -292,7 +292,9 @@ class ExpenseService {
 class SettlementService {
   calculateEntityBalances(eventId: string): Promise<EntityBalance[]>
   calculateSettlementPlan(balances: EntityBalance[], eventId: string, currency: string): SettlementPlan
-  generateSettlement(eventId: string, userId: string): Promise<SettlementPlan> // admin-only; sets event status to 'settled'
+  generateSettlement(eventId: string, userId: string): Promise<SettlementPlan> // admin-only; sets event to 'payment' (or 'settled' if no payments needed)
+  initiatePayment(settlementId: string, userId: string): Promise<Settlement> // payer-only; mock payment; sets to 'initiated'
+  approvePayment(settlementId: string, userId: string): Promise<{ settlement: Settlement; allComplete: boolean }> // payee-only; auto-settles event when all complete
   getEventSettlements(eventId: string): Promise<Settlement[]>
   getPendingSettlementTotal(eventId: string): Promise<number>
 }
@@ -490,7 +492,7 @@ interface Event {
   startDate: Timestamp;
   endDate?: Timestamp;
   currency: string;
-  status: 'active' | 'settled' | 'closed'; // Active → Settled (on settlement generation) → Closed (admin action)
+  status: 'active' | 'payment' | 'settled' | 'closed'; // Active → Payment (settlement generated) → Settled (all payments confirmed) → Closed (admin action)
   createdBy: string; // User ID
   admins: string[]; // User IDs
   createdAt: Timestamp;
@@ -498,6 +500,7 @@ interface Event {
 }
 // Event lifecycle rules:
 // - Active: all operations allowed
+// - Payment: all mutations blocked; only pay/approve settlement transactions allowed
 // - Settled: only status→closed allowed (admin); all other mutations blocked
 // - Closed: all mutations blocked; event hidden from dashboard
 
@@ -561,7 +564,7 @@ interface Settlement {
   toEntityType: 'user' | 'group';
   amount: number;
   currency: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'initiated' | 'completed';
   paymentMethod?: string;
   paymentId?: string;
   createdAt: Timestamp;
@@ -892,14 +895,36 @@ Total external transactions: 1 (minimum possible)
 - **Deliverables**: 362 tests across 14 suites, 92.7% statement / 80.3% branch coverage
 - **Key files**: event-guards.ts, expense edit page, event detail page (conditional rendering), dashboard page (filter)
 
-### Phase 4: Mobile App & Advanced Features (8-10 weeks)
+### Phase 4: Settlement Flow Overhaul ✅ COMPLETED
+- **Multi-stage settlement**: Active → Payment → Settled → Closed lifecycle; settlement generation enters Payment mode
+- **Payment initiation**: `POST /api/settlements/:id/pay` — payer-only mock payment; sets transaction to `initiated`
+- **Payment approval**: `POST /api/settlements/:id/approve` — payee-only confirmation; sets transaction to `completed`
+- **Auto-settle**: When all transactions are confirmed, event auto-transitions from `payment` to `settled`
+- **Event locking**: Payment/settled/closed events block all mutations; error messages indicate reason
+- **Group payer resolution**: `fromUserId`/`toUserId` on Settlement resolve group entities to their designated payer
+- **Settlement summary UI**: Professional card-based layout with progress bar, per-transaction status dots, Pay/Confirm Receipt buttons
+- **Real-time updates**: `settlement:updated` WebSocket event for granular transaction status changes
+- **Edge case**: No payments needed (all balanced) → event goes directly to `settled`; admin can close immediately
+- **Deliverables**: 375 tests across 14 suites, 92.5% statement / 80.7% branch coverage
+- **Key files**: settlement.service.ts (initiatePayment, approvePayment), settlements.ts routes, event-guards.ts, shared/index.ts (Settlement type), event detail page (settlement summary UI)
+
+### Phase 4.5: UX Polish ✅ COMPLETED
+- **Confirmation modals**: Replaced all 5 browser `confirm()` dialogs with themed `<Modal>` components using danger/warning variants (settle, close event, delete group, remove participant, delete expense)
+- **No browser dialogs**: Zero `window.alert()`, `window.confirm()`, or `window.prompt()` calls anywhere in the frontend; all user feedback via toast notifications and modals
+- **Consistent badge colors**: Unified `statusBadgeVariant()` across Dashboard tiles and Event detail page — `active`=success (green), `payment`=info (blue), `settled`=warning (amber)
+- **Real-time dashboard**: Added `useMultiEventSocket` hook that subscribes to all visible event rooms; dashboard tiles update status in-place when events transition (e.g., `active` → `payment` → `settled`); closed events removed automatically; deleted events removed automatically
+- **Backend emit**: Settlement generation route now emits `event:updated` with new status so dashboard picks up `payment`/`settled` transitions immediately
+- **Deliverables**: 375 tests across 14 suites (unchanged); zero new backend logic, purely frontend UX + one backend WebSocket emit
+- **Key files**: event detail page (confirmModal state, 5 handler refactors, generic Modal JSX), dashboard page (statusBadgeVariant fix, useMultiEventSocket subscription), useSocket.ts (useMultiEventSocket hook), settlements.ts route (event:updated emit on generate)
+
+### Phase 5: Mobile App & Advanced Features (8-10 weeks)
 - **Week 1-3**: React Native setup and navigation, core features porting
-- **Week 4-6**: Payment gateway integration (Stripe/Razorpay), mark settlement as paid
+- **Week 4-6**: Real payment gateway integration (Stripe/Razorpay), replace mock payments
 - **Week 7-8**: Native features (camera for receipts, contacts for invites)
 - **Week 9-10**: Advanced analytics, multi-currency, CI/CD pipeline
 - **Deliverables**: Fully functional mobile app, payment processing, production deployment
 
-### Phase 5: Polish & Launch (4-6 weeks)
+### Phase 6: Polish & Launch (4-6 weeks)
 - **Week 1-2**: Closed events archive section, expense categories/tags
 - **Week 3-4**: Performance optimization, accessibility (WCAG)
 - **Week 5-6**: Deployment, monitoring, documentation

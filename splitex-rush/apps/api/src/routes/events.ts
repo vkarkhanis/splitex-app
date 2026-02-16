@@ -72,10 +72,14 @@ router.put('/:eventId', requireAuth, async (req: AuthenticatedRequest, res) => {
     const uid = req.user!.uid;
     const dto = req.body as UpdateEventDto;
 
-    // If event is settled, only allow closing it (status -> closed)
+    // Enforce status-based restrictions on event updates
     const lockStatus = await getEventLockStatus(req.params.eventId);
     if (lockStatus === 'closed') {
       return res.status(403).json({ success: false, error: 'Cannot modify a closed event' } as ApiResponse);
+    }
+    if (lockStatus === 'payment') {
+      // In payment mode, no edits allowed at all (settlements handle status transitions)
+      return res.status(403).json({ success: false, error: 'Cannot modify event while payments are in progress' } as ApiResponse);
     }
     if (lockStatus === 'settled') {
       // Only allow status change to 'closed', nothing else

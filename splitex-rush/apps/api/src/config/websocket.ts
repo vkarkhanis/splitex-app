@@ -74,7 +74,8 @@ export type WsEventType =
   | 'invitation:accepted'
   | 'invitation:declined'
   | 'invitation:revoked'
-  | 'settlement:generated';
+  | 'settlement:generated'
+  | 'settlement:updated';
 
 /**
  * Emit a real-time event to all clients in an event room.
