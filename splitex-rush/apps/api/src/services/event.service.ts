@@ -6,7 +6,7 @@ export class EventService {
 
   async createEvent(userId: string, dto: CreateEventDto): Promise<Event> {
     const now = new Date().toISOString();
-    const eventData = {
+    const eventData: Record<string, any> = {
       name: dto.name,
       description: dto.description || '',
       type: dto.type,
@@ -20,6 +20,11 @@ export class EventService {
       createdAt: now,
       updatedAt: now,
     };
+
+    // Multi-currency settlement fields
+    if (dto.settlementCurrency) eventData.settlementCurrency = dto.settlementCurrency;
+    if (dto.fxRateMode) eventData.fxRateMode = dto.fxRateMode;
+    if (dto.predefinedFxRates) eventData.predefinedFxRates = dto.predefinedFxRates;
 
     const docRef = await db.collection(this.collection).add(eventData);
     const eventId = docRef.id;
@@ -58,6 +63,9 @@ export class EventService {
       startDate: data.startDate,
       endDate: data.endDate || undefined,
       currency: data.currency,
+      settlementCurrency: data.settlementCurrency || undefined,
+      fxRateMode: data.fxRateMode || undefined,
+      predefinedFxRates: data.predefinedFxRates || undefined,
       status: data.status,
       createdBy: data.createdBy,
       admins: data.admins || [],
@@ -175,6 +183,9 @@ export class EventService {
     if (dto.startDate !== undefined) updates.startDate = dto.startDate;
     if (dto.endDate !== undefined) updates.endDate = dto.endDate;
     if (dto.currency !== undefined) updates.currency = dto.currency;
+    if (dto.settlementCurrency !== undefined) updates.settlementCurrency = dto.settlementCurrency;
+    if (dto.fxRateMode !== undefined) updates.fxRateMode = dto.fxRateMode;
+    if (dto.predefinedFxRates !== undefined) updates.predefinedFxRates = dto.predefinedFxRates;
     if (dto.status !== undefined) updates.status = dto.status;
 
     await db.collection(this.collection).doc(eventId).set(updates, { merge: true });

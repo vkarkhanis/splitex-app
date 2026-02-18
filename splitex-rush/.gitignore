@@ -143,3 +143,30 @@ dist-storybook/
 
 # Windsurf / Cascade
 .windsurf/
+
+# ── Mobile (React Native / Expo / Android) ────────────────────────────────
+
+# Expo
+**/.expo/
+**/.expo-shared/
+
+# Android build artifacts & machine-specific files
+**/android/app/build/
+**/android/**/build/
+**/android/local.properties
+**/android/.gradle/
+**/*.apk
+**/*.aab
+**/*.hprof
+
+# iOS build artifacts (if iOS is added later)
+**/ios/Pods/
+**/ios/build/
+**/ios/*.xcworkspace/xcuserdata/
+
+# Firebase config (contains API keys — use .example template)
+**/google-services.json
+**/GoogleService-Info.plist
+
+# Debug keystore (machine-specific, regenerated if missing)
+**/debug.keystore

@@ -8,6 +8,9 @@ import {
   NotificationType,
   PaymentStatus,
   InvitationStatus,
+  FxRateMode,
+  PaymentProvider,
+  SUPPORTED_CURRENCIES,
 } from '../index';
 
 import type {
@@ -41,6 +44,9 @@ import type {
   UpdateEventDto,
   UpdateGroupDto,
   UpdateExpenseDto,
+  FxRate,
+  SupportedCurrency,
+  OnBehalfOfEntry,
 } from '../index';
 
 describe('Shared types - Enums', () => {
@@ -97,6 +103,27 @@ describe('Shared types - Enums', () => {
     expect(InvitationStatus.ACCEPTED).toBe('accepted');
     expect(InvitationStatus.DECLINED).toBe('declined');
     expect(InvitationStatus.EXPIRED).toBe('expired');
+  });
+
+  it('FxRateMode should have PREDEFINED and EOD', () => {
+    expect(FxRateMode.PREDEFINED).toBe('predefined');
+    expect(FxRateMode.EOD).toBe('eod');
+  });
+
+  it('PaymentProvider should have RAZORPAY and STRIPE', () => {
+    expect(PaymentProvider.RAZORPAY).toBe('razorpay');
+    expect(PaymentProvider.STRIPE).toBe('stripe');
+  });
+
+  it('SUPPORTED_CURRENCIES should contain expected currencies', () => {
+    expect(SUPPORTED_CURRENCIES).toContain('USD');
+    expect(SUPPORTED_CURRENCIES).toContain('EUR');
+    expect(SUPPORTED_CURRENCIES).toContain('INR');
+    expect(SUPPORTED_CURRENCIES).toContain('GBP');
+    expect(SUPPORTED_CURRENCIES).toContain('JPY');
+    expect(SUPPORTED_CURRENCIES).toContain('AUD');
+    expect(SUPPORTED_CURRENCIES).toContain('CAD');
+    expect(SUPPORTED_CURRENCIES).toHaveLength(7);
   });
 });
 
@@ -162,6 +189,28 @@ describe('Shared types - Type shape validation', () => {
     expect(event.status).toBe('active');
   });
 
+  it('should create an Event with multi-currency settlement fields', () => {
+    const event: Event = {
+      id: 'event-2',
+      name: 'Europe Trip',
+      type: 'trip',
+      startDate: new Date(),
+      currency: 'EUR',
+      settlementCurrency: 'INR',
+      fxRateMode: 'predefined',
+      predefinedFxRates: { 'EUR_INR': 90.5 },
+      status: 'active',
+      createdBy: 'user-1',
+      admins: ['user-1'],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    expect(event.settlementCurrency).toBe('INR');
+    expect(event.fxRateMode).toBe('predefined');
+    expect(event.predefinedFxRates?.['EUR_INR']).toBe(90.5);
+  });
+
   it('should create a valid Expense with splits', () => {
     const expense: Expense = {
       id: 'expense-1',
@@ -207,6 +256,140 @@ describe('Shared types - Type shape validation', () => {
     expect(settlement.fromEntityType).toBe('group');
     expect(settlement.toEntityType).toBe('user');
     expect(settlement.status).toBe('pending');
+  });
+
+  it('should create a Settlement with FX conversion fields', () => {
+    const settlement: Settlement = {
+      id: 'settlement-2',
+      eventId: 'event-2',
+      fromEntityId: 'user-A',
+      fromEntityType: 'user',
+      toEntityId: 'user-B',
+      toEntityType: 'user',
+      fromUserId: 'user-A',
+      toUserId: 'user-B',
+      amount: 100,
+      currency: 'EUR',
+      settlementAmount: 9050,
+      settlementCurrency: 'INR',
+      fxRate: 90.5,
+      status: 'pending',
+      createdAt: new Date()
+    };
+
+    expect(settlement.settlementAmount).toBe(9050);
+    expect(settlement.settlementCurrency).toBe('INR');
+    expect(settlement.fxRate).toBe(90.5);
+  });
+
+  it('should create a valid OnBehalfOfEntry', () => {
+    const entry: OnBehalfOfEntry = {
+      entityId: 'user-2',
+      entityType: 'user',
+    };
+    expect(entry.entityId).toBe('user-2');
+    expect(entry.entityType).toBe('user');
+  });
+
+  it('should create an Expense with paidOnBehalfOf as array of entries', () => {
+    const expense: Expense = {
+      id: 'expense-behalf',
+      eventId: 'event-1',
+      title: 'Hotel on behalf of friend',
+      amount: 500,
+      currency: 'USD',
+      paidBy: 'user-1',
+      paidOnBehalfOf: [
+        { entityId: 'user-2', entityType: 'user' },
+      ],
+      isPrivate: false,
+      splitType: 'equal',
+      splits: [
+        { entityType: 'user', entityId: 'user-2', amount: 250 },
+        { entityType: 'user', entityId: 'user-3', amount: 250 },
+      ],
+      attachments: [],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    expect(expense.paidOnBehalfOf).toHaveLength(1);
+    expect(expense.paidOnBehalfOf![0].entityId).toBe('user-2');
+    expect(expense.paidOnBehalfOf![0].entityType).toBe('user');
+    expect(expense.splits).toHaveLength(2);
+  });
+
+  it('should create an Expense with multiple paidOnBehalfOf entries', () => {
+    const expense: Expense = {
+      id: 'expense-multi-behalf',
+      eventId: 'event-1',
+      title: 'Dinner on behalf of friends',
+      amount: 900,
+      currency: 'USD',
+      paidBy: 'user-1',
+      paidOnBehalfOf: [
+        { entityId: 'user-2', entityType: 'user' },
+        { entityId: 'group-1', entityType: 'group' },
+      ],
+      isPrivate: false,
+      splitType: 'equal',
+      splits: [
+        { entityType: 'user', entityId: 'user-2', amount: 300 },
+        { entityType: 'group', entityId: 'group-1', amount: 300 },
+        { entityType: 'user', entityId: 'user-3', amount: 300 },
+      ],
+      attachments: [],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    expect(expense.paidOnBehalfOf).toHaveLength(2);
+    expect(expense.paidOnBehalfOf![0].entityType).toBe('user');
+    expect(expense.paidOnBehalfOf![1].entityType).toBe('group');
+    expect(expense.splits).toHaveLength(3);
+  });
+
+  it('should create a CreateExpenseDto with paidOnBehalfOf array', () => {
+    const dto: CreateExpenseDto = {
+      eventId: 'event-1',
+      title: 'Taxi',
+      amount: 50,
+      currency: 'USD',
+      splitType: 'equal',
+      splits: [{ entityType: 'user', entityId: 'user-2', amount: 50 }],
+      paidOnBehalfOf: [{ entityId: 'user-2', entityType: 'user' }],
+    };
+
+    expect(dto.paidOnBehalfOf).toHaveLength(1);
+    expect(dto.paidOnBehalfOf![0].entityId).toBe('user-2');
+  });
+
+  it('should create an UpdateExpenseDto with paidOnBehalfOf set to null (clearing)', () => {
+    const dto: UpdateExpenseDto = {
+      paidOnBehalfOf: null,
+    };
+
+    expect(dto.paidOnBehalfOf).toBeNull();
+  });
+
+  it('should create a valid FxRate object', () => {
+    const rate: FxRate = {
+      from: 'USD',
+      to: 'INR',
+      rate: 83.5,
+      date: '2025-02-17',
+      source: 'eod',
+    };
+
+    expect(rate.from).toBe('USD');
+    expect(rate.to).toBe('INR');
+    expect(rate.rate).toBe(83.5);
+    expect(rate.source).toBe('eod');
+  });
+
+  it('SupportedCurrency type should accept valid currencies', () => {
+    const curr: SupportedCurrency = 'USD';
+    expect(curr).toBe('USD');
   });
 
   it('should create a valid ApiResponse', () => {

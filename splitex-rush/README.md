@@ -33,12 +33,16 @@ Install the following **before** cloning the repo:
 | **pnpm** | `9.15.9` (managed by Rush) | Installed automatically by `rush install` |
 | **Git** | Latest | [https://git-scm.com](https://git-scm.com) |
 
-**Optional (for mobile development):**
+**Required for mobile development:**
 
 | Tool | Version | Install Command |
-|------|---------|-----------------|
+|------|---------|------------------|
 | **Expo CLI** | Latest | `npm install -g expo-cli` |
 | **Expo Go** | Latest | Install from App Store / Play Store on your device |
+| **Xcode** (iOS) | 15+ | Mac App Store (macOS only) |
+| **Android Studio** (Android) | Latest | [developer.android.com/studio](https://developer.android.com/studio) |
+
+> **See [`apps/mobile/README.md`](apps/mobile/README.md) for the complete mobile setup guide** including iOS Simulator, Android Emulator, and real device instructions.
 
 **Optional (for E2E testing):**
 
@@ -230,7 +234,9 @@ splitex-rush/
 │   │   │   └── lib/          # Firebase client, utilities
 │   │   └── package.json
 │   └── mobile/               # React Native (Expo) mobile app
-│       └── package.json
+│       ├── src/              # App.tsx, screens, context, API client
+│       ├── app.json          # Expo configuration
+│       └── README.md         # ⭐ Complete mobile setup guide
 ├── libraries/
 │   ├── shared/               # Shared TypeScript types & enums
 │   │   ├── src/index.ts      # All type definitions
@@ -274,7 +280,9 @@ All commands are run from the **repo root** directory.
 | `rush build:ui` | Build only the UI component library |
 | `rush build:api` | Build only the API server |
 | `rush build:web` | Build only the web app for production |
+| `rush build:mobile` | Type-check the mobile app (`tsc --noEmit`) |
 | `rush clean` | Clean all build outputs (`dist/`, `.next/`) |
+| `rush clean:mobile` | Clean mobile caches (`.expo`, `dist`, `node_modules/.cache`) |
 | `rush purge` | Deep clean Rush temp files (use if `rush update` fails) |
 
 ### Development Servers
@@ -285,6 +293,9 @@ All commands are run from the **repo root** directory.
 | `rush dev:web` | Start web app dev server (hot-reload) | http://localhost:3000 |
 | `rush dev` | Alias for `rush dev:web` | http://localhost:3000 |
 | `rush dev:mobile` | Start Expo mobile dev server | Expo Go QR code |
+| `rush mobile:ios` | Start Expo + open iOS Simulator | iOS Simulator |
+| `rush mobile:android` | Start Expo + open Android Emulator | Android Emulator |
+| `rush mobile:tunnel` | Start Expo with tunnel (real devices) | Any network |
 | `rush dev:shared` | Watch-mode rebuild of shared types | — |
 | `rush dev:ui` | Watch-mode rebuild of UI components | — |
 
@@ -314,6 +325,8 @@ All commands are run from the **repo root** directory.
 |---------|-------------|
 | `rush start:api` | Start API in production mode (requires `rush build:api` first) |
 | `rush start:web` | Start web app in production mode (requires `rush build:web` first) |
+| `rush mobile:prebuild:ios` | Generate native iOS project for Xcode builds |
+| `rush mobile:prebuild:android` | Generate native Android project for Android Studio builds |
 
 ---
 
@@ -364,10 +377,10 @@ Open in browser: [http://localhost:3000](http://localhost:3000)
 # Run all unit tests
 rush test
 
-# Run only API tests (375 tests across 14 suites, ~93% statement coverage)
+# Run only API tests (392 tests across 15 suites, ~93% statement coverage)
 rush test:api
 
-# Run only shared library tests (28 tests, 100% coverage)
+# Run only shared library tests (36 tests, 100% coverage)
 rush test:shared
 
 # Run regression suite (validates all existing functionality is intact)
@@ -403,8 +416,8 @@ rush test:e2e:report
 
 | Package | Tests | Statements | Branches | Functions | Lines |
 |---------|-------|------------|----------|-----------|-------|
-| `@splitex/api` | 375 | 92.53% | 80.68% | 90.72% | 93.50% |
-| `@splitex/shared` | 28 | 100% | 100% | 100% | 100% |
+| `@splitex/api` | 392 | 92.87% | 83.60% | 91.20% | 93.80% |
+| `@splitex/shared` | 36 | 100% | 100% | 100% | 100% |
 | `@splitex/e2e` | 31 | — | — | — | — |
 
 ---

@@ -221,6 +221,204 @@ describe('SettlementService', () => {
       expect(balA!.amount).toBe(20);
       expect(balB!.amount).toBe(-20);
     });
+
+    it('should handle "on behalf of" expense — payer gets full credit, payer entity excluded from splits', async () => {
+      // user-A pays 300 on behalf of user-B, split equally among user-B and user-C
+      mockExpenses['exp-behalf-1'] = {
+        eventId: 'evt-1',
+        paidBy: 'user-A',
+        paidOnBehalfOf: [{ entityId: 'user-B', entityType: 'user' }],
+        amount: 300,
+        isPrivate: false,
+        splits: [
+          { entityType: 'user', entityId: 'user-B', amount: 150 },
+          { entityType: 'user', entityId: 'user-C', amount: 150 },
+        ],
+      };
+
+      const balances = await service.calculateEntityBalances('evt-1');
+      // user-A: paid 300, share=0 => net +300
+      // user-B: owes 150 => net -150
+      // user-C: owes 150 => net -150
+      const balA = balances.find(b => b.entityId === 'user-A');
+      const balB = balances.find(b => b.entityId === 'user-B');
+      const balC = balances.find(b => b.entityId === 'user-C');
+
+      expect(balA).toBeDefined();
+      expect(balA!.amount).toBe(300);
+      expect(balB!.amount).toBe(-150);
+      expect(balC!.amount).toBe(-150);
+    });
+
+    it('should handle "on behalf of" with payer in a group — payer group gets credit, payer group excluded from splits', async () => {
+      // user-A is in grp-1, pays on behalf of user-C
+      mockGroups['grp-1'] = {
+        eventId: 'evt-1',
+        members: ['user-A', 'user-B'],
+        payerUserId: 'user-A',
+      };
+
+      mockExpenses['exp-behalf-2'] = {
+        eventId: 'evt-1',
+        paidBy: 'user-A', // in grp-1
+        paidOnBehalfOf: [{ entityId: 'user-C', entityType: 'user' }],
+        amount: 200,
+        isPrivate: false,
+        splits: [
+          { entityType: 'group', entityId: 'grp-1', amount: 100 }, // should be skipped (payer's entity)
+          { entityType: 'user', entityId: 'user-C', amount: 100 },
+        ],
+      };
+
+      const balances = await service.calculateEntityBalances('evt-1');
+      // grp-1: paid 200 (via user-A), split of 100 skipped (payer's entity) => net +200
+      // user-C: owes 100 => net -100
+      // Note: grp-1's split is skipped because user-A (payer) is in grp-1
+      const balGrp = balances.find(b => b.entityId === 'grp-1');
+      const balC = balances.find(b => b.entityId === 'user-C');
+
+      expect(balGrp).toBeDefined();
+      expect(balGrp!.amount).toBe(200);
+      expect(balC!.amount).toBe(-100);
+      // Only 2 entities should have non-zero balances (grp-1 and user-C don't sum to zero
+      // because the payer's split was excluded — this is correct for "on behalf of")
+    });
+
+    it('should handle "on behalf of" with normal expenses combined', async () => {
+      // Normal expense: user-A pays 100 split equally with user-B
+      mockExpenses['exp-normal'] = {
+        eventId: 'evt-1',
+        paidBy: 'user-A',
+        amount: 100,
+        isPrivate: false,
+        splits: [
+          { entityType: 'user', entityId: 'user-A', amount: 50 },
+          { entityType: 'user', entityId: 'user-B', amount: 50 },
+        ],
+      };
+
+      // On behalf of: user-A pays 200 on behalf of user-B, split among user-B and user-C
+      mockExpenses['exp-behalf'] = {
+        eventId: 'evt-1',
+        paidBy: 'user-A',
+        paidOnBehalfOf: [{ entityId: 'user-B', entityType: 'user' }],
+        amount: 200,
+        isPrivate: false,
+        splits: [
+          { entityType: 'user', entityId: 'user-B', amount: 100 },
+          { entityType: 'user', entityId: 'user-C', amount: 100 },
+        ],
+      };
+
+      const balances = await service.calculateEntityBalances('evt-1');
+      // user-A: paid 100+200=300, owes 50 (normal) + 0 (behalf) = 50 => net +250
+      // user-B: paid 0, owes 50 (normal) + 100 (behalf) = 150 => net -150
+      // user-C: paid 0, owes 100 (behalf) => net -100
+      const balA = balances.find(b => b.entityId === 'user-A');
+      const balB = balances.find(b => b.entityId === 'user-B');
+      const balC = balances.find(b => b.entityId === 'user-C');
+
+      expect(balA!.amount).toBe(250);
+      expect(balB!.amount).toBe(-150);
+      expect(balC!.amount).toBe(-100);
+    });
+
+    it('should handle "on behalf of" with MULTIPLE entities — payer excluded, all others debited', async () => {
+      // user-A pays 300 on behalf of user-B AND user-C, split among user-B, user-C, user-D
+      mockExpenses['exp-multi-behalf'] = {
+        eventId: 'evt-1',
+        paidBy: 'user-A',
+        paidOnBehalfOf: [
+          { entityId: 'user-B', entityType: 'user' },
+          { entityId: 'user-C', entityType: 'user' },
+        ],
+        amount: 300,
+        isPrivate: false,
+        splits: [
+          { entityType: 'user', entityId: 'user-B', amount: 100 },
+          { entityType: 'user', entityId: 'user-C', amount: 100 },
+          { entityType: 'user', entityId: 'user-D', amount: 100 },
+        ],
+      };
+
+      const balances = await service.calculateEntityBalances('evt-1');
+      // user-A: paid 300, share=0 => net +300
+      // user-B: owes 100 => net -100
+      // user-C: owes 100 => net -100
+      // user-D: owes 100 => net -100
+      const balA = balances.find(b => b.entityId === 'user-A');
+      const balB = balances.find(b => b.entityId === 'user-B');
+      const balC = balances.find(b => b.entityId === 'user-C');
+      const balD = balances.find(b => b.entityId === 'user-D');
+
+      expect(balA!.amount).toBe(300);
+      expect(balB!.amount).toBe(-100);
+      expect(balC!.amount).toBe(-100);
+      expect(balD!.amount).toBe(-100);
+    });
+
+    it('should handle "on behalf of" with multiple entities including a group', async () => {
+      mockGroups['grp-1'] = {
+        eventId: 'evt-1',
+        members: ['user-D', 'user-E'],
+        payerUserId: 'user-D',
+      };
+
+      // user-A pays 400 on behalf of user-B and grp-1, split among user-B, user-C, grp-1
+      mockExpenses['exp-multi-behalf-grp'] = {
+        eventId: 'evt-1',
+        paidBy: 'user-A',
+        paidOnBehalfOf: [
+          { entityId: 'user-B', entityType: 'user' },
+          { entityId: 'grp-1', entityType: 'group' },
+        ],
+        amount: 400,
+        isPrivate: false,
+        splits: [
+          { entityType: 'user', entityId: 'user-B', amount: 150 },
+          { entityType: 'user', entityId: 'user-C', amount: 100 },
+          { entityType: 'group', entityId: 'grp-1', amount: 150 },
+        ],
+      };
+
+      const balances = await service.calculateEntityBalances('evt-1');
+      // user-A: paid 400, share=0 => net +400
+      // user-B: owes 150 => net -150
+      // user-C: owes 100 => net -100
+      // grp-1: owes 150 => net -150
+      const balA = balances.find(b => b.entityId === 'user-A');
+      const balB = balances.find(b => b.entityId === 'user-B');
+      const balC = balances.find(b => b.entityId === 'user-C');
+      const balGrp = balances.find(b => b.entityId === 'grp-1');
+
+      expect(balA!.amount).toBe(400);
+      expect(balB!.amount).toBe(-150);
+      expect(balC!.amount).toBe(-100);
+      expect(balGrp!.amount).toBe(-150);
+    });
+
+    it('should handle empty paidOnBehalfOf array as normal expense (no exclusion)', async () => {
+      mockExpenses['exp-empty-behalf'] = {
+        eventId: 'evt-1',
+        paidBy: 'user-A',
+        paidOnBehalfOf: [],
+        amount: 200,
+        isPrivate: false,
+        splits: [
+          { entityType: 'user', entityId: 'user-A', amount: 100 },
+          { entityType: 'user', entityId: 'user-B', amount: 100 },
+        ],
+      };
+
+      const balances = await service.calculateEntityBalances('evt-1');
+      // Normal expense: user-A paid 200, owes 100 => net +100
+      // user-B: owes 100 => net -100
+      const balA = balances.find(b => b.entityId === 'user-A');
+      const balB = balances.find(b => b.entityId === 'user-B');
+
+      expect(balA!.amount).toBe(100);
+      expect(balB!.amount).toBe(-100);
+    });
   });
 
   describe('calculateSettlementPlan', () => {

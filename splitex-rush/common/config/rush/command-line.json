@@ -22,8 +22,50 @@
     {
       "commandKind": "global",
       "name": "dev:mobile",
-      "summary": "Start the Expo mobile dev server",
+      "summary": "Start the Expo mobile dev server (scan QR with Expo Go)",
       "shellCommand": "bash -lc \"cd apps/mobile && rushx start\""
+    },
+    {
+      "commandKind": "global",
+      "name": "mobile:ios",
+      "summary": "Start Expo and open iOS Simulator",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx ios\""
+    },
+    {
+      "commandKind": "global",
+      "name": "mobile:android",
+      "summary": "Start Expo and open Android Emulator",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx android\""
+    },
+    {
+      "commandKind": "global",
+      "name": "mobile:tunnel",
+      "summary": "Start Expo with tunnel mode (for real devices on different networks)",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx start:tunnel\""
+    },
+    {
+      "commandKind": "global",
+      "name": "build:mobile",
+      "summary": "Type-check the mobile app (no emit)",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx typecheck\""
+    },
+    {
+      "commandKind": "global",
+      "name": "clean:mobile",
+      "summary": "Clean mobile app caches (.expo, dist, node_modules/.cache)",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx clean\""
+    },
+    {
+      "commandKind": "global",
+      "name": "mobile:prebuild:ios",
+      "summary": "Generate native iOS project (for Xcode builds / real device deployment)",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx prebuild:ios\""
+    },
+    {
+      "commandKind": "global",
+      "name": "mobile:prebuild:android",
+      "summary": "Generate native Android project (for Android Studio builds / real device deployment)",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx prebuild:android\""
     },
     {
       "commandKind": "global",

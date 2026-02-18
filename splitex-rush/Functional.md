@@ -46,7 +46,7 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | 2.7 | Event types | ✅ Supported | Trip and Event |
 | 2.8 | Event lock on settle/close | ✅ Supported | Payment/settled/closed events block all mutations (expenses, groups, invitations, participants); only status→closed allowed on settled events |
 | 2.9 | Hide closed events from dashboard | ✅ Supported | Closed events filtered out of dashboard; not visible to any user; removed in real-time when closed via WebSocket |
-| 2.10 | Multi-currency per event | ❌ Not Currently Supported | Each event has one currency |
+| 2.10 | Multi-currency settlement | ✅ Supported | Event can have different expense currency and settlement currency; FX conversion via EOD API or predefined rates |
 | 2.11 | Event archiving / closed events section | ❌ Not Currently Supported | Planned: view past closed events and their details |
 | 2.12 | Event search / filter | ❌ Not Currently Supported | — |
 | 2.13 | Event duplication | ❌ Not Currently Supported | — |
@@ -86,12 +86,13 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | 4.13 | Entity selection for splits | ✅ Supported | Select which groups/individuals to split with; groups as single entities |
 | 4.14 | Currency symbols | ✅ Supported | $, €, £, ₹, ¥ displayed in UI instead of currency codes |
 | 4.15 | Edit expense page | ✅ Supported | Dedicated edit page with pre-populated form, same split validation as create |
-| 4.16 | Expense categories / tags | ❌ Not Currently Supported | — |
-| 4.17 | Receipt upload / attachment | ❌ Not Currently Supported | — |
-| 4.18 | Recurring expenses | ❌ Not Currently Supported | — |
-| 4.19 | Expense comments / notes | ❌ Not Currently Supported | — |
-| 4.20 | Expense history / audit log | ❌ Not Currently Supported | — |
-| 4.21 | Multi-currency expenses | ❌ Not Currently Supported | — |
+| 4.16 | "On Behalf Of" expenses | ✅ Supported | Payer fronts money for another entity; payer's share = 0; splits exclude payer's entity; toggle + entity selector in create/edit UI |
+| 4.17 | Expense categories / tags | ❌ Not Currently Supported | — |
+| 4.18 | Receipt upload / attachment | ❌ Not Currently Supported | — |
+| 4.19 | Recurring expenses | ❌ Not Currently Supported | — |
+| 4.20 | Expense comments / notes | ❌ Not Currently Supported | — |
+| 4.21 | Expense history / audit log | ❌ Not Currently Supported | — |
+| 4.22 | Multi-currency expenses | ❌ Not Currently Supported | — |
 
 ---
 
@@ -158,11 +159,14 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | 7.10 | No-payment edge case | ✅ Supported | If all balances are zero, event goes directly to `settled`; admin can close immediately |
 | 7.11 | Settlement summary UI | ✅ Supported | Card-based layout with progress bar, per-transaction status (pending/initiated/completed), Pay/Confirm Receipt buttons |
 | 7.12 | Group payer resolution | ✅ Supported | For group entities, the group's designated payer sees Pay button; group's payer receives Confirm Receipt button |
-| 7.13 | Real-time settlement broadcast | ✅ Supported | WebSocket emits `settlement:generated`, `settlement:updated`, and `event:updated` to all event room clients; dashboard tiles update in real-time |
-| 7.14 | Payment gateway integration | ❌ Not Currently Supported | Mock only for now |
-| 7.15 | UPI / bank transfer support | ❌ Not Currently Supported | — |
-| 7.16 | Partial settlements | ❌ Not Currently Supported | — |
-| 7.17 | Settlement reminders | ❌ Not Currently Supported | — |
+| 7.13 | Real-time settlement broadcast | ✅ Supported | WebSocket emits `settlement:generated`, `settlement:updated`, and `event:updated` to all event room clients; dashboard tiles update in real-time via multi-event room subscription |
+| 7.14 | FX rate service (EOD + predefined) | ✅ Supported | Fetches rates from open.er-api.com with Firestore caching; supports predefined rates with reverse lookup; `convert()` helper |
+| 7.15 | Dual currency settlement display | ✅ Supported | Settlement summary shows original + converted amounts with FX rate; total converted amount shown |
+| 7.16 | Settlement currency configuration | ✅ Supported | Event creation UI: settlement currency selector, FX rate mode (EOD/predefined), predefined rate input |
+| 7.17 | Payment gateway integration | ❌ Not Currently Supported | Mock only for now |
+| 7.18 | UPI / bank transfer support | ❌ Not Currently Supported | — |
+| 7.19 | Partial settlements | ❌ Not Currently Supported | — |
+| 7.20 | Settlement reminders | ❌ Not Currently Supported | — |
 
 ---
 
@@ -174,10 +178,10 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | 8.2 | Registration page | ✅ Supported | New user sign-up flow |
 | 8.3 | Forgot password page | ✅ Supported | Password reset flow |
 | 8.4 | Dashboard page | ✅ Supported | Event list with create button, empty state |
-| 8.5 | Create event page | ✅ Supported | Full form with validation |
+| 8.5 | Create event page | ✅ Supported | Full form with validation; settlement currency, FX rate mode, predefined FX rate inputs |
 | 8.6 | Event detail page | ✅ Supported | Tabbed UI (Expenses, Participants, Groups, Invitations) |
-| 8.7 | Create expense page | ✅ Supported | Entity selection (groups + individuals), radio split type, private toggle, currency symbols, split validation |
-| 8.7a | Edit expense page | ✅ Supported | Pre-populated form, same validation as create, accessible to creator or admin |
+| 8.7 | Create expense page | ✅ Supported | Entity selection (groups + individuals), radio split type, private toggle, currency symbols, split validation, "On Behalf Of" toggle + entity selector |
+| 8.7a | Edit expense page | ✅ Supported | Pre-populated form, same validation as create, accessible to creator or admin, onBehalfOf editing |
 | 8.8 | Invitations page | ✅ Supported | View and accept/decline pending invitations |
 | 8.9 | Profile page | ✅ Supported | View and edit user profile |
 | 8.10 | Navigation shell | ✅ Supported | Dashboard, Invitations, Profile links |
@@ -201,13 +205,17 @@ This document tracks all functionalities of the Splitex application. It is kept 
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 9.1 | React Native + Expo setup | ✅ Supported | Project scaffolded with navigation |
-| 9.2 | Mobile authentication | ❌ Not Currently Supported | Scaffolded but not connected |
-| 9.3 | Mobile event management | ❌ Not Currently Supported | — |
-| 9.4 | Mobile expense tracking | ❌ Not Currently Supported | — |
-| 9.5 | Push notifications | ❌ Not Currently Supported | — |
-| 9.6 | Offline support | ❌ Not Currently Supported | — |
-| 9.7 | Camera for receipt capture | ❌ Not Currently Supported | — |
+| 9.1 | React Native + Expo setup | ✅ Supported | Full Expo project with NativeStackNavigator, theme, API client |
+| 9.2 | Mobile authentication | ✅ Supported | Login + Register screens; AuthContext with token persistence via AsyncStorage |
+| 9.3 | Mobile dashboard | ✅ Supported | Event list with pull-to-refresh, FX badge, status badges, create event button |
+| 9.4 | Mobile event detail | ✅ Supported | Summary cards, expense list, settlement cards with dual currency, pay/approve actions, groups |
+| 9.5 | Mobile create expense | ✅ Supported | Full form with entity selection, split calculation, "On Behalf Of" toggle + selector |
+| 9.6 | Mobile create event | ✅ Supported | Event form with settlement currency, FX rate mode, predefined rate input; Pro tier gating |
+| 9.7 | Free/Pro monetization tiers | ✅ Supported | Free tier: all basic features; Pro tier: multi-currency FX settlement; tier state in AuthContext |
+| 9.8 | Push notifications | ❌ Not Currently Supported | — |
+| 9.9 | Offline support | ❌ Not Currently Supported | — |
+| 9.10 | Camera for receipt capture | ❌ Not Currently Supported | — |
+| 9.11 | In-app purchase (IAP) | ❌ Not Currently Supported | Pro tier upgrade ready but IAP not integrated |
 
 ---
 
@@ -215,8 +223,8 @@ This document tracks all functionalities of the Splitex application. It is kept 
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 10.1 | Shared TypeScript types | ✅ Supported | User, Event, Expense, Group, Invitation, Settlement, etc. |
-| 10.2 | Shared enums | ✅ Supported | UserRole, EventType, EventStatus, SplitType, InvitationStatus, etc. |
+| 10.1 | Shared TypeScript types | ✅ Supported | User, Event, Expense, Group, Invitation, Settlement, FxRate, SupportedCurrency, etc. |
+| 10.2 | Shared enums | ✅ Supported | UserRole, EventType, EventStatus, SplitType, InvitationStatus, FxRateMode, PaymentProvider, SUPPORTED_CURRENCIES |
 | 10.3 | Shared DTOs | ✅ Supported | CreateEventDto, CreateExpenseDto, CreateGroupDto, CreateInvitationDto, Update DTOs |
 | 10.4 | API response types | ✅ Supported | ApiResponse, PaginatedResponse, ValidationError |
 | 10.5 | UI component library | ✅ Supported | Button, Input, Card, Select, TextArea, Modal, Badge, Tabs, EmptyState, Toast |
@@ -230,11 +238,12 @@ This document tracks all functionalities of the Splitex application. It is kept 
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 11.1 | API unit tests (Jest + Supertest) | ✅ Supported | 375 tests across 14 suites, 92.5% statement / 80.7% branch coverage |
-| 11.2 | Shared library unit tests | ✅ Supported | 28 tests, 100% coverage |
+| 11.1 | API unit tests (Jest + Supertest) | ✅ Supported | 392 tests across 15 suites, 92.9% statement / 83.6% branch coverage |
+| 11.2 | Shared library unit tests | ✅ Supported | 36 tests, 100% coverage |
 | 11.3 | E2E tests (Playwright) | ✅ Supported | 31 tests: navigation, events, expenses, invitations, groups |
 | 11.4 | Regression test suite | ✅ Supported | 48 tests covering all Phase 2 functionality; `rush test:regression` |
-| 11.5a | Settlement service tests | ✅ Supported | 38+ tests — greedy algorithm, entity balances, generation, entity-aware tile calculations, initiatePayment, approvePayment, auto-settle, edge cases |
+| 11.5a | Settlement service tests | ✅ Supported | 38+ tests — greedy algorithm, entity balances, generation, entity-aware tile calculations, initiatePayment, approvePayment, auto-settle, onBehalfOf (3 scenarios), edge cases |
+| 11.5d | FX rate service tests | ✅ Supported | 14 tests — getRate (predefined, reverse, fallback), getEodRate (cache hit, API fetch, errors, reverse fallback), convert, getPaymentProvider |
 | 11.5b | Event guards tests | ✅ Supported | 10 tests — getEventLockStatus, requireActiveEvent for active/payment/settled/closed states |
 | 11.5c | Expense admin auth tests | ✅ Supported | Tests for admin update/delete permissions, ratio split edge cases |
 | 11.6 | EmailService unit tests | ✅ Supported | Mock mode, SMTP mode, error handling, email content |
@@ -298,7 +307,7 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | **Phase 3.5** | Expense editing, admin permissions, split validation, event lifecycle (settled/closed lock), dashboard filtering, comprehensive tests | ✅ Complete |
 | **Phase 4** | Settlement flow overhaul: payment mode, pay/approve endpoints, real-time status, settlement summary UI, auto-settle, edge cases | ✅ Complete |
 | **Phase 4.5** | UX polish: confirmation modals (replace all browser dialogs), consistent badge colors, real-time dashboard updates via WebSocket | ✅ Complete |
-| **Phase 5** | Advanced analytics, multi-currency, receipt processing, admin dashboard, CI/CD | ❌ Not Started |
+| **Phase 5** | "On Behalf Of" expenses, multi-currency FX settlement, complete mobile app (iOS/Android), Free/Pro monetization tiers, comprehensive tests | ✅ Complete |
 
 ---
 

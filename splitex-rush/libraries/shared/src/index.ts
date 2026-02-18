@@ -35,6 +35,12 @@ export interface Event {
   startDate: Date;
   endDate?: Date;
   currency: string;
+  /** Currency in which settlements are made (defaults to event currency) */
+  settlementCurrency?: string;
+  /** How FX rates are determined: 'predefined' = set at event creation, 'eod' = latest EOD rate at settlement time */
+  fxRateMode?: 'predefined' | 'eod';
+  /** Predefined FX rates: key = "FROM_TO" (e.g. "USD_INR"), value = rate */
+  predefinedFxRates?: Record<string, number>;
   status: 'active' | 'payment' | 'settled' | 'closed';
   createdBy: string;
   admins: string[];
@@ -60,6 +66,9 @@ export interface CreateEventDto {
   startDate: Date;
   endDate?: Date;
   currency: string;
+  settlementCurrency?: string;
+  fxRateMode?: 'predefined' | 'eod';
+  predefinedFxRates?: Record<string, number>;
 }
 
 export interface ParticipantDto {
@@ -91,6 +100,12 @@ export interface CreateGroupDto {
   representative?: string;
 }
 
+// On Behalf Of: payer fronts money for one or more entities; payer's share = 0
+export interface OnBehalfOfEntry {
+  entityId: string;
+  entityType: 'user' | 'group';
+}
+
 // Expense Types
 export interface Expense {
   id: string;
@@ -100,8 +115,8 @@ export interface Expense {
   amount: number;
   currency: string;
   paidBy: string;
-  paidOnBehalfOf?: string;
-  paidOnBehalfOfType?: 'user' | 'group';
+  /** Entities the payer is fronting money for. When set, payer's own split = 0. */
+  paidOnBehalfOf?: OnBehalfOfEntry[];
   isPrivate: boolean;
   splitType: 'equal' | 'ratio' | 'custom';
   splits: ExpenseSplit[];
@@ -135,8 +150,7 @@ export interface CreateExpenseDto {
   selectedEntities?: SplitEntity[];
   attachments?: string[];
   isPrivate?: boolean;
-  paidOnBehalfOf?: string;
-  paidOnBehalfOfType?: 'user' | 'group';
+  paidOnBehalfOf?: OnBehalfOfEntry[];
 }
 
 // Settlement Types
@@ -157,8 +171,15 @@ export interface Settlement {
   fromUserId: string;
   /** The actual user who receives payment (for groups, this is the group payer) */
   toUserId: string;
+  /** Amount in the event's expense currency */
   amount: number;
   currency: string;
+  /** Amount converted to settlement currency (if different from expense currency) */
+  settlementAmount?: number;
+  /** The settlement currency (if different from expense currency) */
+  settlementCurrency?: string;
+  /** FX rate used for conversion (expenseCurrency → settlementCurrency) */
+  fxRate?: number;
   status: 'pending' | 'initiated' | 'completed';
   paymentMethod?: string;
   paymentId?: string;
@@ -274,6 +295,9 @@ export interface UpdateEventDto {
   startDate?: Date;
   endDate?: Date;
   currency?: string;
+  settlementCurrency?: string;
+  fxRateMode?: 'predefined' | 'eod';
+  predefinedFxRates?: Record<string, number>;
   status?: 'active' | 'payment' | 'settled' | 'closed';
 }
 
@@ -295,8 +319,7 @@ export interface UpdateExpenseDto {
   selectedEntities?: SplitEntity[];
   attachments?: string[];
   isPrivate?: boolean;
-  paidOnBehalfOf?: string;
-  paidOnBehalfOfType?: 'user' | 'group';
+  paidOnBehalfOf?: OnBehalfOfEntry[] | null;
 }
 
 export enum InvitationStatus {
@@ -358,6 +381,29 @@ export enum PaymentStatus {
   PROCESSING = 'processing',
   SUCCEEDED = 'succeeded',
   FAILED = 'failed'
+}
+
+export enum FxRateMode {
+  PREDEFINED = 'predefined',
+  EOD = 'eod'
+}
+
+/** Supported currencies */
+export const SUPPORTED_CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'] as const;
+export type SupportedCurrency = typeof SUPPORTED_CURRENCIES[number];
+
+export interface FxRate {
+  from: string;
+  to: string;
+  rate: number;
+  date: string; // ISO date
+  source: 'predefined' | 'eod';
+}
+
+/** Payment provider routing: determines which gateway to use based on settlement currency */
+export enum PaymentProvider {
+  RAZORPAY = 'razorpay',  // INR settlements in India
+  STRIPE = 'stripe',       // International transfers
 }
 
 // API Response Types

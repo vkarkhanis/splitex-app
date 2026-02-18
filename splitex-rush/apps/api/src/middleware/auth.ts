@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { ApiResponse } from '@splitex/shared';
 import { auth } from '../config/firebase';
+import jwt from 'jsonwebtoken';
 
 export type AuthenticatedRequest = Request & {
   user?: {
@@ -29,6 +30,19 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
         name: 'Mock User'
       };
       return next();
+    }
+
+    // Try JWT verification first (tokens issued by our AuthService)
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+      req.user = {
+        uid: decoded.userId,
+        email: decoded.email,
+        name: decoded.displayName
+      };
+      return next();
+    } catch {
+      // Not a JWT from our service, try Firebase
     }
 
     const decoded = await auth.verifyIdToken(token);

@@ -44,16 +44,39 @@ export class AuthService {
 
   async signInWithGoogle(token: string): Promise<User> {
     try {
-      const decodedToken = await this.auth.verifyIdToken(token);
-      const firebaseUser = await this.auth.getUser(decodedToken.uid);
-      
-      let user = await this.findUserById(firebaseUser.uid);
+      // First try Firebase verifyIdToken (for Firebase-issued tokens from web)
+      // If that fails, verify as a raw Google OAuth ID token
+      let email: string;
+      let displayName: string;
+      let photoURL: string;
+      let uid: string;
+
+      try {
+        const decodedToken = await this.auth.verifyIdToken(token);
+        const firebaseUser = await this.auth.getUser(decodedToken.uid);
+        email = firebaseUser.email || '';
+        displayName = firebaseUser.displayName || '';
+        photoURL = firebaseUser.photoURL || '';
+        uid = firebaseUser.uid;
+      } catch {
+        // Token is a raw Google OAuth ID token (from native mobile SDK)
+        const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
+        if (!res.ok) throw new Error('Invalid Google token');
+        const payload: any = await res.json();
+        if (!payload.email) throw new Error('No email in Google token');
+        email = payload.email;
+        displayName = payload.name || payload.email.split('@')[0];
+        photoURL = payload.picture || '';
+        uid = `google-${payload.sub}`;
+      }
+
+      let user = await this.findUserById(uid);
       if (!user) {
         user = await this.createUser({
-          uid: firebaseUser.uid,
-          email: firebaseUser.email || '',
-          displayName: firebaseUser.displayName || '',
-          photoURL: firebaseUser.photoURL || '',
+          uid,
+          email,
+          displayName,
+          photoURL,
           provider: 'google'
         });
       }

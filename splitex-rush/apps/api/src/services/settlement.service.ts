@@ -2,17 +2,26 @@ import { Balance, Settlement, SettlementPlan, ExpenseSplit, Group } from '@split
 import { db } from '../config/firebase';
 import { ExpenseService } from './expense.service';
 import { GroupService } from './group.service';
+import { FxRateService } from './fx-rate.service';
 
 export class SettlementService {
   private collection = 'settlements';
   private expenseService = new ExpenseService();
   private groupService = new GroupService();
+  private fxRateService = new FxRateService();
 
   /**
    * Calculate entity-level balances for an event.
    * Groups are treated as single entities. Individual users not in any group
    * are treated as individual entities.
    * Only shared (non-private) expenses are included in settlement.
+   *
+   * "On behalf of" logic:
+   * When paidOnBehalfOf[] has entries, the payer fronted money for other entities.
+   * - The payer gets CREDITED the full expense amount (they paid out of pocket).
+   * - The payer's own entity is NOT debited — their share is zero.
+   * - All other split entities are debited normally (the full expense is split among them).
+   * This means the payer will be owed the full amount by the split entities.
    */
   async calculateEntityBalances(eventId: string): Promise<Balance[]> {
     const expenses = await this.expenseService.getEventExpenses(eventId);
@@ -41,21 +50,33 @@ export class SettlementService {
       if (expense.isPrivate) continue;
 
       // Determine who paid: resolve to entity level
+      // Credit always goes to the actual payer (they spent the money)
       const payerGroupId = userToGroup.get(expense.paidBy);
       if (payerGroupId) {
-        // Payer is in a group — credit goes to the group
         getOrInit(payerGroupId, 'group').amount += expense.amount;
       } else {
-        // Payer is an individual
         getOrInit(expense.paidBy, 'user').amount += expense.amount;
       }
 
       // Process splits: debit each entity
+      // For "on behalf of" expenses, the payer's entity should NOT be debited
+      // (their share is zero). The frontend excludes them from splits, but we
+      // add a safety check here.
+      const payerEntityId = payerGroupId || expense.paidBy;
+      const hasOnBehalfOf = Array.isArray(expense.paidOnBehalfOf) && expense.paidOnBehalfOf.length > 0;
+
       for (const split of expense.splits) {
+        // Safety: skip if this split is for the payer's own entity on an "on behalf of" expense
+        if (hasOnBehalfOf) {
+          const splitResolvedEntity = split.entityType === 'group'
+            ? split.entityId
+            : (userToGroup.get(split.entityId) || split.entityId);
+          if (splitResolvedEntity === payerEntityId) continue;
+        }
+
         if (split.entityType === 'group') {
           getOrInit(split.entityId, 'group').amount -= split.amount;
         } else {
-          // Check if this user is in a group
           const splitUserGroup = userToGroup.get(split.entityId);
           if (splitUserGroup) {
             getOrInit(splitUserGroup, 'group').amount -= split.amount;
@@ -184,11 +205,32 @@ export class SettlementService {
     const groups = await this.groupService.getEventGroups(eventId);
     const plan = this.calculateSettlementPlan(balances, eventId, eventData.currency, groups);
 
+    // FX conversion: if settlementCurrency differs from event currency, convert amounts
+    const expenseCurrency = eventData.currency as string;
+    const settlementCurrency = (eventData.settlementCurrency || eventData.currency) as string;
+    const fxRateMode = (eventData.fxRateMode || 'eod') as 'predefined' | 'eod';
+    const predefinedFxRates = eventData.predefinedFxRates as Record<string, number> | undefined;
+    let fxRate: number | undefined;
+
+    if (settlementCurrency !== expenseCurrency) {
+      const rateInfo = await this.fxRateService.getRate(
+        expenseCurrency, settlementCurrency, predefinedFxRates, fxRateMode
+      );
+      fxRate = rateInfo.rate;
+
+      // Add settlement amounts to each transaction
+      for (const settlement of plan.settlements) {
+        settlement.settlementAmount = this.fxRateService.convert(settlement.amount, fxRate);
+        settlement.settlementCurrency = settlementCurrency;
+        settlement.fxRate = fxRate;
+      }
+    }
+
     const now = new Date().toISOString();
 
     // Persist each settlement transaction
     for (const settlement of plan.settlements) {
-      const docRef = await db.collection(this.collection).add({
+      const docData: Record<string, any> = {
         eventId: settlement.eventId,
         fromEntityId: settlement.fromEntityId,
         fromEntityType: settlement.fromEntityType,
@@ -200,7 +242,16 @@ export class SettlementService {
         currency: settlement.currency,
         status: 'pending',
         createdAt: now,
-      });
+      };
+
+      // Include FX fields if settlement currency differs
+      if (settlement.settlementAmount !== undefined) {
+        docData.settlementAmount = settlement.settlementAmount;
+        docData.settlementCurrency = settlement.settlementCurrency;
+        docData.fxRate = settlement.fxRate;
+      }
+
+      const docRef = await db.collection(this.collection).add(docData);
       // Update the in-memory settlement with the real Firestore ID
       settlement.id = docRef.id;
     }
@@ -328,6 +379,9 @@ export class SettlementService {
         toUserId: data.toUserId || '',
         amount: data.amount,
         currency: data.currency,
+        settlementAmount: data.settlementAmount,
+        settlementCurrency: data.settlementCurrency,
+        fxRate: data.fxRate,
         status: data.status,
         paymentMethod: data.paymentMethod,
         paymentId: data.paymentId,

@@ -15,7 +15,7 @@ export class ExpenseService {
       }
     }
 
-    const expenseData = {
+    const expenseData: Record<string, any> = {
       eventId: dto.eventId,
       title: dto.title,
       description: dto.description || '',
@@ -29,6 +29,11 @@ export class ExpenseService {
       createdAt: now,
       updatedAt: now,
     };
+
+    // "On behalf of" — payer fronts money for other entities; payer's share = 0
+    if (dto.paidOnBehalfOf && dto.paidOnBehalfOf.length > 0) {
+      expenseData.paidOnBehalfOf = dto.paidOnBehalfOf;
+    }
 
     const docRef = await db.collection(this.collection).add(expenseData);
 
@@ -121,6 +126,10 @@ export class ExpenseService {
     if (dto.splits !== undefined) updates.splits = dto.splits;
     if (dto.attachments !== undefined) updates.attachments = dto.attachments;
     if (dto.isPrivate !== undefined) updates.isPrivate = dto.isPrivate;
+    if (dto.paidOnBehalfOf !== undefined) {
+      // null clears the field, array sets it
+      updates.paidOnBehalfOf = dto.paidOnBehalfOf || [];
+    }
 
     await db.collection(this.collection).doc(expenseId).set(updates, { merge: true });
 
