@@ -1,22 +1,27 @@
+import { Platform } from 'react-native';
+
 /**
  * Mobile app environment configuration.
  *
  * In development (__DEV__ = true), the app connects to the local API server.
- * For real-device testing on the same Wi-Fi network, replace 'localhost'
- * with your machine's LAN IP address (e.g. 192.168.1.42).
+ * Android emulator uses 10.0.2.2 to reach host machine's localhost.
+ * For real-device testing on the same Wi-Fi network, replace with your
+ * machine's LAN IP address (e.g. 192.168.1.42).
  *
  * In production, it points to the deployed API.
  */
 
+const DEV_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
+
 export const ENV = {
   /** Base URL for the Splitex API */
   API_URL: __DEV__
-    ? 'http://localhost:3001'
+    ? `http://${DEV_HOST}:3001`
     : 'https://api.splitex.app',
 
   /** WebSocket URL for real-time updates (future use) */
   WS_URL: __DEV__
-    ? 'ws://localhost:3001/ws'
+    ? `ws://${DEV_HOST}:3001/ws`
     : 'wss://api.splitex.app/ws',
 
   /** AsyncStorage key prefix */
@@ -40,7 +45,7 @@ export const ENV = {
   GOOGLE_ANDROID_CLIENT_ID:
     (process.env as any).EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '368026022797-v07qjj1ns2j1lv7dka6rsds89besfiud.apps.googleusercontent.com',
   GOOGLE_IOS_CLIENT_ID:
-    (process.env as any).EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '',
+    (process.env as any).EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '368026022797-qvfan0k9d0e4jktefqu15r8jaqhetg86.apps.googleusercontent.com',
 };
 
 /**

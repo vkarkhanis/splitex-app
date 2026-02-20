@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api, setToken, clearToken, getToken } from '../api';
+import { ENV } from '../config/env';
 
 interface AuthUser {
   userId: string;
@@ -37,11 +38,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [tier, setTier] = useState<'free' | 'pro'>('free');
 
   const loadUser = useCallback(async () => {
+    console.log('[AuthContext] loadUser called, API_URL:', ENV.API_URL);
     try {
       const token = await getToken();
+      console.log('[AuthContext] stored token:', token ? 'exists' : 'none');
       if (!token) { setLoading(false); return; }
-      const { data } = await api.get('/api/users/profile');
-      setUser({ userId: data.userId, email: data.email, displayName: data.displayName });
+
+      // Add timeout to prevent hanging forever
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      try {
+        const { data } = await api.get('/api/users/profile');
+        clearTimeout(timeout);
+        setUser({ userId: data.userId, email: data.email, displayName: data.displayName });
+      } catch (fetchErr: any) {
+        clearTimeout(timeout);
+        console.error('[AuthContext] loadUser fetch error:', fetchErr.message);
+        throw fetchErr;
+      }
     } catch {
       await clearToken();
     } finally {
@@ -62,11 +76,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginWithGoogle = async (idToken: string) => {
-    const { data } = await api.post('/api/auth/google', { token: idToken });
-    const token = data.tokens?.accessToken || data.accessToken || data.token;
-    if (!token) throw new Error('No token received from server');
-    await setToken(token);
-    await loadUser();
+    console.log('[AuthContext] loginWithGoogle called, API_URL:', ENV.API_URL);
+    try {
+      const { data } = await api.post('/api/auth/google', { token: idToken });
+      console.log('[AuthContext] Google auth response:', JSON.stringify(data));
+      const token = data.tokens?.accessToken || data.accessToken || data.token;
+      if (!token) throw new Error('No token received from server');
+      await setToken(token);
+      await loadUser();
+    } catch (err: any) {
+      console.error('[AuthContext] loginWithGoogle error:', err.message, err);
+      throw err;
+    }
   };
 
   const register = async (email: string, password: string, displayName: string) => {

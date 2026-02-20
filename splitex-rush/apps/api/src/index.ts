@@ -56,8 +56,8 @@ app.use('*', (req, res) => {
 const server = http.createServer(app);
 initWebSocket(server);
 
-server.listen(PORT, () => {
-  console.log(`🚀 Splitex API server running on port ${PORT}`);
+server.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`🚀 Splitex API server running on 0.0.0.0:${PORT}`);
 });
 
 export default app;

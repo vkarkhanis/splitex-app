@@ -3,7 +3,7 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   StyleSheet,
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -20,13 +20,6 @@ import { ENV } from '../config/env';
 
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
 
-if (GOOGLE_ENABLED) {
-  GoogleSignin.configure({
-    webClientId: ENV.GOOGLE_WEB_CLIENT_ID,
-    offlineAccess: false,
-  });
-}
-
 export default function LoginScreen({ navigation }: any) {
   const { login, loginWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
@@ -38,9 +31,12 @@ export default function LoginScreen({ navigation }: any) {
     if (!GOOGLE_ENABLED) return;
     setGoogleLoading(true);
     try {
-      await GoogleSignin.hasPlayServices();
+      if (Platform.OS === 'android') {
+        await GoogleSignin.hasPlayServices();
+      }
       const result: any = await GoogleSignin.signIn();
-      const idToken = result?.data?.idToken || result?.idToken;
+      console.log('Google Sign-In result:', JSON.stringify(result, null, 2));
+      const idToken = result?.data?.idToken || result?.idToken || result?.serverAuthCode || result?.data?.serverAuthCode;
       if (!idToken) {
         Alert.alert('Google Sign-In', 'No ID token received from Google.');
         return;
@@ -106,8 +102,8 @@ export default function LoginScreen({ navigation }: any) {
           editable={!loading}
         />
 
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
+        <Pressable
+          style={({pressed}) => [styles.button, loading && styles.buttonDisabled, pressed && styles.buttonPressed]}
           onPress={handleLogin}
           disabled={loading}
         >
@@ -116,11 +112,11 @@ export default function LoginScreen({ navigation }: any) {
           ) : (
             <Text style={styles.buttonText}>Sign In</Text>
           )}
-        </TouchableOpacity>
+        </Pressable>
 
-        <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
+        <Pressable onPress={() => navigation.navigate('ForgotPassword')}>
           <Text style={styles.forgotLink}>Forgot Password?</Text>
-        </TouchableOpacity>
+        </Pressable>
 
         {GOOGLE_ENABLED && (
           <>
@@ -130,8 +126,8 @@ export default function LoginScreen({ navigation }: any) {
               <View style={styles.dividerLine} />
             </View>
 
-            <TouchableOpacity
-              style={[styles.googleButton, googleLoading && styles.buttonDisabled]}
+            <Pressable
+              style={({pressed}) => [styles.googleButton, googleLoading && styles.buttonDisabled, pressed && styles.buttonPressed]}
               onPress={handleGoogleSignIn}
               disabled={googleLoading}
             >
@@ -140,13 +136,13 @@ export default function LoginScreen({ navigation }: any) {
               ) : (
                 <Text style={styles.googleButtonText}>Sign in with Google</Text>
               )}
-            </TouchableOpacity>
+            </Pressable>
           </>
         )}
 
-        <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+        <Pressable onPress={() => navigation.navigate('Register')}>
           <Text style={styles.link}>Don't have an account? Register</Text>
-        </TouchableOpacity>
+        </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
@@ -201,6 +197,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   buttonDisabled: { opacity: 0.6 },
+  buttonPressed: { opacity: 0.7 },
   buttonText: {
     color: colors.white,
     fontSize: fontSizes.md,

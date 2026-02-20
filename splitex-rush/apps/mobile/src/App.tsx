@@ -3,8 +3,20 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View } from 'react-native';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { ENV } from './config/env';
+
+// Configure Google Sign-In once at app startup
+const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
+if (GOOGLE_ENABLED) {
+  GoogleSignin.configure({
+    webClientId: ENV.GOOGLE_WEB_CLIENT_ID,
+    iosClientId: ENV.GOOGLE_IOS_CLIENT_ID || undefined,
+    offlineAccess: false,
+  });
+}
 
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
@@ -44,7 +56,7 @@ function AppStack() {
       <Stack.Screen
         name="Dashboard"
         component={DashboardScreen}
-        options={{ title: 'Splitex', headerLargeTitle: true }}
+        options={{ title: 'Splitex' }}
       />
       <Stack.Screen
         name="EventDetail"

@@ -1,8 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ENV } from './config/env';
 
-const API_BASE = __DEV__
-  ? 'http://localhost:3001'
-  : 'https://api.splitex.app';
+const API_BASE = ENV.API_URL;
 
 const TOKEN_KEY = '@splitex_token';
 
@@ -29,7 +28,9 @@ async function request<T = any>(
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const url = `${API_BASE}${path}`;
+  console.log(`[api] ${options.method || 'GET'} ${url}`);
+  const res = await fetch(url, {
     ...options,
     headers,
   });

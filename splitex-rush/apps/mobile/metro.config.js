@@ -19,4 +19,7 @@ config.resolver.nodeModulesPaths = [
 // 3. Ensure symlinks are followed (critical for pnpm)
 config.resolver.unstable_enableSymlinks = true;
 
+// 4. Disable package exports which can cause issues in pnpm monorepos
+config.resolver.unstable_enablePackageExports = false;
+
 module.exports = config;

@@ -32,9 +32,12 @@ export default function RegisterScreen({ navigation }: any) {
     if (!GOOGLE_ENABLED) return;
     setGoogleLoading(true);
     try {
-      await GoogleSignin.hasPlayServices();
-      const userInfo = await GoogleSignin.signIn();
-      const idToken = userInfo.data?.idToken;
+      if (Platform.OS === 'android') {
+        await GoogleSignin.hasPlayServices();
+      }
+      const userInfo: any = await GoogleSignin.signIn();
+      console.log('Google Sign-Up result:', JSON.stringify(userInfo, null, 2));
+      const idToken = userInfo?.data?.idToken || userInfo?.idToken || userInfo?.serverAuthCode || userInfo?.data?.serverAuthCode;
       if (!idToken) {
         Alert.alert('Google Sign-Up', 'No ID token received from Google.');
         return;
