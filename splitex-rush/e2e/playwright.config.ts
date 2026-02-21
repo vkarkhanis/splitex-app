@@ -21,16 +21,16 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'cd ../apps/api && npx ts-node src/index.ts',
+      command: 'cd ../apps/api && APP_ENV=local INTERNAL_TIER_SWITCH_ENABLED=true PAYMENT_ALLOW_REAL_IN_NON_PROD=false rushx dev',
       port: 3001,
       timeout: 30000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
     },
     {
-      command: 'cd ../apps/web && npm run dev',
+      command: 'cd ../apps/web && NEXT_PUBLIC_APP_ENV=local NEXT_PUBLIC_ALLOW_LOCAL_TIER_SWITCH=true rushx dev',
       port: 3000,
       timeout: 60000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
     },
   ],
 });

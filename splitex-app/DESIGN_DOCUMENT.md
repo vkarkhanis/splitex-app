@@ -952,3 +952,46 @@ Total external transactions: 1 (minimum possible)
 ---
 
 This design document provides a comprehensive foundation for building the Splitex expense splitting application. The modular approach ensures maintainability, while the phased development plan allows for iterative improvement and early user feedback.
+
+## 16. Free/Pro Entitlement Architecture (2026 Update)
+
+### 16.1 Tier Model
+- Tier values: `free`, `pro`
+- Entitlement lifecycle: `active`, `grace_period`, `billing_retry`, `expired`, `revoked`
+- Entitlement source: `revenuecat`, `manual_override`, `system`
+
+### 16.2 Capability Model
+- Capabilities are derived server-side from entitlement state.
+- Current capability:
+  - `multiCurrencySettlement` (Pro-only when entitlement is active/grace)
+
+### 16.3 Enforcement Boundaries
+- API is source of truth for all entitlement checks.
+- Existing Free event cap (3 active/closed events) remains unchanged.
+- FX/multi-currency fields are denied server-side for Free users.
+
+### 16.4 Environment Matrix
+- Local:
+  - Tier switch enabled on Mobile + Web
+  - Payments mocked by default
+- Staging/Internal/TestFlight:
+  - Tier switch enabled on Mobile only (internal testers)
+  - Web read-only for tier switching
+  - Payments mocked by default
+  - Real Razorpay/Stripe allowed only by explicit policy flags + tester authorization
+- Production:
+  - No manual tier switching
+  - RevenueCat webhook lifecycle drives entitlements
+
+### 16.5 Real-time Propagation
+- API emits websocket event `user:tier-updated` on entitlement changes.
+- Active web sessions re-fetch profile and update capability-driven UI.
+
+### 16.6 RevenueCat Integration
+- RevenueCat webhook endpoint updates entitlement state idempotently.
+- Replay-safe event handling stores processed webhook IDs.
+- Runbook/scripts:
+  - `splitex-rush/docs/REVENUECAT_INTEGRATION_RUNBOOK.md`
+  - `splitex-rush/scripts/revenuecat/bootstrap.sh`
+  - `splitex-rush/scripts/revenuecat/check-config.sh`
+  - `splitex-rush/scripts/revenuecat/smoke-webhook.sh`

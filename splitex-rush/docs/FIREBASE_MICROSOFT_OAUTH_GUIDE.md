@@ -99,7 +99,7 @@ After registration, you'll see:
 ```
 
 ### **Test Flow**
-1. Start your app: `npm run dev`
+1. Start your app: `rush dev:web`
 2. Navigate to `http://localhost:3000`
 3. Click "Sign in with Microsoft"
 4. Should redirect to Microsoft login

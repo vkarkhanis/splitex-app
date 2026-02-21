@@ -9,10 +9,11 @@ test.describe('Event Management', () => {
   test('should show empty state on dashboard when no events', async ({ page }) => {
     await page.goto('/dashboard');
     await expect(page.getByTestId('dashboard-page')).toBeVisible();
-    // Either shows events grid or empty state
-    const emptyState = page.getByTestId('empty-events');
-    const eventsGrid = page.getByTestId('events-grid');
-    await expect(emptyState.or(eventsGrid)).toBeVisible();
+    // Dashboard may show empty state or populated cards depending on existing mock data.
+    const emptyVisible = await page.getByTestId('empty-events').isVisible().catch(() => false);
+    if (!emptyVisible) {
+      await expect(page.getByTestId('events-grid')).toBeVisible({ timeout: 15000 });
+    }
   });
 
   test('should navigate to create event page', async ({ page }) => {

@@ -149,6 +149,10 @@ dist-storybook/
 # Expo
 **/.expo/
 **/.expo-shared/
+apps/mobile/maestro/artifacts/*
+!apps/mobile/maestro/artifacts/.gitignore
+apps/mobile/maestro/artifacts/.maestro/
+apps/mobile/maestro/artifacts/junit*.xml
 
 # Android build artifacts & machine-specific files
 **/android/app/build/
@@ -172,6 +176,11 @@ apps/mobile/ios/
 # Firebase config (contains API keys — use .example template)
 **/google-services.json
 **/GoogleService-Info.plist
+
+# Firebase Emulator Suite local state
+.firebase/
+**/.firebase/
+apps/mobile/maestro/.firebase-data/
 
 # Debug keystore (machine-specific, regenerated if missing)
 **/debug.keystore

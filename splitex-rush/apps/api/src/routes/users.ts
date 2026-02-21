@@ -2,8 +2,10 @@ import { Router } from 'express';
 import { ApiResponse, UserProfile, UserPreferences } from '@splitex/shared';
 import { db } from '../config/firebase';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
+import { EntitlementService } from '../services/entitlement.service';
 
 const router: Router = Router();
+const entitlementService = new EntitlementService();
 
 router.get('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
@@ -23,6 +25,11 @@ router.get('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
       email: req.user?.email || '',
       phoneNumber: undefined,
       photoURL: undefined,
+      tier: 'free',
+      entitlementStatus: 'active',
+      entitlementExpiresAt: null,
+      entitlementSource: 'system',
+      capabilities: { multiCurrencySettlement: false },
       preferences: defaultPreferences
     };
 
@@ -37,12 +44,20 @@ router.get('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
     }
 
     const data = snap.data() || {};
+    const entitlement = await entitlementService.getEntitlement(uid);
+    const capabilities = entitlementService.computeCapabilities(entitlement);
     const profile: UserProfile = {
       userId: uid,
       displayName: typeof data.displayName === 'string' ? data.displayName : baseProfile.displayName,
       email: typeof data.email === 'string' ? data.email : baseProfile.email,
       phoneNumber: typeof data.phoneNumber === 'string' ? data.phoneNumber : undefined,
       photoURL: typeof data.photoURL === 'string' ? data.photoURL : undefined,
+      tier: entitlement.tier,
+      entitlementStatus: entitlement.entitlementStatus,
+      entitlementExpiresAt: entitlement.entitlementExpiresAt,
+      entitlementSource: entitlement.entitlementSource,
+      internalTester: entitlement.internalTester,
+      capabilities,
       preferences: {
         ...defaultPreferences,
         ...(data.preferences || {})
@@ -104,12 +119,20 @@ router.put('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
 
     await ref.set(updatedDoc, { merge: true });
 
+    const entitlement = await entitlementService.getEntitlement(uid);
+    const capabilities = entitlementService.computeCapabilities(entitlement);
     const profile: UserProfile = {
       userId: uid,
       displayName: updatedDoc.displayName,
       email: updatedDoc.email,
       phoneNumber: updatedDoc.phoneNumber,
       photoURL: updatedDoc.photoURL,
+      tier: entitlement.tier,
+      entitlementStatus: entitlement.entitlementStatus,
+      entitlementExpiresAt: entitlement.entitlementExpiresAt,
+      entitlementSource: entitlement.entitlementSource,
+      internalTester: entitlement.internalTester,
+      capabilities,
       preferences: updatedDoc.preferences
     };
 

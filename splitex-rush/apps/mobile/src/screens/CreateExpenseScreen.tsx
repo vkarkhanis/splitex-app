@@ -110,27 +110,50 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
     }
   }, [onBehalfOf, payerEntityId]);
 
-  // Recalculate splits on amount/selection change
+  const selectedEntities = useMemo(() => entities.filter(e => e.selected), [entities]);
+  const ratioKey = useMemo(
+    () => entities.filter(e => e.selected).map(s => `${s.entityId}:${s.ratio}`).join(','),
+    [entities]
+  );
+
+  // Recalculate splits on amount/selection/splitType change
   useEffect(() => {
     const amt = parseFloat(amount) || 0;
     const selected = entities.filter(e => e.selected);
-    if (amt <= 0 || selected.length === 0 || splitType !== 'equal') return;
+    if (amt <= 0 || selected.length === 0) return;
 
-    const perEntity = Math.round((amt / selected.length) * 100) / 100;
-    const remainder = Math.round((amt - perEntity * selected.length) * 100) / 100;
-    let idx = 0;
-    setEntities(prev => prev.map(e => {
-      if (!e.selected) return { ...e, amount: 0 };
-      const a = idx === 0 ? perEntity + remainder : perEntity;
-      idx++;
-      return { ...e, amount: a };
-    }));
-  }, [amount, entities.filter(e => e.selected).length, splitType]);
+    if (splitType === 'equal') {
+      const perEntity = Math.round((amt / selected.length) * 100) / 100;
+      const remainder = Math.round((amt - perEntity * selected.length) * 100) / 100;
+      let idx = 0;
+      setEntities(prev => prev.map(e => {
+        if (!e.selected) return { ...e, amount: 0 };
+        const a = idx === 0 ? perEntity + remainder : perEntity;
+        idx++;
+        return { ...e, amount: a, ratio: 1 };
+      }));
+      return;
+    }
+
+    if (splitType === 'ratio') {
+      const totalRatio = selected.reduce((sum, s) => sum + s.ratio, 0);
+      if (totalRatio > 0) {
+        setEntities(prev => prev.map(e => {
+          if (!e.selected) return { ...e, amount: 0 };
+          return { ...e, amount: Math.round((amt * e.ratio / totalRatio) * 100) / 100 };
+        }));
+      }
+    }
+  }, [amount, splitType, entities.length, ratioKey]);
 
   const toggleEntity = (index: number) => {
     const entity = entities[index];
     if (onBehalfOf && entity && entity.entityId === payerEntityId) return;
     setEntities(prev => prev.map((e, i) => i === index ? { ...e, selected: !e.selected } : e));
+  };
+
+  const updateEntity = (index: number, patch: Partial<SplitEntry>) => {
+    setEntities(prev => prev.map((e, i) => i === index ? { ...e, ...patch } : e));
   };
 
   const toggleOnBehalfOfEntity = (ent: SplitEntry) => {
@@ -156,9 +179,15 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
       return;
     }
 
-    const selected = entities.filter(e => e.selected);
+    const selected = selectedEntities;
     if (selected.length === 0 && !isPrivate) {
       Alert.alert('Error', 'Select at least one entity to split with.');
+      return;
+    }
+
+    const splitTotal = selected.reduce((sum, s) => sum + s.amount, 0);
+    if (!isPrivate && amt > 0 && Math.abs(splitTotal - amt) > 0.01) {
+      Alert.alert('Error', `Split amounts (${sym}${splitTotal.toFixed(2)}) must match total amount (${sym}${amt.toFixed(2)}).`);
       return;
     }
 
@@ -168,6 +197,7 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
         entityType: e.entityType,
         entityId: e.entityId,
         amount: e.amount,
+        ratio: splitType === 'ratio' ? e.ratio : undefined,
       }));
 
       const payload: Record<string, any> = {
@@ -205,23 +235,47 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
   }
 
   const sym = CURRENCY_SYMBOLS[expCurrency] || expCurrency;
+  const splitTotal = selectedEntities.reduce((sum, s) => sum + s.amount, 0);
+  const expenseAmount = parseFloat(amount) || 0;
+  const splitMismatch = !isPrivate && expenseAmount > 0 && selectedEntities.length > 0
+    && Math.abs(splitTotal - expenseAmount) > 0.01;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.heading}>Add Expense</Text>
 
       <Text style={styles.label}>Title</Text>
-      <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Dinner" placeholderTextColor={colors.muted} />
+      <TextInput testID="create-expense-title-input" style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Dinner" placeholderTextColor={colors.muted} />
 
       <Text style={styles.label}>Description (optional)</Text>
-      <TextInput style={styles.input} value={description} onChangeText={setDescription} placeholder="Brief note..." placeholderTextColor={colors.muted} />
+      <TextInput testID="create-expense-description-input" style={styles.input} value={description} onChangeText={setDescription} placeholder="Brief note..." placeholderTextColor={colors.muted} />
 
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>Amount ({sym})</Text>
-          <TextInput style={styles.input} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={colors.muted} />
+          <TextInput testID="create-expense-amount-input" style={styles.input} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={colors.muted} />
         </View>
       </View>
+
+      {!isPrivate && (
+        <>
+          <Text style={styles.label}>Split Type</Text>
+          <View style={styles.splitTypeRow}>
+            {(['equal', 'ratio', 'custom'] as const).map(type => (
+              <TouchableOpacity
+                key={type}
+                testID={`create-expense-split-type-${type}`}
+                style={[styles.splitTypeBtn, splitType === type && styles.splitTypeBtnActive]}
+                onPress={() => setSplitType(type)}
+              >
+                <Text style={[styles.splitTypeBtnText, splitType === type && styles.splitTypeBtnTextActive]}>
+                  {type === 'equal' ? 'Equal' : type === 'ratio' ? 'By Ratio' : 'Custom'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </>
+      )}
 
       {/* Private toggle */}
       <View style={styles.toggleRow}>
@@ -272,6 +326,7 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
             return (
               <TouchableOpacity
                 key={ent.entityId}
+                testID={`create-expense-split-entity-${ent.entityType}-${ent.entityId}`}
                 style={[
                   styles.entityRow,
                   ent.selected && styles.entityRowSelected,
@@ -288,7 +343,32 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
                   {isPayerEntity ? ' (You — excluded)' : ''}
                 </Text>
                 {ent.selected && (
-                  <Text style={styles.entityAmount}>{sym}{ent.amount.toFixed(2)}</Text>
+                  <>
+                    {splitType === 'ratio' && (
+                      <View style={styles.inlineInputWrap}>
+                        <TextInput
+                          testID={`create-expense-split-ratio-${ent.entityType}-${ent.entityId}`}
+                          style={styles.inlineInput}
+                          value={String(ent.ratio)}
+                          onChangeText={(v) => updateEntity(i, { ratio: parseFloat(v) || 0 })}
+                          keyboardType="number-pad"
+                        />
+                        <Text style={styles.inlineSuffix}>ratio</Text>
+                      </View>
+                    )}
+                    {splitType === 'custom' && (
+                      <View style={styles.inlineInputWrap}>
+                        <TextInput
+                          testID={`create-expense-split-amount-${ent.entityType}-${ent.entityId}`}
+                          style={styles.inlineInput}
+                          value={String(ent.amount || '')}
+                          onChangeText={(v) => updateEntity(i, { amount: parseFloat(v) || 0 })}
+                          keyboardType="decimal-pad"
+                        />
+                      </View>
+                    )}
+                    <Text style={styles.entityAmount}>{sym}{ent.amount.toFixed(2)}</Text>
+                  </>
                 )}
                 {isPayerEntity && (
                   <Text style={styles.entityAmountZero}>{sym}0.00</Text>
@@ -299,10 +379,17 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
         </>
       )}
 
+      {splitMismatch && (
+        <Text style={styles.errorText}>
+          Split amounts ({sym}{splitTotal.toFixed(2)}) do not match total ({sym}{expenseAmount.toFixed(2)}).
+        </Text>
+      )}
+
       <TouchableOpacity
+        testID="create-expense-submit-button"
         style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
         onPress={handleSubmit}
-        disabled={loading}
+        disabled={loading || splitMismatch}
       >
         {loading ? (
           <ActivityIndicator color={colors.white} />
@@ -325,6 +412,22 @@ const styles = StyleSheet.create({
     padding: spacing.md, fontSize: fontSizes.md, color: colors.text,
   },
   row: { flexDirection: 'row', gap: spacing.md },
+  splitTypeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  splitTypeBtn: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+  },
+  splitTypeBtnActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + '14',
+  },
+  splitTypeBtnText: { fontSize: fontSizes.sm, color: colors.textSecondary, fontWeight: '600' },
+  splitTypeBtnTextActive: { color: colors.primary },
   toggleRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border,
@@ -360,6 +463,20 @@ const styles = StyleSheet.create({
   entityNameDisabled: { color: colors.muted, fontStyle: 'italic' },
   entityAmount: { fontSize: fontSizes.sm, fontWeight: '600', color: colors.primary },
   entityAmountZero: { fontSize: fontSizes.sm, fontWeight: '600', color: colors.muted },
+  inlineInputWrap: { width: 86, marginRight: spacing.sm },
+  inlineInput: {
+    backgroundColor: colors.background,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    fontSize: fontSizes.sm,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  inlineSuffix: { fontSize: fontSizes.xs, color: colors.muted, textAlign: 'center', marginTop: 2 },
+  errorText: { marginTop: spacing.sm, color: colors.error, fontSize: fontSizes.sm, fontWeight: '600' },
   submitBtn: {
     backgroundColor: colors.primary, borderRadius: radii.md, padding: spacing.lg,
     alignItems: 'center', marginTop: spacing.xxl,

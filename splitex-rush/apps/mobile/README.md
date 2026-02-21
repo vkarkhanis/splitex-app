@@ -9,16 +9,39 @@ Complete React Native (Expo) mobile application for iOS and Android. This guide 
 1. [Prerequisites](#prerequisites)
 2. [Quick Start](#quick-start)
 3. [Environment Variables](#environment-variables)
-4. [Project Structure](#project-structure)
-5. [Rush Commands Reference](#rush-commands-reference)
-6. [Running on iOS Simulator](#running-on-ios-simulator)
-7. [Running on Android Emulator](#running-on-android-emulator)
-8. [Running on Real Devices](#running-on-real-devices)
-9. [End-to-End Testing Guide](#end-to-end-testing-guide)
-10. [Architecture & Key Files](#architecture--key-files)
-11. [Features](#features)
-12. [Known Limitations & Roadmap](#known-limitations--roadmap)
-13. [Troubleshooting](#troubleshooting)
+4. [Settlement](#settlement)
+5. [Project Structure](#project-structure)
+6. [Rush Commands Reference](#rush-commands-reference)
+7. [Running on iOS Simulator](#running-on-ios-simulator)
+8. [Running on Android Emulator](#running-on-android-emulator)
+9. [Running on Real Devices](#running-on-real-devices)
+10. [Testing Splitex](#testing-splitex)
+11. [End-to-End Testing Guide](#end-to-end-testing-guide)
+12. [Automated Test Coverage](#automated-test-coverage)
+
+## Tier Entitlement Behavior
+
+- Mobile consumes tier/capabilities from `/api/users/profile` (server-authoritative).
+- Internal tier switch is available only when:
+  - `EXPO_PUBLIC_INTERNAL_FEATURES_ENABLED=true`
+  - API `INTERNAL_TIER_SWITCH_ENABLED=true`
+  - runtime environment allows it (local/dev/test or internal tester in staging/TestFlight/internal)
+- Production should not expose manual tier switching.
+- Tier updates trigger websocket `user:tier-updated` to keep web sessions in sync.
+
+## Hidden Local Developer Option: Firebase Emulator
+
+- Available only in local/dev mode (`APP_ENV=local` / `__DEV__`), hidden by default.
+- Unlock: open Profile and tap app version text 7 times.
+- Option: `Use Firebase Emulator`.
+- Effect: mobile API requests switch between:
+  - normal local API: `http://<host>:3001`
+  - emulator-backed local API: `http://<host>:3002`
+- Not available in internal testing/TestFlight/production.
+13. [Architecture & Key Files](#architecture--key-files)
+14. [Features](#features)
+15. [Known Limitations & Roadmap](#known-limitations--roadmap)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -29,9 +52,10 @@ Complete React Native (Expo) mobile application for iOS and Android. This guide 
 | Tool | Version | Install |
 |------|---------|---------|
 | **Node.js** | `>=24.11.1 <25.0.0` | `nvm install 24` or [nodejs.org](https://nodejs.org) |
-| **Rush.js** | `5.167.0` | `npm install -g @microsoft/rush` |
-| **Expo CLI** | Latest | `npm install -g expo-cli` |
+| **Rush.js** | `5.167.0` | `corepack enable && npx @microsoft/rush@5.167.0 --version` |
+| **Expo CLI** | Latest | `pnpm dlx expo --version` |
 | **Expo Go** app | Latest | Install from App Store (iOS) or Play Store (Android) |
+| **Maestro CLI** (for mobile E2E) | Latest | `curl -Ls "https://get.maestro.mobile.dev" \| bash` |
 
 ### For iOS Development (macOS only)
 
@@ -57,8 +81,8 @@ Complete React Native (Expo) mobile application for iOS and Android. This guide 
 | Tool | Purpose | Install |
 |------|---------|---------|
 | **Expo Go** | Run Expo apps without native build | App Store / Play Store |
-| **EAS CLI** | Build native binaries for real devices | `npm install -g eas-cli` |
-| **@expo/ngrok** | Tunnel for real devices on different networks | `npm install -g @expo/ngrok` |
+| **EAS CLI** | Build native binaries for real devices | `pnpm dlx eas-cli --version` |
+| **@expo/ngrok** | Tunnel for real devices on different networks | `pnpm dlx @expo/ngrok --help` |
 
 ---
 
@@ -138,6 +162,99 @@ ipconfig | findstr "IPv4"
 
 ---
 
+## Settlement
+
+This project is now configured so settlement payment integration is **configuration-driven**:
+- No code changes are required to switch between mocked and real gateway flows.
+- You only provide environment values (API keys + mode flags).
+
+Gateway routing behavior:
+- `INR` settlements -> Razorpay
+- Non-`INR` settlements -> Stripe
+
+### Settlement mode matrix
+
+| API setting | Mobile setting | Result |
+|-------------|----------------|--------|
+| `PAYMENT_GATEWAY_MODE=mock` | any | Always mocked |
+| `PAYMENT_GATEWAY_MODE=auto` + non-prod + `PAYMENT_ALLOW_REAL_IN_NON_PROD=false` | any | Mocked |
+| `PAYMENT_GATEWAY_MODE=auto` + non-prod + `PAYMENT_ALLOW_REAL_IN_NON_PROD=true` | `EXPO_PUBLIC_USE_REAL_PAYMENTS=true` | Real gateway checkout |
+| `PAYMENT_GATEWAY_MODE=auto` + non-prod + `PAYMENT_ALLOW_REAL_IN_NON_PROD=true` | `EXPO_PUBLIC_USE_REAL_PAYMENTS=false` | Mocked |
+| `PAYMENT_GATEWAY_MODE=live` | any | Real gateway checkout |
+
+### Required API configuration for real settlements
+
+Set these in:
+`/Users/vkarkhanis/workspace/Splitex/splitex-rush/.env.local`
+
+```env
+# Settlement mode
+PAYMENT_GATEWAY_MODE=auto
+PAYMENT_ALLOW_REAL_IN_NON_PROD=true
+
+# Razorpay (INR)
+RAZORPAY_KEY_ID=rzp_...
+RAZORPAY_KEY_SECRET=...
+
+# Stripe (non-INR)
+STRIPE_SECRET_KEY=sk_...
+
+# Redirects
+PAYMENT_SUCCESS_URL=https://<your-web-host>/payment/success
+PAYMENT_CANCEL_URL=https://<your-web-host>/payment/cancel
+```
+
+If you want guaranteed real mode regardless of non-prod/opt-in, set:
+
+```env
+PAYMENT_GATEWAY_MODE=live
+```
+
+### Required mobile configuration
+
+Set during app launch/build:
+
+```bash
+EXPO_PUBLIC_USE_REAL_PAYMENTS=true
+```
+
+Default/safe mocked mode:
+
+```bash
+EXPO_PUBLIC_USE_REAL_PAYMENTS=false
+```
+
+### End-to-end setup for actual gateway settlements
+
+1. Configure API env keys and mode as above.
+2. Start API:
+   ```bash
+   cd /Users/vkarkhanis/workspace/Splitex/splitex-rush
+   rush dev:api
+   ```
+3. Start mobile with real-payment opt-in:
+   ```bash
+   cd /Users/vkarkhanis/workspace/Splitex/splitex-rush
+   EXPO_PUBLIC_USE_REAL_PAYMENTS=true rush dev:mobile
+   ```
+4. Create settlement scenario:
+   - INR event/settlement currency -> `Pay` should open Razorpay checkout URL.
+   - Non-INR settlement currency -> `Pay` should open Stripe checkout URL.
+5. Confirm settlement completion in app:
+   - Recipient still confirms using `Confirm` in the app (current workflow).
+
+### Important operational notes
+
+- If real mode is requested but required keys are missing, API returns a clear configuration error.
+- For local/test/internal environments, keep mocked mode unless gateway validation is explicitly needed.
+- Different-currency settlements without predefined rate use EOD FX fallback automatically.
+- Multi-currency settlement UI shows both base amount and settlement amount with FX rate:
+  - while payer is paying
+  - while payee is confirming
+  - after settlement completion for all users
+
+---
+
 ## Project Structure
 
 ```
@@ -184,6 +301,13 @@ All commands run from the **monorepo root**.
 | Command | Description |
 |---------|-------------|
 | `rush build:mobile` | Type-check the mobile app (`tsc --noEmit`) |
+| `rush test:mobile` | Run mobile unit tests |
+| `rush test:mobile:coverage` | Run mobile unit tests with coverage thresholds |
+| `rush test:e2e` | Run Playwright E2E suite |
+| `rush test:maestro` | Run Maestro mobile E2E suite (no artifacts) |
+| `rush test:maestro:artifacts` | Run Maestro mobile E2E suite with screenshots/logs |
+| `rush test:maestro:android` | Run Maestro mobile E2E suite on Android (`emulator-5556` default) |
+| `rush test:maestro:ios` | Run Maestro mobile E2E suite on iOS simulator/device (`MAESTRO_DEVICE` configurable) |
 | `rush clean:mobile` | Clean `.expo`, `dist`, and `node_modules/.cache` |
 
 ### Native Builds (for real device deployment)
@@ -332,8 +456,8 @@ EXPO_PUBLIC_API_URL=http://192.168.1.42:3001 rush dev:mobile
 If your phone and computer are on different networks, or corporate Wi-Fi blocks local connections:
 
 ```bash
-# Install ngrok (one-time)
-npm install -g @expo/ngrok
+# Verify ngrok CLI is available
+pnpm dlx @expo/ngrok --help
 
 # Start with tunnel
 rush mobile:tunnel
@@ -346,8 +470,8 @@ rush mobile:tunnel
 For testing native modules not available in Expo Go:
 
 ```bash
-# 1. Install EAS CLI
-npm install -g eas-cli
+# 1. Verify EAS CLI is available
+pnpm dlx eas-cli --version
 
 # 2. Log in to Expo
 eas login
@@ -410,6 +534,220 @@ EXPO_PUBLIC_API_URL=http://YOUR_LAN_IP:3001 rush mobile:android
 
 ---
 
+## Testing Splitex
+
+This runbook covers end-to-end validation of:
+- Same-currency settlement
+- Different-currency settlement (with EOD FX fallback when predefined rates are not provided)
+- Mocked payments by default in Local/TestFlight/Internal Testing
+- Explicit opt-in path for real Razorpay/Stripe checkout testing
+
+### Local
+
+Follow these steps exactly.
+
+#### 1. Prepare local workspace
+
+1. Open terminal and run:
+   ```bash
+   cd /Users/vkarkhanis/workspace/Splitex/splitex-rush
+   rush update
+   rush build:shared
+   ```
+2. Ensure API environment exists:
+   - File: `/Users/vkarkhanis/workspace/Splitex/splitex-rush/.env.local`
+   - Include existing required API keys/secrets documented in root README.
+
+#### 2. Set local payment behavior (default mocked)
+
+1. In API `.env.local` set:
+   ```env
+   PAYMENT_GATEWAY_MODE=auto
+   PAYMENT_ALLOW_REAL_IN_NON_PROD=false
+   NODE_ENV=development
+   ```
+2. Start mobile with:
+   ```bash
+   EXPO_PUBLIC_USE_REAL_PAYMENTS=false
+   ```
+
+Result:
+- `/api/settlements/:settlementId/pay` uses mocked payment IDs locally.
+- No external Razorpay/Stripe checkout should open.
+
+#### 3. Start backend and app
+
+1. Terminal A (API):
+   ```bash
+   cd /Users/vkarkhanis/workspace/Splitex/splitex-rush
+   rush dev:api
+   ```
+2. Verify API:
+   ```bash
+   curl http://localhost:3001/health
+   ```
+3. Terminal B (mobile):
+   ```bash
+   cd /Users/vkarkhanis/workspace/Splitex/splitex-rush
+   EXPO_PUBLIC_USE_REAL_PAYMENTS=false rush dev:mobile
+   ```
+4. Launch target:
+   - Press `i` for iOS simulator
+   - Press `a` for Android emulator
+   - Or scan QR in Expo Go
+
+#### 4. Enable Pro-only multi-currency UI for test builds
+
+Multi-currency event creation in mobile is Pro-gated. Use environment override (no code edits):
+
+1. Start mobile app with:
+   ```bash
+   EXPO_PUBLIC_DEFAULT_TIER=pro EXPO_PUBLIC_USE_REAL_PAYMENTS=false rush dev:mobile
+   ```
+2. For normal free-tier behavior, use:
+   ```bash
+   EXPO_PUBLIC_DEFAULT_TIER=free EXPO_PUBLIC_USE_REAL_PAYMENTS=false rush dev:mobile
+   ```
+3. Free-tier event/trip cap:
+   - Free users can have at most **3** events/trips in `active` or `closed` status.
+   - This is enforced in mobile create flow and API create-event route.
+
+#### 5. Validate same-currency settlement
+
+1. Create event:
+   - Currency: `USD`
+   - Settlement Currency: `Same` (blank)
+2. Add shared expenses so at least one participant owes money.
+3. Generate settlement.
+4. Validate:
+   - Settlement rows show one currency only.
+   - Payer taps `Pay` -> row moves to `initiated`.
+   - Payee taps `Confirm` -> row moves to `completed`.
+   - Event auto-transitions to `settled` when all rows complete.
+
+#### 6. Validate different-currency settlement with EOD fallback
+
+1. Create event:
+   - Currency: `USD`
+   - Settlement Currency: `INR`
+   - FX mode: `EOD`
+   - Do not provide predefined rates.
+2. Add shared expenses and generate settlement.
+3. Validate:
+   - Settlement row shows both base amount and converted amount (`≈ INR ...`).
+   - FX conversion is present even without predefined rate.
+   - Payment lifecycle still works (`pending -> initiated -> completed`).
+
+#### 7. Optional local real-gateway verification (opt-in only)
+
+Use only when explicitly testing gateway checkout.
+
+1. In API `.env.local` set:
+   ```env
+   PAYMENT_ALLOW_REAL_IN_NON_PROD=true
+   RAZORPAY_KEY_ID=...
+   RAZORPAY_KEY_SECRET=...
+   STRIPE_SECRET_KEY=...
+   PAYMENT_SUCCESS_URL=http://localhost:3000/payment/success
+   PAYMENT_CANCEL_URL=http://localhost:3000/payment/cancel
+   ```
+2. Start mobile with:
+   ```bash
+   EXPO_PUBLIC_USE_REAL_PAYMENTS=true rush dev:mobile
+   ```
+3. Validate:
+   - INR settlement opens Razorpay checkout URL.
+   - Non-INR settlement opens Stripe checkout URL.
+4. Revert to mocked mode after test:
+   - `PAYMENT_ALLOW_REAL_IN_NON_PROD=false`
+   - `EXPO_PUBLIC_USE_REAL_PAYMENTS=false`
+
+### Internal Testing
+
+Use this for TestFlight (iOS) and Play Internal Testing (Android).
+
+#### 1. One-time internal testing setup
+
+1. Install and authenticate EAS:
+   ```bash
+   pnpm dlx eas-cli --version
+   eas login
+   ```
+2. Configure EAS project (creates/updates EAS config if missing):
+   ```bash
+   cd /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile
+   eas build:configure
+   ```
+3. Confirm app identifiers in:
+   - `/Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile/app.json`
+
+#### 2. Configure backend for internal mocked settlement payments
+
+On staging backend used by internal builds, set:
+
+```env
+PAYMENT_GATEWAY_MODE=auto
+PAYMENT_ALLOW_REAL_IN_NON_PROD=false
+```
+
+#### 3. Build internal binaries in mocked mode
+
+1. iOS (TestFlight candidate):
+   ```bash
+   cd /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile
+   EXPO_PUBLIC_API_URL=https://<staging-api-host> EXPO_PUBLIC_USE_REAL_PAYMENTS=false eas build --platform ios --profile development
+   ```
+2. Android (Internal track candidate):
+   ```bash
+   cd /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile
+   EXPO_PUBLIC_API_URL=https://<staging-api-host> EXPO_PUBLIC_USE_REAL_PAYMENTS=false eas build --platform android --profile development
+   ```
+
+#### 4. Submit builds to internal channels
+
+1. iOS TestFlight submit:
+   ```bash
+   eas submit --platform ios --latest
+   ```
+2. Android Play submit:
+   ```bash
+   eas submit --platform android --latest
+   ```
+3. In App Store Connect / Play Console:
+   - Add testers to internal groups
+   - Publish rollout to internal testing
+
+#### 5. Internal test execution checklist
+
+For both iOS and Android internal builds:
+
+1. Run same-currency settlement scenario.
+2. Run different-currency (EOD) settlement scenario.
+3. Confirm no external checkout opens in default internal build (mock mode).
+4. Confirm settlement status lifecycle and event auto-settle work.
+
+#### 6. Controlled opt-in real gateway test in internal builds
+
+Use this only for a dedicated gateway test cycle.
+
+1. Backend staging env:
+   ```env
+   PAYMENT_ALLOW_REAL_IN_NON_PROD=true
+   RAZORPAY_KEY_ID=...
+   RAZORPAY_KEY_SECRET=...
+   STRIPE_SECRET_KEY=...
+   PAYMENT_SUCCESS_URL=https://<web-host>/payment/success
+   PAYMENT_CANCEL_URL=https://<web-host>/payment/cancel
+   ```
+2. Rebuild mobile with:
+   ```bash
+   EXPO_PUBLIC_USE_REAL_PAYMENTS=true
+   ```
+3. Redistribute through TestFlight/Internal track.
+4. After test cycle, revert to mocked defaults and rebuild.
+
+---
+
 ## End-to-End Testing Guide
 
 ### Is the Mobile App Ready for E2E Testing?
@@ -424,7 +762,8 @@ EXPO_PUBLIC_API_URL=http://YOUR_LAN_IP:3001 rush mobile:android
 | **Event Detail** | ✅ Ready | Expenses, settlements with dual currency, groups, pay/approve |
 | **Create Expense** | ✅ Ready | Entity selection, splits, "On Behalf Of" |
 | **Settlement Flow** | ✅ Ready | Settle → Pay → Approve → Auto-close |
-| **Automated E2E Tests** | ❌ Not Yet | No Detox/Maestro test suite; manual testing only for now |
+| **Automated E2E Tests (Web/API product flow)** | ✅ Ready | Playwright suite covers event/expense/group/invitation/navigation + mocked settlement flows |
+| **Automated E2E Tests (Native mobile app)** | ✅ Ready | Maestro suite in `apps/mobile/maestro` covers auth/profile + mocked settlement flows (same/different currency) |
 | **Offline Mode** | ❌ Not Yet | App requires network connectivity |
 
 ### Manual E2E Test Plan
@@ -512,42 +851,101 @@ rush mobile:ios    # or rush mobile:android
 | 1 | On Dashboard, pull down | Refresh indicator appears, event list reloads |
 | 2 | On Event Detail, pull down | All data refreshes |
 
-### Automated E2E Testing (Future)
+### Automated E2E Testing (Implemented)
 
-The recommended tools for automated mobile E2E testing are:
+Maestro is now set up for native mobile E2E validation on both iOS and Android emulators.
 
-| Tool | Platform | Notes |
-|------|----------|-------|
-| **Maestro** | iOS + Android | YAML-based, easiest setup, recommended for Expo |
-| **Detox** | iOS + Android | Jest-based, requires native build (`expo prebuild`) |
-| **Appium** | iOS + Android | Cross-platform, Selenium-style |
+Suite location:
+- `/Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile/maestro/flows`
 
-To add Maestro tests in the future:
+Install Maestro CLI (one-time):
 
 ```bash
-# Install Maestro
 curl -Ls "https://get.maestro.mobile.dev" | bash
-
-# Create test flow
-mkdir -p apps/mobile/__tests__/maestro
-cat > apps/mobile/__tests__/maestro/login.yaml << 'EOF'
-appId: com.splitex.app
----
-- launchApp
-- assertVisible: "Splitex"
-- tapOn: "Email"
-- inputText: "test@test.com"
-- tapOn: "Password"
-- inputText: "password123"
-- tapOn: "Sign In"
-- assertVisible: "Hello"
-EOF
-
-# Run
-maestro test apps/mobile/__tests__/maestro/login.yaml
 ```
 
+Run flows:
+
+```bash
+# No artifacts (default fast run)
+rush test:maestro
+
+# With artifacts (screenshots/logs + JUnit output)
+rush test:maestro:artifacts
+```
+
+Artifact policy:
+- Use `rush test:maestro` for normal local runs.
+- Use `rush test:maestro:artifacts` only when debugging failures or when artifacts are explicitly requested, to keep storage usage controlled.
+
 ---
+
+## Automated Test Coverage
+
+### Unit Tests (Mobile App)
+
+- Framework: `Jest` + `ts-jest`
+- Location: `/Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile/src/__tests__`
+- Current coverage gate:
+  - statements >= 80%
+  - branches >= 80%
+  - functions >= 80%
+  - lines >= 80%
+- Current measured coverage (`rush test:mobile:coverage`):
+  - Statements: `95.42%`
+  - Branches: `89.13%`
+  - Functions: `82.69%`
+  - Lines: `95.36%`
+
+Covered mobile modules include:
+- API client and token handling
+- Environment/config behavior
+- Theme constants and utility formatting
+- Auth context and theme context behavior
+- WebSocket subscription hooks
+
+### E2E Tests
+
+- Product E2E framework: `Playwright` in `/Users/vkarkhanis/workspace/Splitex/splitex-rush/e2e`
+- Latest suite status: `45/45 passing`
+- Scope covered:
+  - Event management
+  - Expense management
+  - Group management
+  - Invitation lifecycle
+  - Navigation/auth shell
+  - Settlement lifecycle (mock payments only)
+    - same-currency settlement
+    - multi-currency settlement with predefined FX
+    - `pay` and `approve` lifecycle with `useRealGateway: false`
+
+Important:
+- Real gateway E2E (actual Razorpay/Stripe checkout) is intentionally excluded for now.
+
+### Mobile E2E Tests (Maestro)
+
+- Native mobile E2E framework: `Maestro` in `/Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile/maestro`
+- Current coverage scope:
+  - Auth lifecycle: register, login, signout
+  - Profile save path
+  - Same-currency settlement lifecycle using mocked payment (`pending -> initiated -> completed`)
+  - Multi-currency settlement lifecycle (`USD -> INR`) using EOD FX mode and mocked payment
+  - Invitation-driven multi-user flow used by settlement scenarios
+- Run commands:
+  - `rush test:maestro` (no artifacts)
+  - `rush test:maestro:artifacts` (screenshots/logs + JUnit output)
+  - `rush test:maestro:android`
+  - `rush test:maestro:ios`
+- Latest validation status (February 21, 2026):
+  - `Auth and Profile Smoke`: passing
+  - `Same Currency Settlement (Mock)`: passing
+  - `Multi Currency Settlement with EOD FX (Mock)`: passing
+  - Full suite result via `rush test:maestro`: `3/3 flows passed`
+  - Firebase Maestro test data is auto-cleaned before and after `rush test:maestro*` runs.
+
+Important:
+- Maestro suite targets mocked settlement only. Real Razorpay/Stripe checkout automation is intentionally excluded.
+- This Maestro coverage is additive; existing Playwright E2E tests remain unchanged.
 
 ## Architecture & Key Files
 
@@ -610,28 +1008,25 @@ App.tsx
 
 | Limitation | Impact | Workaround |
 |-----------|--------|------------|
-| No edit expense screen | Cannot edit expenses from mobile | Use web app for editing |
-| No edit event screen | Cannot edit events from mobile | Use web app for editing |
-| No invitation management | Cannot send/accept invitations | Use web app |
-| No group management | Cannot create/edit groups | Use web app |
-| No WebSocket real-time | Data only refreshes on pull-to-refresh or screen focus | Pull down to refresh |
+| No phone/OTP auth flow in mobile login | Users cannot sign in with phone number + OTP like web | Use email/password or Google Sign-In on mobile |
+| No Microsoft OAuth on mobile | Enterprise Microsoft sign-in available on web is missing in mobile | Use web login for Microsoft accounts |
+| Invite modal does not support group assignment (`groupId`) | Cannot attach invitees directly to a specific group from mobile event screen | Send grouped invitations from web event page |
+| Dashboard and Invitations screens are not socket-subscribed | New invites/event status updates may require manual refresh outside Event Detail | Pull to refresh or reopen screen |
+| No invitation token/deep-link accept flow in mobile | Shared invitation links are handled by web pages, not in-app deep-link acceptance | Open invite link in web and accept there |
 | No push notifications | No alerts for new expenses or settlements | Check app manually |
 | No offline support | Requires network connectivity | — |
-| No automated E2E tests | Manual testing only | See test plan above |
-| Auth is email/password only | No OTP, Google, or Microsoft OAuth on mobile | Use email/password |
 
 ### Roadmap
 
-- [ ] Edit expense screen
-- [ ] Edit event screen
-- [ ] Invitation management (send, accept, decline)
-- [ ] Group management (create, edit, members)
-- [ ] WebSocket real-time updates
+- [ ] Add phone/OTP sign-in parity with web auth flow
+- [ ] Add Microsoft OAuth sign-in on mobile
+- [ ] Add group selection in mobile invite modal (`groupId` support)
+- [ ] Add socket-based realtime refresh on Dashboard and Invitations screens
+- [ ] Add mobile deep-link invitation acceptance flow
 - [ ] Push notifications (Expo Notifications)
 - [ ] Offline mode with sync
 - [ ] In-app purchase for Pro tier (RevenueCat / Expo IAP)
-- [ ] Automated E2E tests (Maestro)
-- [ ] Dark mode support
+- [x] Automated E2E tests (Maestro)
 - [ ] Biometric authentication (Face ID / Fingerprint)
 
 ---
@@ -668,6 +1063,10 @@ App.tsx
 | Real device (same Wi-Fi) | `EXPO_PUBLIC_API_URL=http://YOUR_IP:3001 rush dev:mobile` |
 | Real device (any network) | `rush mobile:tunnel` |
 | Type-check | `rush build:mobile` |
+| Unit tests + coverage | `rush test:mobile:coverage` |
+| Web/API E2E tests | `rush test:e2e` |
+| Mobile E2E tests (Maestro) | `rush test:maestro` |
+| Mobile E2E tests with artifacts | `rush test:maestro:artifacts` |
 | Clean caches | `rush clean:mobile` |
 | Generate iOS native project | `rush mobile:prebuild:ios` |
 | Generate Android native project | `rush mobile:prebuild:android` |

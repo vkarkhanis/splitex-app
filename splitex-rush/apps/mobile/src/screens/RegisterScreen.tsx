@@ -83,6 +83,7 @@ export default function RegisterScreen({ navigation }: any) {
         <Text style={styles.subtitle}>Join Splitex to start splitting expenses</Text>
 
         <TextInput
+          testID="register-display-name-input"
           style={styles.input}
           placeholder="Display Name"
           placeholderTextColor={colors.muted}
@@ -91,6 +92,7 @@ export default function RegisterScreen({ navigation }: any) {
           editable={!loading}
         />
         <TextInput
+          testID="register-email-input"
           style={styles.input}
           placeholder="Email"
           placeholderTextColor={colors.muted}
@@ -101,6 +103,7 @@ export default function RegisterScreen({ navigation }: any) {
           editable={!loading}
         />
         <TextInput
+          testID="register-password-input"
           style={styles.input}
           placeholder="Password"
           placeholderTextColor={colors.muted}
@@ -111,6 +114,7 @@ export default function RegisterScreen({ navigation }: any) {
         />
 
         <TouchableOpacity
+          testID="register-submit-button"
           style={[styles.button, loading && styles.buttonDisabled]}
           onPress={handleRegister}
           disabled={loading}
@@ -144,7 +148,7 @@ export default function RegisterScreen({ navigation }: any) {
           </>
         )}
 
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity testID="register-go-login" onPress={() => navigation.goBack()}>
           <Text style={styles.link}>Already have an account? Sign In</Text>
         </TouchableOpacity>
       </View>

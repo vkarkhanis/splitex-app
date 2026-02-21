@@ -1,0 +1,63 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`theme constants matches theme snapshot 1`] = `
+{
+  "CURRENCY_SYMBOLS": {
+    "AUD": "A$",
+    "CAD": "C$",
+    "EUR": "€",
+    "GBP": "£",
+    "INR": "₹",
+    "JPY": "¥",
+    "USD": "$",
+  },
+  "colors": {
+    "accent": "#06b6d4",
+    "background": "#f8fafc",
+    "black": "#000000",
+    "border": "#e2e8f0",
+    "error": "#ef4444",
+    "errorBg": "#fef2f2",
+    "info": "#3b82f6",
+    "infoBg": "#eff6ff",
+    "muted": "#94a3b8",
+    "primary": "#6366f1",
+    "primaryDark": "#4f46e5",
+    "secondary": "#8b5cf6",
+    "success": "#22c55e",
+    "successBg": "#f0fdf4",
+    "surface": "#ffffff",
+    "surfaceAlt": "#f1f5f9",
+    "text": "#0f172a",
+    "textSecondary": "#64748b",
+    "warning": "#f59e0b",
+    "warningBg": "#fffbeb",
+    "white": "#ffffff",
+  },
+  "fontSizes": {
+    "lg": 17,
+    "md": 15,
+    "sm": 13,
+    "xl": 20,
+    "xs": 11,
+    "xxl": 24,
+    "xxxl": 30,
+  },
+  "radii": {
+    "full": 9999,
+    "lg": 14,
+    "md": 10,
+    "sm": 6,
+    "xl": 20,
+  },
+  "spacing": {
+    "lg": 16,
+    "md": 12,
+    "sm": 8,
+    "xl": 20,
+    "xs": 4,
+    "xxl": 24,
+    "xxxl": 32,
+  },
+}
+`;

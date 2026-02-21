@@ -6,11 +6,27 @@ import { emitToEvent } from '../config/websocket';
 import { notifyEventParticipants, getUserDisplayName } from '../utils/notification-helper';
 import { EmailService } from '../services/email.service';
 import { getEventLockStatus, requireActiveEvent } from '../utils/event-guards';
+import { db } from '../config/firebase';
+import { EntitlementService } from '../services/entitlement.service';
 
 const emailService = new EmailService();
 
 const router: Router = Router();
 const eventService = new EventService();
+const entitlementService = new EntitlementService();
+
+function requiresProForFx(body: CreateEventDto | UpdateEventDto): boolean {
+  const hasSettlementCurrency = typeof body.settlementCurrency === 'string' && body.settlementCurrency.trim().length > 0;
+  const isDifferentCurrency = hasSettlementCurrency && typeof body.currency === 'string'
+    ? body.settlementCurrency !== body.currency
+    : hasSettlementCurrency;
+
+  return Boolean(
+    isDifferentCurrency ||
+    body.fxRateMode !== undefined ||
+    body.predefinedFxRates !== undefined,
+  );
+}
 
 // Get all events for the authenticated user
 router.get('/', requireAuth, async (req: AuthenticatedRequest, res) => {
@@ -58,6 +74,37 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
       } as ApiResponse);
     }
 
+    if (requiresProForFx(body)) {
+      try {
+        await entitlementService.assertCapability(uid, 'multiCurrencySettlement');
+      } catch {
+        return res.status(403).json({
+          success: false,
+          error: 'Multi-currency settlement requires Pro',
+          code: 'FEATURE_REQUIRES_PRO',
+          feature: 'multi_currency_settlement',
+        } as ApiResponse);
+      }
+    }
+
+    // Free-tier limit: max 3 active or closed events/trips.
+    // Missing tier defaults to free until billing/subscription state is available.
+    const userDoc = await db.collection('users').doc(uid).get();
+    const userTier = (userDoc.exists ? (userDoc.data()?.tier as string | undefined) : undefined) || 'free';
+    const isMockUser = uid.startsWith('mock-');
+    if (userTier !== 'pro' && !isMockUser) {
+      const existingEvents = await eventService.getUserEvents(uid);
+      const activeOrClosedCount = existingEvents.filter(
+        (evt) => evt.status === 'active' || evt.status === 'closed'
+      ).length;
+      if (activeOrClosedCount >= 3) {
+        return res.status(403).json({
+          success: false,
+          error: 'Free users can have at most 3 active or closed events/trips'
+        } as ApiResponse);
+      }
+    }
+
     const event = await eventService.createEvent(uid, body);
     return res.status(201).json({ success: true, data: event } as ApiResponse);
   } catch (err) {
@@ -86,6 +133,19 @@ router.put('/:eventId', requireAuth, async (req: AuthenticatedRequest, res) => {
       const onlyClosing = dto.status === 'closed' && Object.keys(dto).filter(k => k !== 'status').length === 0;
       if (!onlyClosing) {
         return res.status(403).json({ success: false, error: 'Event is settled. You can only close it.' } as ApiResponse);
+      }
+    }
+
+    if (requiresProForFx(dto)) {
+      try {
+        await entitlementService.assertCapability(uid, 'multiCurrencySettlement');
+      } catch {
+        return res.status(403).json({
+          success: false,
+          error: 'Multi-currency settlement requires Pro',
+          code: 'FEATURE_REQUIRES_PRO',
+          feature: 'multi_currency_settlement',
+        } as ApiResponse);
       }
     }
 

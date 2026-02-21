@@ -106,7 +106,7 @@ export default function InvitationsScreen() {
     const statusColor = STATUS_COLOR[item.status] || c.muted;
 
     return (
-      <View style={[styles.card, { backgroundColor: c.surface }]}>
+      <View style={[styles.card, { backgroundColor: c.surface }]} testID={`invitations-card-${item.id}`}>
         <View style={styles.cardHeader}>
           <Text style={[styles.eventName, { color: c.text }]} numberOfLines={1}>
             {item.eventName || 'Unknown Event'}
@@ -130,12 +130,14 @@ export default function InvitationsScreen() {
             ) : (
               <>
                 <TouchableOpacity
+                  testID={`invitations-accept-${item.id}`}
                   style={[styles.acceptBtn, { backgroundColor: c.primary }]}
                   onPress={() => handleAccept(item)}
                 >
                   <Text style={styles.acceptBtnText}>Accept</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
+                  testID={`invitations-decline-${item.id}`}
                   style={[styles.declineBtn, { borderColor: c.error }]}
                   onPress={() => handleDecline(item)}
                 >

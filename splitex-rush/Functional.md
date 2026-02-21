@@ -46,7 +46,7 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | 2.7 | Event types | ✅ Supported | Trip and Event |
 | 2.8 | Event lock on settle/close | ✅ Supported | Payment/settled/closed events block all mutations (expenses, groups, invitations, participants); only status→closed allowed on settled events |
 | 2.9 | Hide closed events from dashboard | ✅ Supported | Closed events filtered out of dashboard; not visible to any user; removed in real-time when closed via WebSocket |
-| 2.10 | Multi-currency settlement | ✅ Supported | Event can have different expense currency and settlement currency; FX conversion via EOD API or predefined rates |
+| 2.10 | Multi-currency settlement | ✅ Supported | Pro-capability gated server-side; Free users get `403 FEATURE_REQUIRES_PRO` on FX event fields |
 | 2.11 | Event archiving / closed events section | ❌ Not Currently Supported | Planned: view past closed events and their details |
 | 2.12 | Event search / filter | ❌ Not Currently Supported | — |
 | 2.13 | Event duplication | ❌ Not Currently Supported | — |
@@ -163,7 +163,7 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | 7.14 | FX rate service (EOD + predefined) | ✅ Supported | Fetches rates from open.er-api.com with Firestore caching; supports predefined rates with reverse lookup; `convert()` helper |
 | 7.15 | Dual currency settlement display | ✅ Supported | Settlement summary shows original + converted amounts with FX rate; total converted amount shown |
 | 7.16 | Settlement currency configuration | ✅ Supported | Event creation UI: settlement currency selector, FX rate mode (EOD/predefined), predefined rate input |
-| 7.17 | Payment gateway integration | ❌ Not Currently Supported | Mock only for now |
+| 7.17 | Payment gateway integration | 🚧 In Progress | Mock default in non-prod; real gateway path available with internal opt-in policy |
 | 7.18 | UPI / bank transfer support | ❌ Not Currently Supported | — |
 | 7.19 | Partial settlements | ❌ Not Currently Supported | — |
 | 7.20 | Settlement reminders | ❌ Not Currently Supported | — |
@@ -183,7 +183,7 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | 8.7 | Create expense page | ✅ Supported | Entity selection (groups + individuals), radio split type, private toggle, currency symbols, split validation, "On Behalf Of" toggle + entity selector |
 | 8.7a | Edit expense page | ✅ Supported | Pre-populated form, same validation as create, accessible to creator or admin, onBehalfOf editing |
 | 8.8 | Invitations page | ✅ Supported | View and accept/decline pending invitations |
-| 8.9 | Profile page | ✅ Supported | View and edit user profile |
+| 8.9 | Profile page | ✅ Supported | View/edit profile; local-only web tier switch controls when env flags are enabled |
 | 8.10 | Navigation shell | ✅ Supported | Dashboard, Invitations, Profile links |
 | 8.11 | Edit event modal | ✅ Supported | In-page modal on event detail |
 | 8.12 | Invite user modal | ✅ Supported | In-page modal on event detail |
@@ -211,7 +211,7 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | 9.4 | Mobile event detail | ✅ Supported | Summary cards, expense list, settlement cards with dual currency, pay/approve actions, groups |
 | 9.5 | Mobile create expense | ✅ Supported | Full form with entity selection, split calculation, "On Behalf Of" toggle + selector |
 | 9.6 | Mobile create event | ✅ Supported | Event form with settlement currency, FX rate mode, predefined rate input; Pro tier gating |
-| 9.7 | Free/Pro monetization tiers | ✅ Supported | Free tier: all basic features; Pro tier: multi-currency FX settlement; tier state in AuthContext |
+| 9.7 | Free/Pro monetization tiers | ✅ Supported | Server-authoritative entitlement + capability model; local/internal testing controls enabled by env |
 | 9.8 | Push notifications | ❌ Not Currently Supported | — |
 | 9.9 | Offline support | ❌ Not Currently Supported | — |
 | 9.10 | Camera for receipt capture | ❌ Not Currently Supported | — |
@@ -247,8 +247,8 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | 11.5b | Event guards tests | ✅ Supported | 10 tests — getEventLockStatus, requireActiveEvent for active/payment/settled/closed states |
 | 11.5c | Expense admin auth tests | ✅ Supported | Tests for admin update/delete permissions, ratio split edge cases |
 | 11.6 | EmailService unit tests | ✅ Supported | Mock mode, SMTP mode, error handling, email content |
-| 11.7 | Web component unit tests | ❌ Not Currently Supported | — |
-| 11.8 | Mobile unit tests | ❌ Not Currently Supported | — |
+| 11.7 | Web component/hook unit tests | 🚧 In Progress | Core socket + entitlement behavior tests added; suite expansion ongoing |
+| 11.8 | Mobile unit tests | 🚧 In Progress | AuthContext entitlement hydration/switch tests added; suite expansion ongoing |
 | 11.9 | Performance / load tests | ❌ Not Currently Supported | — |
 | 11.10 | Visual regression tests | ❌ Not Currently Supported | — |
 
@@ -294,6 +294,21 @@ This document tracks all functionalities of the Splitex application. It is kept 
 | 14.4 | Spending trends | ❌ Not Currently Supported | — |
 | 14.5 | Category-wise breakdown | ❌ Not Currently Supported | — |
 | 14.6 | Admin dashboard / analytics | ❌ Not Currently Supported | — |
+
+---
+
+## 15. Entitlements & Billing Controls
+
+| # | Feature | Status | Notes |
+|---|---------|--------|-------|
+| 15.1 | Shared entitlement model | ✅ Supported | `tier`, `entitlementStatus`, `entitlementSource`, and capability payload in shared contracts |
+| 15.2 | RevenueCat webhook ingestion | ✅ Supported | Idempotent processing and entitlement state mapping in API |
+| 15.3 | Internal entitlement switch route | ✅ Supported | Non-prod only; gated by env flag and tester checks |
+| 15.4 | WebSocket tier update broadcast | ✅ Supported | API emits `user:tier-updated`; web refreshes profile/capabilities live |
+| 15.5 | Local tier switching (mobile + web) | ✅ Supported | Enabled only with local/internal feature flags |
+| 15.6 | Staging/TestFlight mobile-only switching | ✅ Supported | Web read-only; switch route protected for internal testers |
+| 15.7 | Production manual tier switch disabled | ✅ Supported | Billing/webhook-driven tier transitions only |
+| 15.8 | Non-prod real payment opt-in guardrails | ✅ Supported | Requires env flag + request flag + internal tester identity |
 
 ---
 

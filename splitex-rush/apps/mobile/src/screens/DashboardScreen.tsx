@@ -58,6 +58,7 @@ export default function DashboardScreen({ navigation }: any) {
     const sym = CURRENCY_SYMBOLS[item.currency] || item.currency;
     return (
       <TouchableOpacity
+        testID={`dashboard-event-card-${item.id}`}
         style={[styles.eventCard, { backgroundColor: c.surface, shadowColor: c.black }]}
         onPress={() => navigation.navigate('EventDetail', { eventId: item.id, eventName: item.name })}
         activeOpacity={0.7}
@@ -99,13 +100,13 @@ export default function DashboardScreen({ navigation }: any) {
           <Text style={[styles.tierBadge, { color: c.primary }]}>{tier === 'pro' ? '⭐ Pro' : 'Free'}</Text>
         </View>
         <View style={styles.topRight}>
-          <TouchableOpacity onPress={() => navigation.navigate('Invitations')}>
+          <TouchableOpacity testID="dashboard-open-invitations" onPress={() => navigation.navigate('Invitations')}>
             <Text style={[styles.profileLink, { color: c.primary }]}>Invites</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
+          <TouchableOpacity testID="dashboard-open-profile" onPress={() => navigation.navigate('Profile')}>
             <Text style={[styles.profileLink, { color: c.primary }]}>Profile</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={logout}>
+          <TouchableOpacity testID="dashboard-signout" onPress={logout}>
             <Text style={[styles.logoutText, { color: c.error }]}>Sign Out</Text>
           </TouchableOpacity>
         </View>
@@ -133,6 +134,7 @@ export default function DashboardScreen({ navigation }: any) {
       </ScrollView>
 
       <TouchableOpacity
+        testID="dashboard-create-event-button"
         style={[styles.createButton, { backgroundColor: c.primary }]}
         onPress={() => navigation.navigate('CreateEvent')}
       >

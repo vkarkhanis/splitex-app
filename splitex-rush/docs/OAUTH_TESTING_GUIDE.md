@@ -16,8 +16,8 @@ I've added **Google and Microsoft OAuth buttons** to both login and register pag
 
 ### **Step 1: Start Web App**
 ```bash
-cd apps/web
-npm run dev -- --webpack
+cd /Users/vkarkhanis/workspace/Splitex/splitex-rush
+rush dev:web
 ```
 
 ### **Step 2: Navigate to Auth Pages**

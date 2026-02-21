@@ -21,6 +21,36 @@
     },
     {
       "commandKind": "global",
+      "name": "dev:api:emulator",
+      "summary": "Start API in Firebase Local Emulator mode on http://localhost:3002",
+      "shellCommand": "bash -lc \"cd apps/api && APP_ENV=local PORT=3002 FIREBASE_USE_EMULATOR=true FIREBASE_PROJECT_ID=splitex-local FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 STORAGE_EMULATOR_HOST=127.0.0.1:9199 PAYMENT_ALLOW_REAL_IN_NON_PROD=false INTERNAL_TIER_SWITCH_ENABLED=true rushx dev\""
+    },
+    {
+      "commandKind": "global",
+      "name": "dev:firebase:emulators",
+      "summary": "Start Firebase Local Emulator Suite in background (no Rush lock)",
+      "shellCommand": "bash -lc \"nohup sh scripts/firebase/start-emulators.sh & disown; echo 'Firebase emulators started in background. Use rush dev:firebase:emulators:stop to stop.'\""
+    },
+    {
+      "commandKind": "global",
+      "name": "dev:firebase:emulators:stop",
+      "summary": "Stop background Firebase emulators started by rush dev:firebase:emulators",
+      "shellCommand": "bash -lc \"pkill -f 'scripts/firebase/start-emulators.sh' || true; pkill -f 'firebase-tools emulators:start' || true; echo 'Stop signal sent to Firebase emulator processes'\""
+    },
+    {
+      "commandKind": "global",
+      "name": "dev:mobile:emulator",
+      "summary": "Start API (Firebase emulator mode) + mobile Expo together in one Rush command",
+      "shellCommand": "bash -lc \"trap 'kill 0' EXIT; (cd apps/api && APP_ENV=local PORT=3002 FIREBASE_USE_EMULATOR=true FIREBASE_PROJECT_ID=splitex-local FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 STORAGE_EMULATOR_HOST=127.0.0.1:9199 PAYMENT_ALLOW_REAL_IN_NON_PROD=false INTERNAL_TIER_SWITCH_ENABLED=true rushx dev) & (cd apps/mobile && EXPO_PUBLIC_API_URL=http://localhost:3002 rushx start) & wait\""
+    },
+    {
+      "commandKind": "global",
+      "name": "dev:web:emulator",
+      "summary": "Start API (Firebase emulator mode) + web together in one Rush command",
+      "shellCommand": "bash -lc \"trap 'kill 0' EXIT; (cd apps/api && APP_ENV=local PORT=3002 FIREBASE_USE_EMULATOR=true FIREBASE_PROJECT_ID=splitex-local FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 STORAGE_EMULATOR_HOST=127.0.0.1:9199 PAYMENT_ALLOW_REAL_IN_NON_PROD=false INTERNAL_TIER_SWITCH_ENABLED=true rushx dev) & (cd apps/web && NEXT_PUBLIC_API_URL=http://localhost:3002 NEXT_PUBLIC_APP_ENV=local NEXT_PUBLIC_ALLOW_LOCAL_TIER_SWITCH=true rushx dev) & wait\""
+    },
+    {
+      "commandKind": "global",
       "name": "dev:mobile",
       "summary": "Start the Expo mobile dev server (scan QR with Expo Go)",
       "shellCommand": "bash -lc \"cd apps/mobile && rushx start\""
@@ -93,6 +123,42 @@
     },
     {
       "commandKind": "global",
+      "name": "test:mobile",
+      "summary": "Run mobile unit tests",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx test\""
+    },
+    {
+      "commandKind": "global",
+      "name": "test:mobile:coverage",
+      "summary": "Run mobile unit tests with coverage thresholds",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx test:coverage\""
+    },
+    {
+      "commandKind": "global",
+      "name": "test:web",
+      "summary": "Run web unit tests",
+      "shellCommand": "bash -lc \"cd apps/web && rushx test\""
+    },
+    {
+      "commandKind": "global",
+      "name": "test:web:coverage",
+      "summary": "Run web unit tests with coverage thresholds",
+      "shellCommand": "bash -lc \"cd apps/web && rushx test:coverage\""
+    },
+    {
+      "commandKind": "global",
+      "name": "test:ui",
+      "summary": "Run UI library unit tests",
+      "shellCommand": "bash -lc \"cd libraries/ui && rushx test\""
+    },
+    {
+      "commandKind": "global",
+      "name": "test:ui:coverage",
+      "summary": "Run UI library unit tests with coverage thresholds",
+      "shellCommand": "bash -lc \"cd libraries/ui && rushx test:coverage\""
+    },
+    {
+      "commandKind": "global",
       "name": "test:e2e",
       "summary": "Run Playwright end-to-end tests (requires API + Web servers running)",
       "shellCommand": "bash -lc \"cd e2e && rushx test\""
@@ -114,6 +180,30 @@
       "name": "test:e2e:report",
       "summary": "Show the Playwright HTML test report",
       "shellCommand": "bash -lc \"cd e2e && rushx report\""
+    },
+    {
+      "commandKind": "global",
+      "name": "test:maestro",
+      "summary": "Run mobile Maestro E2E tests (no artifacts)",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx test:maestro\""
+    },
+    {
+      "commandKind": "global",
+      "name": "test:maestro:artifacts",
+      "summary": "Run mobile Maestro E2E tests with screenshots/log artifacts",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx test:maestro:artifacts\""
+    },
+    {
+      "commandKind": "global",
+      "name": "test:maestro:android",
+      "summary": "Run mobile Maestro E2E tests on Android emulator",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx test:maestro:android\""
+    },
+    {
+      "commandKind": "global",
+      "name": "test:maestro:ios",
+      "summary": "Run mobile Maestro E2E tests on iOS simulator/device",
+      "shellCommand": "bash -lc \"cd apps/mobile && rushx test:maestro:ios\""
     },
     {
       "commandKind": "global",

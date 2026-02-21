@@ -4,9 +4,16 @@ import { SettlementService } from '../services/settlement.service';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { emitToEvent } from '../config/websocket';
 import { notifyEventParticipants } from '../utils/notification-helper';
+import { EntitlementService } from '../services/entitlement.service';
 
 const router: Router = Router();
 const settlementService = new SettlementService();
+const entitlementService = new EntitlementService();
+
+function isProdRuntime(): boolean {
+  const env = (process.env.APP_ENV || process.env.RUNTIME_ENV || process.env.NODE_ENV || '').toLowerCase();
+  return env === 'production';
+}
 
 // Get entity balances for an event (preview before settlement)
 router.get('/event/:eventId/balances', requireAuth, async (req: AuthenticatedRequest, res) => {
@@ -70,7 +77,15 @@ router.post('/event/:eventId/generate', requireAuth, async (req: AuthenticatedRe
 router.post('/:settlementId/pay', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const uid = req.user!.uid;
-    const settlement = await settlementService.initiatePayment(req.params.settlementId, uid);
+    let useRealGateway = req.body?.useRealGateway === true;
+    if (!isProdRuntime() && useRealGateway) {
+      const allowReal = String(process.env.PAYMENT_ALLOW_REAL_IN_NON_PROD || 'false') === 'true';
+      const entitlement = await entitlementService.getEntitlement(uid);
+      if (!allowReal || !entitlement.internalTester) {
+        useRealGateway = false;
+      }
+    }
+    const settlement = await settlementService.initiatePayment(req.params.settlementId, uid, { useRealGateway });
     emitToEvent(settlement.eventId, 'settlement:updated', { settlement });
     return res.json({ success: true, data: settlement } as ApiResponse);
   } catch (err: any) {
@@ -97,6 +112,34 @@ router.post('/:settlementId/approve', requireAuth, async (req: AuthenticatedRequ
     return res.json({ success: true, data: { settlement, allComplete } } as ApiResponse);
   } catch (err: any) {
     console.error('POST /settlements/:settlementId/approve error:', err);
+    if (err.message?.includes('Forbidden')) {
+      return res.status(403).json({ success: false, error: err.message } as ApiResponse);
+    }
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ success: false, error: err.message } as ApiResponse);
+    }
+    return res.status(400).json({ success: false, error: err.message } as ApiResponse);
+  }
+});
+
+// Retry payment for a settlement transaction (payer only)
+router.post('/:settlementId/retry', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    let useRealGateway = req.body?.useRealGateway === true;
+    if (!isProdRuntime() && useRealGateway) {
+      const allowReal = String(process.env.PAYMENT_ALLOW_REAL_IN_NON_PROD || 'false') === 'true';
+      const entitlement = await entitlementService.getEntitlement(uid);
+      if (!allowReal || !entitlement.internalTester) {
+        useRealGateway = false;
+      }
+    }
+
+    const settlement = await settlementService.retryPayment(req.params.settlementId, uid, { useRealGateway });
+    emitToEvent(settlement.eventId, 'settlement:updated', { settlement });
+    return res.json({ success: true, data: settlement } as ApiResponse);
+  } catch (err: any) {
+    console.error('POST /settlements/:settlementId/retry error:', err);
     if (err.message?.includes('Forbidden')) {
       return res.status(403).json({ success: false, error: err.message } as ApiResponse);
     }

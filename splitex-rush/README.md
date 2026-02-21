@@ -29,7 +29,7 @@ Install the following **before** cloning the repo:
 | Tool | Version | Install Command |
 |------|---------|-----------------|
 | **Node.js** | `>=24.11.1 <25.0.0` | [https://nodejs.org](https://nodejs.org) or `nvm install 24` |
-| **Rush.js** | `5.167.0` | `npm install -g @microsoft/rush` |
+| **Rush.js** | `5.167.0` | `corepack enable && npx @microsoft/rush@5.167.0 --version` |
 | **pnpm** | `9.15.9` (managed by Rush) | Installed automatically by `rush install` |
 | **Git** | Latest | [https://git-scm.com](https://git-scm.com) |
 
@@ -37,7 +37,7 @@ Install the following **before** cloning the repo:
 
 | Tool | Version | Install Command |
 |------|---------|------------------|
-| **Expo CLI** | Latest | `npm install -g expo-cli` |
+| **Expo CLI** | Latest | `pnpm dlx expo --version` |
 | **Expo Go** | Latest | Install from App Store / Play Store on your device |
 | **Xcode** (iOS) | 15+ | Mac App Store (macOS only) |
 | **Android Studio** (Android) | Latest | [developer.android.com/studio](https://developer.android.com/studio) |
@@ -566,6 +566,65 @@ In mock mode (no Firebase credentials), the API accepts:
 
 ---
 
+## Free/Pro Entitlements
+
+### Server-authoritative tiering
+- Tier and capabilities are derived by API from user entitlement state.
+- Pro-only FX/multi-currency event fields are blocked server-side for Free users.
+- Existing Free 3 active/closed event limit is unchanged.
+
+### Manual test switch controls
+- Local: mobile + web tier switch enabled when internal flags are enabled.
+- Staging/Internal/TestFlight: mobile-only tier switch for internal testers.
+- Production: manual switch disabled.
+
+### RevenueCat integration
+- Webhook endpoint: `POST /api/billing/revenuecat/webhook`
+- Internal routes: `GET /api/internal/entitlements/me`, `POST /api/internal/entitlements/switch`
+- Runbook: `docs/REVENUECAT_INTEGRATION_RUNBOOK.md`
+
+### Settlement payment safety
+- Non-prod defaults to mocked payments.
+- Real Razorpay/Stripe in non-prod requires all:
+  - `PAYMENT_ALLOW_REAL_IN_NON_PROD=true`
+  - request payload `useRealGateway=true`
+  - internal tester user
+- Policy doc: `docs/SETTLEMENT_GATEWAY_TESTING_POLICY.md`
+
+---
+
+## Firebase Local Emulator Suite (Local Development)
+
+Use the simple local scripts (no Rush lock juggling):
+
+1. Set test flags (tier + payment mode):
+   - `sh scripts/local-dev/05_set-flags.sh --tier free --payments mock`
+   - `sh scripts/local-dev/05_set-flags.sh --tier pro --payments real`
+2. Run one mode:
+   - Firebase emulator + mobile: `sh scripts/local-dev/01_emulator_mobile.sh`
+   - Firebase emulator + web: `sh scripts/local-dev/02_emulator_web.sh`
+   - Real Firebase + mobile: `sh scripts/local-dev/03_real_mobile.sh`
+   - Real Firebase + web: `sh scripts/local-dev/04_real_web.sh`
+
+All scripts start API + app together and stop all child processes with `Ctrl+C`.
+
+### Hidden developer mode (local only)
+
+- Web:
+  - Open Profile page.
+  - Click version label `Splitex v1.0.0` 7 times.
+  - In unlocked `Developer (Hidden)` section, toggle Firebase emulator on/off.
+- Mobile:
+  - Open Profile screen.
+  - Tap version label `Splitex v1.0.0` 7 times.
+  - In unlocked `Developer (Hidden)` section, toggle `Use Firebase Emulator`.
+
+Notes:
+- This hidden developer mode is available only in local/dev environment.
+- It is not available in internal testing/TestFlight/production.
+
+---
+
 ## Troubleshooting
 
 | Problem | Solution |
@@ -578,7 +637,7 @@ In mock mode (no Firebase credentials), the API accepts:
 | Google OAuth fails | Add `localhost` to Firebase authorized domains |
 | Port 3000/3001 already in use | Kill existing process: `lsof -ti:3000 \| xargs kill` |
 | E2E tests fail to start servers | Ensure ports 3000 and 3001 are free |
-| `rush` command not found | Install globally: `npm install -g @microsoft/rush` |
+| `rush` command not found | Run via `npx @microsoft/rush@5.167.0 <command>` or install Rush globally |
 | Node version mismatch | Use `nvm use 24` or install Node.js 24.x |
 | Invitation emails not sending | Configure SMTP_HOST in `.env.local`; without it, emails are logged to console |
 | `Cannot find module 'nodemailer'` | Run `rush update` to install new dependencies |

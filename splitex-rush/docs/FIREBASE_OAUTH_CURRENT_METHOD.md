@@ -104,7 +104,7 @@ firebase.auth().signInWithPopup(provider)
 
 ### **For Development (localhost)**
 1. Add `http://localhost:3000` to both origins and URIs
-2. Test with `npm run dev`
+2. Test with `rush dev:web`
 3. Navigate to `http://localhost:3000`
 
 ### **For Production**

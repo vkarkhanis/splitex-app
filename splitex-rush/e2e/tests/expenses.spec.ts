@@ -21,7 +21,9 @@ test.describe('Expense Management', () => {
     await expect(page.getByTestId('expense-title-input')).toBeVisible();
     await expect(page.getByTestId('expense-amount-input')).toBeVisible();
     await expect(page.getByTestId('expense-currency-select')).toBeVisible();
-    await expect(page.getByTestId('expense-split-type-select')).toBeVisible();
+    await expect(page.getByTestId('split-type-equal')).toBeVisible();
+    await expect(page.getByTestId('split-type-ratio')).toBeVisible();
+    await expect(page.getByTestId('split-type-custom')).toBeVisible();
     await expect(page.getByTestId('create-expense-submit')).toBeVisible();
   });
 
@@ -45,7 +47,7 @@ test.describe('Expense Management', () => {
     await page.getByTestId('expense-description-input').fill('Beach resort');
     await page.getByTestId('expense-amount-input').fill('300');
     await page.getByTestId('expense-currency-select').selectOption('USD');
-    await page.getByTestId('expense-split-type-select').selectOption('equal');
+    await page.getByTestId('split-type-equal').check();
 
     await expect(page.getByTestId('create-expense-submit')).toBeEnabled();
     await page.getByTestId('create-expense-submit').click();
@@ -64,7 +66,7 @@ test.describe('Expense Management', () => {
       return;
     }
     await page.goto(`/events/${eventId}/expenses/create`);
-    await page.getByTestId('expense-split-type-select').selectOption('custom');
+    await page.getByTestId('split-type-custom').check();
     // Custom split inputs should appear if there are participants
     await page.waitForTimeout(300);
   });
@@ -75,7 +77,7 @@ test.describe('Expense Management', () => {
       return;
     }
     await page.goto(`/events/${eventId}/expenses/create`);
-    await page.getByTestId('expense-split-type-select').selectOption('ratio');
+    await page.getByTestId('split-type-ratio').check();
     await page.waitForTimeout(300);
   });
 

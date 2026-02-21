@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,12 +11,13 @@ import {
   Alert,
   Modal,
   ScrollView,
-  Dimensions,
+  Linking,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
+import { ENV } from '../config/env';
 import type {
   Event as SplitexEvent,
   Expense,
@@ -30,10 +31,12 @@ import { useEventSocket } from '../hooks/useSocket';
 // ── Helpers ──
 
 type ActiveTab = 'expenses' | 'participants' | 'groups' | 'invitations';
+type SettlementPayResponse = Settlement & { checkoutUrl?: string };
 
 const STATUS_DOT: Record<string, string> = {
   pending: colors.warning,
   initiated: colors.info,
+  failed: colors.error,
   completed: colors.success,
 };
 
@@ -44,6 +47,8 @@ const STATUS_BADGE_COLOR: Record<string, string> = {
   closed: colors.muted,
   accepted: colors.success,
   pending: colors.warning,
+  initiated: colors.info,
+  failed: colors.error,
   declined: colors.error,
   expired: colors.muted,
 };
@@ -243,10 +248,23 @@ export default function EventDetailScreen({ route, navigation }: any) {
   };
 
   // ── Settlement Actions ──
-  const handlePay = async (settlementId: string) => {
+  const handlePay = async (settlementId: string, status: string) => {
     try {
-      await api.post(`/api/settlements/${settlementId}/pay`, {});
-      setSettlements(prev => prev.map(s => s.id === settlementId ? { ...s, status: 'initiated' as const } : s));
+      const endpoint = status === 'pending'
+        ? `/api/settlements/${settlementId}/pay`
+        : `/api/settlements/${settlementId}/retry`;
+      const res = await api.post<SettlementPayResponse>(endpoint, {
+        useRealGateway: ENV.USE_REAL_PAYMENTS,
+      });
+      const checkoutUrl = res.data?.checkoutUrl;
+      if (checkoutUrl) {
+        const canOpen = await Linking.canOpenURL(checkoutUrl);
+        if (canOpen) {
+          await Linking.openURL(checkoutUrl);
+          return;
+        }
+      }
+      setSettlements(prev => prev.map(s => s.id === settlementId ? { ...s, ...res.data } : s));
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to initiate payment');
     }
@@ -437,7 +455,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
               <Text style={styles.eventName} numberOfLines={2}>{event.name}</Text>
               {event.status === 'active' && isAdmin && (
                 <View style={styles.headerActions}>
-                  <TouchableOpacity style={styles.iconBtn} onPress={() => setEditEventModal(true)}>
+                    <TouchableOpacity testID="event-detail-edit-event" style={styles.iconBtn} onPress={() => setEditEventModal(true)}>
                     <Text style={styles.iconBtnText}>Edit</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={[styles.iconBtn, styles.dangerBtn]} onPress={handleDeleteEvent}>
@@ -446,7 +464,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                 </View>
               )}
               {event.status === 'settled' && isAdmin && (
-                <TouchableOpacity style={styles.closeBtn} onPress={handleCloseEvent}>
+                <TouchableOpacity testID="event-detail-close-event" style={styles.closeBtn} onPress={handleCloseEvent}>
                   <Text style={styles.closeBtnText}>Close Event</Text>
                 </TouchableOpacity>
               )}
@@ -494,37 +512,52 @@ export default function EventDetailScreen({ route, navigation }: any) {
                 <View style={[styles.progressFill, { width: `${settlementPct}%` }]} />
               </View>
               {settlements.map(s => {
+                const settlementStatus = s.status as string;
                 const isPayer = currentUserId === s.fromUserId;
                 const isPayee = currentUserId === s.toUserId;
+                const hasFx =
+                  typeof s.settlementAmount === 'number' &&
+                  !!s.settlementCurrency &&
+                  s.settlementCurrency !== s.currency;
+                const settlementSym = s.settlementCurrency
+                  ? (CURRENCY_SYMBOLS[s.settlementCurrency] || s.settlementCurrency)
+                  : '';
+                const payLabel = hasFx
+                  ? `Pay ${settlementSym}${s.settlementAmount!.toFixed(2)}`
+                  : 'Pay';
+                const confirmLabel = hasFx
+                  ? `Confirm ${settlementSym}${s.settlementAmount!.toFixed(2)}`
+                  : 'Confirm';
                 return (
-                  <View key={s.id} style={styles.settlementCard}>
+                  <View key={s.id} style={styles.settlementCard} testID={`event-detail-settlement-card-${s.id}`}>
                     <View style={styles.settlementRow}>
-                      <View style={[styles.dot, { backgroundColor: STATUS_DOT[s.status] || colors.muted }]} />
+                      <View style={[styles.dot, { backgroundColor: STATUS_DOT[settlementStatus] || colors.muted }]} />
                       <Text style={styles.settlementText} numberOfLines={1}>
                         {getEntityName(s.fromEntityId, s.fromEntityType)} → {getEntityName(s.toEntityId, s.toEntityType)}
                       </Text>
                       <Text style={styles.settlementAmount}>{currSym}{s.amount.toFixed(2)}</Text>
                     </View>
-                    {s.settlementAmount && s.settlementCurrency && s.settlementCurrency !== s.currency && (
+                    {hasFx && (
                       <Text style={styles.fxAmount}>
-                        ≈ {CURRENCY_SYMBOLS[s.settlementCurrency] || s.settlementCurrency}{s.settlementAmount.toFixed(2)}
-                        {s.fxRate ? ` @${s.fxRate}` : ''}
+                        Pay/Receive {settlementSym}{s.settlementAmount!.toFixed(2)}
+                        {s.fxRate ? ` (FX ${s.currency}→${s.settlementCurrency} @ ${s.fxRate})` : ''}
                       </Text>
                     )}
                     <View style={styles.settlementActions}>
-                      {s.status === 'pending' && isPayer && (
-                        <TouchableOpacity style={styles.smallBtn} onPress={() => handlePay(s.id)}>
-                          <Text style={styles.smallBtnText}>Pay</Text>
+                      {(settlementStatus === 'pending' || settlementStatus === 'initiated' || settlementStatus === 'failed') && isPayer && (
+                        <TouchableOpacity testID={`event-detail-settlement-pay-${s.id}`} style={styles.smallBtn} onPress={() => handlePay(s.id, settlementStatus)}>
+                          <Text style={styles.smallBtnText}>{settlementStatus === 'pending' ? payLabel : 'Retry Payment'}</Text>
                         </TouchableOpacity>
                       )}
-                      {s.status === 'initiated' && isPayee && (
-                        <TouchableOpacity style={styles.smallBtn} onPress={() => handleApprove(s.id)}>
-                          <Text style={styles.smallBtnText}>Confirm</Text>
+                      {settlementStatus === 'initiated' && isPayee && (
+                        <TouchableOpacity testID={`event-detail-settlement-confirm-${s.id}`} style={styles.smallBtn} onPress={() => handleApprove(s.id)}>
+                          <Text style={styles.smallBtnText}>{confirmLabel}</Text>
                         </TouchableOpacity>
                       )}
-                      {s.status === 'completed' && <Text style={styles.doneText}>✓ Done</Text>}
-                      {s.status === 'pending' && !isPayer && renderBadge('pending')}
-                      {s.status === 'initiated' && !isPayee && renderBadge('initiated')}
+                      {settlementStatus === 'completed' && <Text style={styles.doneText}>✓ Done</Text>}
+                      {settlementStatus === 'failed' && !isPayer && renderBadge('failed')}
+                      {settlementStatus === 'pending' && !isPayer && renderBadge('pending')}
+                      {settlementStatus === 'initiated' && !isPayee && renderBadge('initiated')}
                     </View>
                   </View>
                 );
@@ -550,6 +583,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
             {(['expenses', 'participants', 'groups', 'invitations'] as ActiveTab[]).map(tab => (
               <TouchableOpacity
                 key={tab}
+                testID={`event-detail-tab-${tab}`}
                 style={[styles.tab, activeTab === tab && styles.tabActive]}
                 onPress={() => setActiveTab(tab)}
               >
@@ -569,11 +603,12 @@ export default function EventDetailScreen({ route, navigation }: any) {
               {event.status === 'active' && (
                 <View style={styles.tabActions}>
                   {isAdmin && (
-                    <TouchableOpacity style={styles.outlineBtn} onPress={handleSettle}>
+                    <TouchableOpacity testID="event-detail-settle-button" style={styles.outlineBtn} onPress={handleSettle}>
                       <Text style={styles.outlineBtnText}>Settle</Text>
                     </TouchableOpacity>
                   )}
                   <TouchableOpacity
+                    testID="event-detail-add-expense-button"
                     style={styles.primaryBtn}
                     onPress={() => navigation.navigate('CreateExpense', { eventId, currency: event.currency })}
                   >
@@ -621,7 +656,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
             <View style={styles.tabContent}>
               {event.status === 'active' && (
                 <View style={styles.tabActions}>
-                  <TouchableOpacity style={styles.primaryBtn} onPress={() => setInviteModal(true)}>
+                  <TouchableOpacity testID="event-detail-open-invite-modal-participants" style={styles.primaryBtn} onPress={() => setInviteModal(true)}>
                     <Text style={styles.primaryBtnText}>+ Invite</Text>
                   </TouchableOpacity>
                 </View>
@@ -657,7 +692,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
             <View style={styles.tabContent}>
               {event.status === 'active' && (
                 <View style={styles.tabActions}>
-                  <TouchableOpacity style={styles.primaryBtn} onPress={() => setCreateGroupModal(true)}>
+                  <TouchableOpacity testID="event-detail-open-create-group-modal" style={styles.primaryBtn} onPress={() => setCreateGroupModal(true)}>
                     <Text style={styles.primaryBtnText}>+ Create Group</Text>
                   </TouchableOpacity>
                 </View>
@@ -694,7 +729,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
             <View style={styles.tabContent}>
               {event.status === 'active' && (
                 <View style={styles.tabActions}>
-                  <TouchableOpacity style={styles.primaryBtn} onPress={() => setInviteModal(true)}>
+                  <TouchableOpacity testID="event-detail-open-invite-modal-invitations" style={styles.primaryBtn} onPress={() => setInviteModal(true)}>
                     <Text style={styles.primaryBtnText}>+ Send Invitation</Text>
                   </TouchableOpacity>
                 </View>
@@ -773,7 +808,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           <ScrollView>
             <Text style={styles.modalTitle}>Invite to Event</Text>
             <Text style={styles.modalLabel}>Email Address</Text>
-            <TextInput style={styles.modalInput} value={inviteForm.email} onChangeText={v => setInviteForm(f => ({ ...f, email: v }))} placeholder="friend@example.com" placeholderTextColor={colors.muted} keyboardType="email-address" autoCapitalize="none" />
+            <TextInput testID="event-detail-invite-email-input" style={styles.modalInput} value={inviteForm.email} onChangeText={v => setInviteForm(f => ({ ...f, email: v }))} placeholder="friend@example.com" placeholderTextColor={colors.muted} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
             <Text style={styles.modalLabel}>Role</Text>
             <View style={styles.modalChipRow}>
               {(['member', 'admin'] as const).map(r => (
@@ -788,7 +823,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
               <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setInviteModal(false)}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalSubmitBtn, (inviteLoading || !inviteForm.email.trim()) && styles.modalSubmitDisabled]} onPress={handleInvite} disabled={inviteLoading || !inviteForm.email.trim()}>
+              <TouchableOpacity testID="event-detail-invite-send-button" style={[styles.modalSubmitBtn, (inviteLoading || !inviteForm.email.trim()) && styles.modalSubmitDisabled]} onPress={handleInvite} disabled={inviteLoading || !inviteForm.email.trim()}>
                 <Text style={styles.modalSubmitText}>{inviteLoading ? 'Sending...' : 'Send'}</Text>
               </TouchableOpacity>
             </View>

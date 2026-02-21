@@ -61,7 +61,13 @@ test.describe('Group Management', () => {
 
     await page.getByTestId('group-name-input').fill('Family');
     await page.getByTestId('group-description-input').fill('My family group');
-    await page.getByTestId('group-payer-input').fill('mock-e2e-user');
+    const groupModal = page.getByTestId('create-group-modal');
+    const memberCheckbox = groupModal.locator('[data-testid^="group-member-checkbox-"]').first();
+    if (await memberCheckbox.isVisible().catch(() => false)) {
+      await memberCheckbox.check();
+    }
+    const payerSelect = page.getByTestId('group-payer-input');
+    await payerSelect.selectOption({ index: 1 });
 
     await expect(page.getByTestId('create-group-submit')).toBeEnabled();
     await page.getByTestId('create-group-submit').click();

@@ -881,6 +881,75 @@ describe('SettlementService', () => {
       expect(mockSettlements['s-pay-3'].status).toBe('initiated');
       expect(mockSettlements['s-pay-3'].paymentMethod).toBe('mock');
     });
+
+    it('should allow initiating payment from failed status', async () => {
+      mockEvents['evt-1'] = { status: 'payment' };
+      mockSettlements['s-pay-4'] = {
+        eventId: 'evt-1',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'failed',
+        amount: 100,
+        retryCount: 1,
+      };
+
+      const result = await service.initiatePayment('s-pay-4', 'user-A');
+      expect(result.status).toBe('initiated');
+      expect((result as any).retryCount).toBe(2);
+      expect(mockSettlements['s-pay-4'].status).toBe('initiated');
+      expect(mockSettlements['s-pay-4'].retryCount).toBe(2);
+    });
+  });
+
+  describe('retryPayment', () => {
+    it('should reject retry when settlement is completed', async () => {
+      mockSettlements['s-retry-1'] = {
+        eventId: 'evt-1',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'completed',
+        amount: 100,
+      };
+
+      await expect(service.retryPayment('s-retry-1', 'user-A'))
+        .rejects.toThrow('Cannot retry payment: transaction is already completed');
+    });
+
+    it('should retry payment from initiated state', async () => {
+      mockEvents['evt-1'] = { status: 'payment' };
+      mockSettlements['s-retry-2'] = {
+        eventId: 'evt-1',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'initiated',
+        amount: 100,
+      };
+
+      const result = await service.retryPayment('s-retry-2', 'user-A');
+      expect(result.status).toBe('initiated');
+      expect((result as any).retryCount).toBe(1);
+      expect(mockSettlements['s-retry-2'].status).toBe('initiated');
+      expect(mockSettlements['s-retry-2'].failureReason).toBeNull();
+    });
+
+    it('should keep settlement failed when retry payment gateway call errors', async () => {
+      mockEvents['evt-1'] = { status: 'payment' };
+      mockSettlements['s-retry-3'] = {
+        eventId: 'evt-1',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'initiated',
+        amount: 100,
+      };
+      jest
+        .spyOn((service as any).paymentService, 'startPayment')
+        .mockRejectedValueOnce(new Error('Gateway timeout'));
+
+      await expect(service.retryPayment('s-retry-3', 'user-A'))
+        .rejects.toThrow('Gateway timeout');
+      expect(mockSettlements['s-retry-3'].status).toBe('failed');
+      expect(mockSettlements['s-retry-3'].failureReason).toContain('Gateway timeout');
+    });
   });
 
   describe('approvePayment', () => {

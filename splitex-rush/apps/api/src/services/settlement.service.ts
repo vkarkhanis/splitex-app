@@ -3,12 +3,14 @@ import { db } from '../config/firebase';
 import { ExpenseService } from './expense.service';
 import { GroupService } from './group.service';
 import { FxRateService } from './fx-rate.service';
+import { PaymentService } from './payment.service';
 
 export class SettlementService {
   private collection = 'settlements';
   private expenseService = new ExpenseService();
   private groupService = new GroupService();
   private fxRateService = new FxRateService();
+  private paymentService = new PaymentService();
 
   /**
    * Calculate entity-level balances for an event.
@@ -271,7 +273,11 @@ export class SettlementService {
    * Initiate payment for a settlement transaction (mock payment).
    * Only the fromUserId (payer) can initiate.
    */
-  async initiatePayment(settlementId: string, userId: string): Promise<Settlement> {
+  async initiatePayment(
+    settlementId: string,
+    userId: string,
+    options: { useRealGateway?: boolean } = {},
+  ): Promise<Settlement> {
     const doc = await db.collection(this.collection).doc(settlementId).get();
     if (!doc.exists) throw new Error('Settlement not found');
 
@@ -279,13 +285,41 @@ export class SettlementService {
     if (data.fromUserId !== userId) {
       throw new Error('Forbidden: Only the payer can initiate payment');
     }
-    if (data.status !== 'pending') {
+    if (data.status !== 'pending' && data.status !== 'failed') {
       throw new Error(`Cannot initiate payment: transaction is already ${data.status}`);
     }
 
     const now = new Date().toISOString();
+    const settlementCurrency = (data.settlementCurrency || data.currency || 'USD') as string;
+    const settlementAmount =
+      typeof data.settlementAmount === 'number'
+        ? data.settlementAmount
+        : data.amount;
+    const provider = this.fxRateService.getPaymentProvider(settlementCurrency);
+    const payment = await this.paymentService.startPayment(
+      provider,
+      {
+        settlementId,
+        amount: settlementAmount,
+        currency: settlementCurrency,
+        description: `Splitex settlement ${settlementId}`,
+      },
+      options,
+    );
+
     await db.collection(this.collection).doc(settlementId).set(
-      { status: 'initiated', initiatedAt: now, paymentMethod: 'mock', paymentId: `mock-pay-${Date.now()}` },
+      {
+        status: 'initiated',
+        initiatedAt: now,
+        failedAt: null,
+        failureReason: null,
+        paymentMethod: payment.provider,
+        paymentId: payment.providerPaymentId,
+        retryCount: data.status === 'failed'
+          ? ((typeof data.retryCount === 'number' ? data.retryCount : 0) + 1)
+          : (typeof data.retryCount === 'number' ? data.retryCount : 0),
+        ...(payment.checkoutUrl ? { checkoutUrl: payment.checkoutUrl } : {}),
+      },
       { merge: true }
     );
 
@@ -300,12 +334,69 @@ export class SettlementService {
       }
     }
 
-    return {
+    return ({
       id: settlementId,
       ...data,
       status: 'initiated',
+      paymentMethod: payment.provider,
+      paymentId: payment.providerPaymentId,
+      retryCount: data.status === 'failed'
+        ? ((typeof data.retryCount === 'number' ? data.retryCount : 0) + 1)
+        : (typeof data.retryCount === 'number' ? data.retryCount : 0),
+      ...(payment.checkoutUrl ? { checkoutUrl: payment.checkoutUrl } : {}),
       initiatedAt: new Date(now),
-    } as Settlement;
+    } as unknown) as Settlement;
+  }
+
+  /**
+   * Retry a payment after a failed/cancelled attempt.
+   * Payer can re-initiate while the transaction is initiated/failed/pending.
+   */
+  async retryPayment(
+    settlementId: string,
+    userId: string,
+    options: { useRealGateway?: boolean } = {},
+  ): Promise<Settlement> {
+    const doc = await db.collection(this.collection).doc(settlementId).get();
+    if (!doc.exists) throw new Error('Settlement not found');
+
+    const data = doc.data()!;
+    if (data.fromUserId !== userId) {
+      throw new Error('Forbidden: Only the payer can retry payment');
+    }
+    if (data.status === 'completed') {
+      throw new Error('Cannot retry payment: transaction is already completed');
+    }
+    if (data.status === 'pending') {
+      return this.initiatePayment(settlementId, userId, options);
+    }
+    if (data.status !== 'initiated' && data.status !== 'failed') {
+      throw new Error(`Cannot retry payment: transaction is ${data.status}`);
+    }
+
+    const now = new Date().toISOString();
+    await db.collection(this.collection).doc(settlementId).set(
+      {
+        status: 'failed',
+        failedAt: now,
+        failureReason: 'retry_requested_by_payer',
+      },
+      { merge: true },
+    );
+
+    try {
+      return await this.initiatePayment(settlementId, userId, options);
+    } catch (error: any) {
+      await db.collection(this.collection).doc(settlementId).set(
+        {
+          status: 'failed',
+          failedAt: new Date().toISOString(),
+          failureReason: error?.message || 'payment_retry_failed',
+        },
+        { merge: true },
+      );
+      throw error;
+    }
   }
 
   /**
@@ -385,7 +476,11 @@ export class SettlementService {
         status: data.status,
         paymentMethod: data.paymentMethod,
         paymentId: data.paymentId,
+        checkoutUrl: data.checkoutUrl,
+        failureReason: data.failureReason,
+        retryCount: data.retryCount,
         initiatedAt: data.initiatedAt,
+        failedAt: data.failedAt,
         createdAt: data.createdAt,
         completedAt: data.completedAt,
       } as Settlement;

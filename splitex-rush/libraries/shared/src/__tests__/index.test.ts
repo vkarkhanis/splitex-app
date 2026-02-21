@@ -78,9 +78,10 @@ describe('Shared types - Enums', () => {
     expect(SplitType.CUSTOM).toBe('custom');
   });
 
-  it('SettlementStatus should have PENDING, INITIATED, COMPLETED', () => {
+  it('SettlementStatus should have PENDING, INITIATED, FAILED, COMPLETED', () => {
     expect(SettlementStatus.PENDING).toBe('pending');
     expect(SettlementStatus.INITIATED).toBe('initiated');
+    expect(SettlementStatus.FAILED).toBe('failed');
     expect(SettlementStatus.COMPLETED).toBe('completed');
   });
 
@@ -125,6 +126,23 @@ describe('Shared types - Enums', () => {
     expect(SUPPORTED_CURRENCIES).toContain('CAD');
     expect(SUPPORTED_CURRENCIES).toHaveLength(7);
   });
+
+  it('enum/currency public contract snapshot', () => {
+    expect({
+      UserRole,
+      EventType,
+      EventStatus,
+      ExpenseType,
+      SplitType,
+      SettlementStatus,
+      NotificationType,
+      PaymentStatus,
+      InvitationStatus,
+      FxRateMode,
+      PaymentProvider,
+      SUPPORTED_CURRENCIES,
+    }).toMatchSnapshot();
+  });
 });
 
 describe('Shared types - Type shape validation', () => {
@@ -157,6 +175,11 @@ describe('Shared types - Type shape validation', () => {
       email: 'test@example.com',
       phoneNumber: '+1234567890',
       photoURL: 'https://example.com/photo.jpg',
+      tier: 'free',
+      entitlementStatus: 'active',
+      entitlementExpiresAt: null,
+      entitlementSource: 'system',
+      capabilities: { multiCurrencySettlement: false },
       preferences: {
         notifications: true,
         currency: 'INR',

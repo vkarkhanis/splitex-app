@@ -17,6 +17,19 @@ const firebaseConfig = {
   storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
 };
 
+const useFirebaseEmulator = process.env.FIREBASE_USE_EMULATOR === 'true';
+const emulatorProjectId = process.env.FIREBASE_PROJECT_ID || 'splitex-local';
+
+function configureFirebaseEmulatorEnvironment() {
+  const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || `127.0.0.1:${process.env.FIRESTORE_EMULATOR_PORT || '8080'}`;
+  const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST || `127.0.0.1:${process.env.FIREBASE_AUTH_EMULATOR_PORT || '9099'}`;
+  const storageHost = process.env.STORAGE_EMULATOR_HOST || `127.0.0.1:${process.env.FIREBASE_STORAGE_EMULATOR_PORT || '9199'}`;
+
+  process.env.FIRESTORE_EMULATOR_HOST = firestoreHost;
+  process.env.FIREBASE_AUTH_EMULATOR_HOST = authHost;
+  process.env.STORAGE_EMULATOR_HOST = storageHost;
+}
+
 // Check if we have valid Firebase credentials
 const hasValidCredentials = firebaseConfig.projectId && 
                           firebaseConfig.privateKey && 
@@ -29,7 +42,25 @@ let db: FirebaseFirestore.Firestore;
 let auth: admin.auth.Auth;
 let storage: admin.storage.Storage;
 
-if (hasValidCredentials) {
+if (useFirebaseEmulator) {
+  configureFirebaseEmulatorEnvironment();
+  console.log('🧪 Initializing Firebase Admin with Local Emulator Suite');
+  try {
+    firebaseApp = admin.initializeApp({
+      projectId: emulatorProjectId,
+      storageBucket: firebaseConfig.storageBucket,
+    });
+    db = getFirestore(firebaseApp);
+    db.settings({ ignoreUndefinedProperties: true });
+    auth = getAuth(firebaseApp);
+    storage = getStorage(firebaseApp);
+    console.log('✅ Firebase emulator mode initialized');
+  } catch (error) {
+    console.error('❌ Failed to initialize Firebase emulator mode:', error);
+    console.log('🔧 Falling back to mock services');
+    initializeMockServices();
+  }
+} else if (hasValidCredentials) {
   console.log('🔥 Initializing Firebase with real credentials');
   
   try {
@@ -196,11 +227,12 @@ function initializeMockServices() {
 export { db, auth, storage, firebaseApp };
 
 // Helper function to check if we're using mock services
-export const isUsingMockServices = !hasValidCredentials;
+export const isUsingMockServices = !hasValidCredentials && !useFirebaseEmulator;
 
 // Export config for debugging
 export const firebaseConfigDebug = {
   hasValidCredentials,
+  useFirebaseEmulator,
   projectId: firebaseConfig.projectId,
   hasClientEmail: !!firebaseConfig.clientEmail,
   hasPrivateKey: !!firebaseConfig.privateKey,

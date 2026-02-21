@@ -13,7 +13,8 @@ import {
 import { spacing, radii, fontSizes } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, THEME_NAMES } from '../context/ThemeContext';
-import { api } from '../api';
+import { api, getResolvedApiBaseUrl, isFirebaseEmulatorEnabled, setFirebaseEmulatorEnabled } from '../api';
+import { ENV, isLocalLikeEnv } from '../config/env';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
 
@@ -23,6 +24,11 @@ interface UserProfile {
   email: string;
   phoneNumber?: string;
   photoURL?: string;
+  tier: 'free' | 'pro';
+  internalTester?: boolean;
+  capabilities?: {
+    multiCurrencySettlement: boolean;
+  };
   preferences: {
     notifications: boolean;
     currency: string;
@@ -31,13 +37,18 @@ interface UserProfile {
 }
 
 export default function ProfileScreen({ navigation }: any) {
-  const { user, logout } = useAuth();
+  const { user, logout, tier, switchTier, internalTester } = useAuth();
   const { theme, themeName, setThemeName } = useTheme();
   const c = theme.colors;
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [tierSwitching, setTierSwitching] = useState(false);
+  const [devTapCount, setDevTapCount] = useState(0);
+  const [devOptionsUnlocked, setDevOptionsUnlocked] = useState(false);
+  const [useFirebaseEmulator, setUseFirebaseEmulator] = useState(false);
+  const [activeApiBase, setActiveApiBase] = useState('');
 
   // Editable fields
   const [displayName, setDisplayName] = useState('');
@@ -63,6 +74,23 @@ export default function ProfileScreen({ navigation }: any) {
   }, []);
 
   useEffect(() => { fetchProfile(); }, [fetchProfile]);
+  useEffect(() => {
+    let mounted = true;
+    async function loadDevFlags() {
+      if (!isLocalLikeEnv() || !ENV.LOCAL_DEV_OPTIONS_ENABLED) return;
+      const [enabled, apiBase] = await Promise.all([
+        isFirebaseEmulatorEnabled(),
+        getResolvedApiBaseUrl(),
+      ]);
+      if (!mounted) return;
+      setUseFirebaseEmulator(enabled);
+      setActiveApiBase(apiBase);
+    }
+    void loadDevFlags();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -91,6 +119,47 @@ export default function ProfileScreen({ navigation }: any) {
     ]);
   };
 
+  const canShowTierSwitch =
+    ENV.INTERNAL_FEATURES_ENABLED &&
+    (isLocalLikeEnv() || internalTester);
+  const canShowHiddenDevOptions = isLocalLikeEnv() && ENV.LOCAL_DEV_OPTIONS_ENABLED;
+
+  const handleSwitchTier = async (next: 'free' | 'pro') => {
+    setTierSwitching(true);
+    try {
+      await switchTier(next);
+      Alert.alert('Success', `Switched to ${next.toUpperCase()} tier.`);
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to switch tier');
+    } finally {
+      setTierSwitching(false);
+    }
+  };
+
+  const handleVersionTap = () => {
+    if (!canShowHiddenDevOptions) return;
+    const next = devTapCount + 1;
+    if (next >= 7) {
+      setDevOptionsUnlocked(true);
+      setDevTapCount(0);
+      Alert.alert('Developer options unlocked', 'Hidden local tools are now visible.');
+      return;
+    }
+    setDevTapCount(next);
+  };
+
+  const handleFirebaseEmulatorToggle = async (enabled: boolean) => {
+    try {
+      await setFirebaseEmulatorEnabled(enabled);
+      const apiBase = await getResolvedApiBaseUrl();
+      setUseFirebaseEmulator(enabled);
+      setActiveApiBase(apiBase);
+      Alert.alert('Developer setting updated', `Firebase Local Emulator Suite ${enabled ? 'enabled' : 'disabled'} for local mode.`);
+    } catch {
+      Alert.alert('Error', 'Failed to update emulator setting.');
+    }
+  };
+
   if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
@@ -108,6 +177,7 @@ export default function ProfileScreen({ navigation }: any) {
 
         <Text style={[styles.label, { color: c.textSecondary }]}>Display Name</Text>
         <TextInput
+          testID="profile-display-name-input"
           style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
           value={displayName}
           onChangeText={setDisplayName}
@@ -117,6 +187,7 @@ export default function ProfileScreen({ navigation }: any) {
 
         <Text style={[styles.label, { color: c.textSecondary }]}>Phone Number</Text>
         <TextInput
+          testID="profile-phone-input"
           style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
           value={phoneNumber}
           onChangeText={setPhoneNumber}
@@ -136,6 +207,7 @@ export default function ProfileScreen({ navigation }: any) {
             {CURRENCIES.map(cur => (
               <TouchableOpacity
                 key={cur}
+                testID={`profile-currency-${cur}`}
                 style={[
                   styles.chip,
                   { borderColor: c.border, backgroundColor: c.surface },
@@ -166,6 +238,7 @@ export default function ProfileScreen({ navigation }: any) {
           {THEME_NAMES.map(t => (
             <TouchableOpacity
               key={t.key}
+              testID={`profile-theme-${t.key}`}
               style={[
                 styles.chip,
                 { borderColor: c.border, backgroundColor: c.surface },
@@ -183,8 +256,59 @@ export default function ProfileScreen({ navigation }: any) {
         </View>
       </View>
 
+      {canShowTierSwitch && (
+        <View style={[styles.card, { backgroundColor: c.surface }]}>
+          <Text style={[styles.cardTitle, { color: c.text }]}>Internal Tier Switch</Text>
+          <Text style={[styles.cardSub, { color: c.muted }]}>Current: {tier.toUpperCase()}</Text>
+          <View style={styles.chipRow}>
+            <TouchableOpacity
+              testID="profile-tier-free"
+              style={[
+                styles.chip,
+                { borderColor: c.border, backgroundColor: c.surface },
+                tier === 'free' && { borderColor: c.primary, backgroundColor: c.primary + '15' },
+              ]}
+              onPress={() => handleSwitchTier('free')}
+              disabled={tierSwitching}
+            >
+              <Text style={[styles.chipText, { color: tier === 'free' ? c.primary : c.text }]}>FREE</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID="profile-tier-pro"
+              style={[
+                styles.chip,
+                { borderColor: c.border, backgroundColor: c.surface },
+                tier === 'pro' && { borderColor: c.primary, backgroundColor: c.primary + '15' },
+              ]}
+              onPress={() => handleSwitchTier('pro')}
+              disabled={tierSwitching}
+            >
+              <Text style={[styles.chipText, { color: tier === 'pro' ? c.primary : c.text }]}>PRO</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {devOptionsUnlocked && canShowHiddenDevOptions && (
+        <View style={[styles.card, { backgroundColor: c.surface }]}>
+          <Text style={[styles.cardTitle, { color: c.text }]}>Developer (Hidden)</Text>
+          <Text style={[styles.cardSub, { color: c.muted }]}>Local-only tooling for Firebase Emulator Suite.</Text>
+          <View style={styles.toggleRow}>
+            <Text style={[styles.toggleLabel, { color: c.text }]}>Use Firebase Emulator</Text>
+            <Switch
+              testID="profile-firebase-emulator-switch"
+              value={useFirebaseEmulator}
+              onValueChange={handleFirebaseEmulatorToggle}
+              trackColor={{ true: c.primary }}
+            />
+          </View>
+          <Text style={[styles.cardSub, { color: c.muted, marginBottom: 0 }]}>API target: {activeApiBase || 'Loading...'}</Text>
+        </View>
+      )}
+
       {/* Actions */}
       <TouchableOpacity
+        testID="profile-save-button"
         style={[styles.saveBtn, { backgroundColor: c.primary }, saving && styles.saveBtnDisabled]}
         onPress={handleSave}
         disabled={saving}
@@ -196,11 +320,13 @@ export default function ProfileScreen({ navigation }: any) {
         )}
       </TouchableOpacity>
 
-      <TouchableOpacity style={[styles.signOutBtn, { borderColor: c.error }]} onPress={handleSignOut}>
+      <TouchableOpacity testID="profile-signout-button" style={[styles.signOutBtn, { borderColor: c.error }]} onPress={handleSignOut}>
         <Text style={[styles.signOutText, { color: c.error }]}>Sign Out</Text>
       </TouchableOpacity>
 
-      <Text style={[styles.version, { color: c.muted }]}>Splitex v1.0.0</Text>
+      <TouchableOpacity onPress={handleVersionTap} activeOpacity={0.9}>
+        <Text style={[styles.version, { color: c.muted }]}>Splitex v{ENV.APP_VERSION}</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }

@@ -69,8 +69,8 @@ This means the domain you're using is not authorized. Add it to both places abov
 
 ### **Test in Development**
 ```bash
-# Start your app
-npm run dev
+# Start your app from monorepo root
+rush dev:web
 
 # Navigate to
 http://localhost:3000

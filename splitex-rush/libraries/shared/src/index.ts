@@ -17,12 +17,26 @@ export interface UserPreferences {
   timezone: string;
 }
 
+export type PlanTier = 'free' | 'pro';
+export type EntitlementStatus = 'active' | 'grace_period' | 'billing_retry' | 'expired' | 'revoked';
+export type EntitlementSource = 'revenuecat' | 'manual_override' | 'system';
+
+export interface UserCapabilities {
+  multiCurrencySettlement: boolean;
+}
+
 export interface UserProfile {
   userId: string;
   displayName: string;
   email: string;
   phoneNumber?: string;
   photoURL?: string;
+  tier: PlanTier;
+  entitlementStatus: EntitlementStatus;
+  entitlementExpiresAt?: Date | string | null;
+  entitlementSource?: EntitlementSource;
+  internalTester?: boolean;
+  capabilities: UserCapabilities;
   preferences: UserPreferences;
 }
 
@@ -180,11 +194,15 @@ export interface Settlement {
   settlementCurrency?: string;
   /** FX rate used for conversion (expenseCurrency → settlementCurrency) */
   fxRate?: number;
-  status: 'pending' | 'initiated' | 'completed';
+  status: 'pending' | 'initiated' | 'failed' | 'completed';
   paymentMethod?: string;
   paymentId?: string;
+  checkoutUrl?: string;
+  failureReason?: string;
+  retryCount?: number;
   initiatedAt?: Date;
   createdAt: Date;
+  failedAt?: Date;
   completedAt?: Date;
 }
 
@@ -361,6 +379,7 @@ export enum SplitType {
 export enum SettlementStatus {
   PENDING = 'pending',
   INITIATED = 'initiated',
+  FAILED = 'failed',
   COMPLETED = 'completed'
 }
 
@@ -412,6 +431,8 @@ export interface ApiResponse<T = any> {
   data?: T;
   error?: string;
   message?: string;
+  code?: string;
+  feature?: string;
 }
 
 export interface PaginatedResponse<T> extends ApiResponse<T[]> {

@@ -1,0 +1,75 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Shared types - Enums enum/currency public contract snapshot 1`] = `
+{
+  "EventStatus": {
+    "ACTIVE": "active",
+    "CLOSED": "closed",
+    "PAYMENT": "payment",
+    "SETTLED": "settled",
+  },
+  "EventType": {
+    "EVENT": "event",
+    "TRIP": "trip",
+  },
+  "ExpenseType": {
+    "PRIVATE": "private",
+    "SHARED": "shared",
+  },
+  "FxRateMode": {
+    "EOD": "eod",
+    "PREDEFINED": "predefined",
+  },
+  "InvitationStatus": {
+    "ACCEPTED": "accepted",
+    "DECLINED": "declined",
+    "EXPIRED": "expired",
+    "PENDING": "pending",
+  },
+  "NotificationType": {
+    "EVENT_CLOSED": "event_closed",
+    "EVENT_DELETED": "event_deleted",
+    "EXPENSE_ADDED": "expense_added",
+    "EXPENSE_DELETED": "expense_deleted",
+    "EXPENSE_UPDATED": "expense_updated",
+    "GROUP_DELETED": "group_deleted",
+    "INVITATION": "invitation",
+    "SETTLEMENT_CALCULATED": "settlement_calculated",
+    "SETTLEMENT_REQUESTED": "settlement_requested",
+  },
+  "PaymentProvider": {
+    "RAZORPAY": "razorpay",
+    "STRIPE": "stripe",
+  },
+  "PaymentStatus": {
+    "FAILED": "failed",
+    "PENDING": "pending",
+    "PROCESSING": "processing",
+    "SUCCEEDED": "succeeded",
+  },
+  "SUPPORTED_CURRENCIES": [
+    "USD",
+    "EUR",
+    "GBP",
+    "INR",
+    "JPY",
+    "AUD",
+    "CAD",
+  ],
+  "SettlementStatus": {
+    "COMPLETED": "completed",
+    "FAILED": "failed",
+    "INITIATED": "initiated",
+    "PENDING": "pending",
+  },
+  "SplitType": {
+    "CUSTOM": "custom",
+    "EQUAL": "equal",
+    "RATIO": "ratio",
+  },
+  "UserRole": {
+    "ADMIN": "admin",
+    "MEMBER": "member",
+  },
+}
+`;

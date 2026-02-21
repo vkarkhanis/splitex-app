@@ -50,8 +50,8 @@ rush update
 rush build
 
 # Start services
-cd apps/api && npm run dev &
-cd apps/web && npm run dev -- --webpack &
+rush dev:api &
+rush dev:web &
 
 # Test API
 curl http://localhost:3001/health

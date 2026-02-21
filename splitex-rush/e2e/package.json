@@ -4,6 +4,7 @@
   "private": true,
   "description": "End-to-end tests for Splitex using Playwright",
   "scripts": {
+    "build": "node -e \"console.log('No build step for @splitex/e2e')\"",
     "test": "playwright test --config=playwright.config.ts",
     "test:headed": "playwright test --config=playwright.config.ts --headed",
     "test:ui": "playwright test --config=playwright.config.ts --ui",

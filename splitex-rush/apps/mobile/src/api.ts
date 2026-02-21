@@ -1,9 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ENV } from './config/env';
-
-const API_BASE = ENV.API_URL;
+import { ENV, getApiUrl, getEmulatorApiUrl, isLocalLikeEnv } from './config/env';
 
 const TOKEN_KEY = '@splitex_token';
+const FIREBASE_EMULATOR_KEY = '@splitex_dev_firebase_emulator';
+
+export class ApiRequestError extends Error {
+  status: number;
+  code?: string;
+  feature?: string;
+
+  constructor(message: string, status: number, code?: string, feature?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+    this.feature = feature;
+  }
+}
 
 export async function getToken(): Promise<string | null> {
   return AsyncStorage.getItem(TOKEN_KEY);
@@ -17,6 +29,22 @@ export async function clearToken(): Promise<void> {
   return AsyncStorage.removeItem(TOKEN_KEY);
 }
 
+export async function isFirebaseEmulatorEnabled(): Promise<boolean> {
+  if (!isLocalLikeEnv() || !ENV.LOCAL_DEV_OPTIONS_ENABLED) return false;
+  return (await AsyncStorage.getItem(FIREBASE_EMULATOR_KEY)) === 'true';
+}
+
+export async function setFirebaseEmulatorEnabled(enabled: boolean): Promise<void> {
+  if (!isLocalLikeEnv() || !ENV.LOCAL_DEV_OPTIONS_ENABLED) return;
+  await AsyncStorage.setItem(FIREBASE_EMULATOR_KEY, enabled ? 'true' : 'false');
+}
+
+export async function getResolvedApiBaseUrl(): Promise<string> {
+  if (!isLocalLikeEnv() || !ENV.LOCAL_DEV_OPTIONS_ENABLED) return getApiUrl();
+  const useEmulator = await isFirebaseEmulatorEnabled();
+  return useEmulator ? getEmulatorApiUrl() : getApiUrl();
+}
+
 async function request<T = any>(
   path: string,
   options: RequestInit = {},
@@ -28,7 +56,8 @@ async function request<T = any>(
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const url = `${API_BASE}${path}`;
+  const apiBase = await getResolvedApiBaseUrl();
+  const url = `${apiBase}${path}`;
   console.log(`[api] ${options.method || 'GET'} ${url}`);
   const res = await fetch(url, {
     ...options,
@@ -39,7 +68,7 @@ async function request<T = any>(
 
   if (!res.ok) {
     const msg = json?.error || json?.message || `Request failed (${res.status})`;
-    throw new Error(msg);
+    throw new ApiRequestError(msg, res.status, json?.code, json?.feature);
   }
 
   return { data: json.data ?? json, status: res.status };

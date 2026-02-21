@@ -8,16 +8,15 @@ import {
   ActivityIndicator,
   ScrollView,
   Alert,
-  Switch,
 } from 'react-native';
 import { colors, spacing, radii, fontSizes } from '../theme';
-import { api } from '../api';
+import { api, ApiRequestError } from '../api';
 import { useAuth } from '../context/AuthContext';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
 
 export default function CreateEventScreen({ navigation }: any) {
-  const { tier } = useAuth();
+  const { tier, capabilities } = useAuth();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'event' | 'trip'>('event');
@@ -28,7 +27,7 @@ export default function CreateEventScreen({ navigation }: any) {
   const [loading, setLoading] = useState(false);
 
   const needsFx = settlementCurrency && settlementCurrency !== currency;
-  const isFxProFeature = needsFx && tier === 'free';
+  const isFxProFeature = needsFx && !capabilities.multiCurrencySettlement;
 
   const handleSubmit = async () => {
     if (!name.trim()) {
@@ -43,6 +42,21 @@ export default function CreateEventScreen({ navigation }: any) {
 
     setLoading(true);
     try {
+      if (tier === 'free') {
+        const events = await api.get<any[]>('/api/events');
+        const activeOrClosedCount = (events.data || []).filter(
+          (evt: any) => evt?.status === 'active' || evt?.status === 'closed'
+        ).length;
+        if (activeOrClosedCount >= 3) {
+          Alert.alert(
+            'Free Plan Limit',
+            'Free users can have up to 3 active or closed events/trips. Please upgrade to Pro to create more.'
+          );
+          setLoading(false);
+          return;
+        }
+      }
+
       const payload: Record<string, any> = {
         name: name.trim(),
         description: description.trim(),
@@ -64,6 +78,10 @@ export default function CreateEventScreen({ navigation }: any) {
       Alert.alert('Success', `"${name}" created.`);
       navigation.replace('EventDetail', { eventId: data.id, eventName: name });
     } catch (err: any) {
+      if (err instanceof ApiRequestError && err.code === 'FEATURE_REQUIRES_PRO') {
+        Alert.alert('Pro Feature', 'Multi-currency settlement requires a Pro subscription. Upgrade to unlock this feature.');
+        return;
+      }
       Alert.alert('Error', err.message || 'Failed to create event');
     } finally {
       setLoading(false);
@@ -75,10 +93,10 @@ export default function CreateEventScreen({ navigation }: any) {
       <Text style={styles.heading}>Create Event</Text>
 
       <Text style={styles.label}>Event Name</Text>
-      <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="e.g. Goa Trip 2025" placeholderTextColor={colors.muted} />
+      <TextInput testID="create-event-name-input" style={styles.input} value={name} onChangeText={setName} placeholder="e.g. Goa Trip 2025" placeholderTextColor={colors.muted} />
 
       <Text style={styles.label}>Description (optional)</Text>
-      <TextInput style={styles.input} value={description} onChangeText={setDescription} placeholder="Brief description..." placeholderTextColor={colors.muted} multiline />
+      <TextInput testID="create-event-description-input" style={styles.input} value={description} onChangeText={setDescription} placeholder="Brief description..." placeholderTextColor={colors.muted} multiline />
 
       {/* Type */}
       <Text style={styles.label}>Type</Text>
@@ -86,6 +104,7 @@ export default function CreateEventScreen({ navigation }: any) {
         {(['event', 'trip'] as const).map(t => (
           <TouchableOpacity
             key={t}
+            testID={`create-event-type-${t}`}
             style={[styles.chip, type === t && styles.chipActive]}
             onPress={() => setType(t)}
           >
@@ -102,6 +121,7 @@ export default function CreateEventScreen({ navigation }: any) {
         {CURRENCIES.map(c => (
           <TouchableOpacity
             key={c}
+            testID={`create-event-currency-${c}`}
             style={[styles.chip, currency === c && styles.chipActive]}
             onPress={() => setCurrency(c)}
           >
@@ -117,6 +137,7 @@ export default function CreateEventScreen({ navigation }: any) {
       </Text>
       <View style={styles.chipRow}>
         <TouchableOpacity
+          testID="create-event-settlement-same"
           style={[styles.chip, !settlementCurrency && styles.chipActive]}
           onPress={() => setSettlementCurrency('')}
         >
@@ -125,6 +146,7 @@ export default function CreateEventScreen({ navigation }: any) {
         {CURRENCIES.filter(c => c !== currency).map(c => (
           <TouchableOpacity
             key={c}
+            testID={`create-event-settlement-${c}`}
             style={[styles.chip, settlementCurrency === c && styles.chipActive]}
             onPress={() => setSettlementCurrency(c)}
           >
@@ -145,12 +167,14 @@ export default function CreateEventScreen({ navigation }: any) {
           <Text style={styles.label}>FX Rate Mode</Text>
           <View style={styles.chipRow}>
             <TouchableOpacity
+              testID="create-event-fx-mode-eod"
               style={[styles.chip, fxRateMode === 'eod' && styles.chipActive]}
               onPress={() => setFxRateMode('eod')}
             >
               <Text style={[styles.chipText, fxRateMode === 'eod' && styles.chipTextActive]}>EOD Rate</Text>
             </TouchableOpacity>
             <TouchableOpacity
+              testID="create-event-fx-mode-predefined"
               style={[styles.chip, fxRateMode === 'predefined' && styles.chipActive]}
               onPress={() => setFxRateMode('predefined')}
             >
@@ -161,6 +185,7 @@ export default function CreateEventScreen({ navigation }: any) {
             <>
               <Text style={styles.label}>1 {currency} = ? {settlementCurrency}</Text>
               <TextInput
+                testID="create-event-fx-rate-input"
                 style={styles.input}
                 value={predefinedFxRate}
                 onChangeText={setPredefinedFxRate}
@@ -174,6 +199,7 @@ export default function CreateEventScreen({ navigation }: any) {
       )}
 
       <TouchableOpacity
+        testID="create-event-submit-button"
         style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
         onPress={handleSubmit}
         disabled={loading}

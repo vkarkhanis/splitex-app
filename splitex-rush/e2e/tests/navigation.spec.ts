@@ -4,8 +4,8 @@ import { loginAsMockUser, logout } from '../helpers/auth';
 test.describe('Navigation', () => {
   test('should show sign in and register links when not authenticated', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('a[href="/auth/login"]').first()).toBeVisible();
-    await expect(page.locator('a[href="/auth/register"]').first()).toBeVisible();
+    await expect(page.getByTestId('nav-signin')).toBeVisible();
+    await expect(page.getByTestId('nav-register')).toBeVisible();
   });
 
   test('should show dashboard, invitations, profile links when authenticated', async ({ page }) => {
@@ -39,6 +39,6 @@ test.describe('Navigation', () => {
     await expect(page.getByTestId('nav-signout')).toBeVisible();
     await logout(page);
     await page.goto('/');
-    await expect(page.locator('a[href="/auth/login"]').first()).toBeVisible();
+    await expect(page.getByTestId('nav-signin')).toBeVisible();
   });
 });

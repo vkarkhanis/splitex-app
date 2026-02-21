@@ -14,9 +14,15 @@ import { Platform } from 'react-native';
 const DEV_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
 
 export const ENV = {
+  APP_ENV:
+    ((process.env as any).EXPO_PUBLIC_APP_ENV || (__DEV__ ? 'local' : 'production')) as 'local' | 'staging' | 'production' | 'internal',
   /** Base URL for the Splitex API */
   API_URL: __DEV__
     ? `http://${DEV_HOST}:3001`
+    : 'https://api.splitex.app',
+  /** Local emulator-backed API URL */
+  API_URL_EMULATOR: __DEV__
+    ? `http://${DEV_HOST}:3002`
     : 'https://api.splitex.app',
 
   /** WebSocket URL for real-time updates (future use) */
@@ -29,6 +35,23 @@ export const ENV = {
 
   /** App version shown in settings */
   APP_VERSION: '1.0.0',
+  /**
+   * Default behavior:
+   * - false: keep payment initiation mocked in local/TestFlight/internal environments.
+   * - true: request real gateway checkout (still subject to API-side policy).
+   */
+  USE_REAL_PAYMENTS:
+    ((process.env as any).EXPO_PUBLIC_USE_REAL_PAYMENTS || 'false') === 'true',
+  /**
+   * Local/internal testing override for feature-gated flows.
+   * Allowed values: 'free' | 'pro'
+   */
+  DEFAULT_TIER:
+    ((process.env as any).EXPO_PUBLIC_DEFAULT_TIER || 'free') as 'free' | 'pro',
+  INTERNAL_FEATURES_ENABLED:
+    ((process.env as any).EXPO_PUBLIC_INTERNAL_FEATURES_ENABLED || 'false') === 'true',
+  LOCAL_DEV_OPTIONS_ENABLED:
+    ((process.env as any).EXPO_PUBLIC_LOCAL_DEV_OPTIONS_ENABLED || 'true') === 'true',
 
   /**
    * Google OAuth Client IDs for Google Sign-In via expo-auth-session.
@@ -48,6 +71,10 @@ export const ENV = {
     (process.env as any).EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '368026022797-qvfan0k9d0e4jktefqu15r8jaqhetg86.apps.googleusercontent.com',
 };
 
+export function isLocalLikeEnv(): boolean {
+  return ENV.APP_ENV === 'local' || __DEV__;
+}
+
 /**
  * Override API_URL for real-device testing.
  * Set this to your machine's LAN IP before running on a physical device.
@@ -58,8 +85,28 @@ export const ENV = {
  * Then in code, process.env.EXPO_PUBLIC_API_URL will be available.
  */
 export function getApiUrl(): string {
+  const platformOverride =
+    Platform.OS === 'android'
+      ? (process.env as any).EXPO_PUBLIC_API_URL_ANDROID
+      : (process.env as any).EXPO_PUBLIC_API_URL_IOS;
+  if (platformOverride) return platformOverride;
+
   // Expo public env vars are inlined at build time
   const override = (process.env as any).EXPO_PUBLIC_API_URL;
   if (override) return override;
   return ENV.API_URL;
+}
+
+export function getEmulatorApiUrl(): string {
+  const platformOverride =
+    Platform.OS === 'android'
+      ? (process.env as any).EXPO_PUBLIC_API_URL_EMULATOR_ANDROID
+      : (process.env as any).EXPO_PUBLIC_API_URL_EMULATOR_IOS;
+  if (platformOverride) return platformOverride;
+
+  const override = (process.env as any).EXPO_PUBLIC_API_URL_EMULATOR;
+  if (override) return override;
+  const sharedOverride = (process.env as any).EXPO_PUBLIC_API_URL;
+  if (sharedOverride) return sharedOverride;
+  return ENV.API_URL_EMULATOR;
 }

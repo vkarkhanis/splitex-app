@@ -82,6 +82,7 @@ export default function LoginScreen({ navigation }: any) {
         <Text style={styles.subtitle}>Sign in to your account</Text>
 
         <TextInput
+          testID="login-email-input"
           style={styles.input}
           placeholder="Email"
           placeholderTextColor={colors.muted}
@@ -93,6 +94,7 @@ export default function LoginScreen({ navigation }: any) {
         />
 
         <TextInput
+          testID="login-password-input"
           style={styles.input}
           placeholder="Password"
           placeholderTextColor={colors.muted}
@@ -103,6 +105,7 @@ export default function LoginScreen({ navigation }: any) {
         />
 
         <Pressable
+          testID="login-submit-button"
           style={({pressed}) => [styles.button, loading && styles.buttonDisabled, pressed && styles.buttonPressed]}
           onPress={handleLogin}
           disabled={loading}
@@ -140,7 +143,7 @@ export default function LoginScreen({ navigation }: any) {
           </>
         )}
 
-        <Pressable onPress={() => navigation.navigate('Register')}>
+        <Pressable testID="login-go-register" onPress={() => navigation.navigate('Register')}>
           <Text style={styles.link}>Don't have an account? Register</Text>
         </Pressable>
       </View>

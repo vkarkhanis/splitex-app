@@ -248,7 +248,7 @@ export const firebaseConfig = {
 
 1. Start the API server:
 ```bash
-cd apps/api && npm run dev
+rush dev:api
 ```
 
 2. Test the health endpoint:
@@ -273,7 +273,7 @@ curl -X POST http://localhost:3001/api/auth/verify-otp \
 
 1. Start the web app:
 ```bash
-cd apps/web && npm run dev -- --webpack
+rush dev:web
 ```
 
 2. Open `http://localhost:3000` in your browser
