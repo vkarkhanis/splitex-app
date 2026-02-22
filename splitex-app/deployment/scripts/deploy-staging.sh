@@ -7,7 +7,7 @@ set -euo pipefail
 # ==============================
 
 # ---- Required placeholders ----
-GCP_PROJECT_ID="app-splitex-staging"
+GCP_PROJECT_ID="CHANGE_ME_STAGING_GCP_PROJECT_ID"
 REGION="us-central1"
 SERVICE_NAME="splitex-api-staging"
 RUNTIME_SA_NAME="splitex-api-staging-runtime"
@@ -18,29 +18,29 @@ NODE_ENV_VALUE="staging"
 MIN_INSTANCES="0"
 
 # Firebase Admin (staging)
-FIREBASE_PROJECT_ID="app-splitex-staging"
-FIREBASE_CLIENT_EMAIL="firebase-adminsdk-fbsvc@app-splitex-staging.iam.gserviceaccount.com"
-FIREBASE_STORAGE_BUCKET="app-splitex-staging.firebasestorage.app"
-FIREBASE_PRIVATE_KEY_FILE="/Users/vkarkhanis/Configs/Splitex/Staging/app-splitex-staging-firebase-sa.json"
+FIREBASE_PROJECT_ID="CHANGE_ME_STAGING_FIREBASE_PROJECT_ID"
+FIREBASE_CLIENT_EMAIL="CHANGE_ME_STAGING_FIREBASE_CLIENT_EMAIL"
+FIREBASE_STORAGE_BUCKET="CHANGE_ME_STAGING_FIREBASE_STORAGE_BUCKET"
+FIREBASE_PRIVATE_KEY_FILE="CHANGE_ME_ABSOLUTE_PATH_TO_STAGING_FIREBASE_PRIVATE_KEY_PEM_OR_JSON"
 
 # JWT (staging)
-JWT_SECRET="xY5quFE7Yw5KFkla+I9jZ/COa9cHqhITsIuATeKM5+16LwUAQ9Nltnqgu5Y3NjHJ"
-JWT_REFRESH_SECRET="VNbRPAQUgElN09t41lEEaOeKNvTavnIq9wtJ+mbEVymxJ7cssZMAmxRAhblQu86J"
+JWT_SECRET="CHANGE_ME_STAGING_JWT_SECRET"
+JWT_REFRESH_SECRET="CHANGE_ME_STAGING_JWT_REFRESH_SECRET"
 
 # Optional (required only for email-link passwordless sign-in)
-FIREBASE_WEB_API_KEY="AIzaSyBW2jrlsrUOYgBI7zR_A4cnLYQeC_oEew8"
-AUTH_EMAIL_LINK_CONTINUE_URL="https://splitex-api-staging-862789756309.us-central1.run.app/auth/email-link"
-AUTH_ANDROID_PACKAGE_NAME="com.splitex.app"
+FIREBASE_WEB_API_KEY=""
+AUTH_EMAIL_LINK_CONTINUE_URL=""
+AUTH_ANDROID_PACKAGE_NAME=""
 AUTH_ANDROID_MIN_VERSION="1"
-AUTH_IOS_BUNDLE_ID="com.splitex.app"
+AUTH_IOS_BUNDLE_ID=""
 
 # Optional SMTP (leave empty to keep mock email mode)
-SMTP_HOST="smtp.gmail.com"
-SMTP_PORT="465"
-SMTP_SECURE="true"
-SMTP_USER="vkarkhanis@gmail.com"
-SMTP_PASS="rnqxzglexqzvaytr"
-SMTP_FROM="vkarkhanis@gmail.com"
+SMTP_HOST=""
+SMTP_PORT="587"
+SMTP_SECURE="false"
+SMTP_USER=""
+SMTP_PASS=""
+SMTP_FROM=""
 
 # ---- Internal constants ----
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

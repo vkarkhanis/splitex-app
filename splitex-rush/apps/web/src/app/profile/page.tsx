@@ -477,11 +477,20 @@ export default function ProfilePage() {
                     <Input
                       id="notifications"
                       value={profile.preferences.notifications ? 'Enabled' : 'Disabled'}
-                      onChange={() => {
+                      onClick={() => {
+                        updatePreferences({ notifications: !profile.preferences.notifications });
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter' && e.key !== ' ') return;
+                        e.preventDefault();
                         updatePreferences({ notifications: !profile.preferences.notifications });
                       }}
                       disabled={!canEdit || saving}
                       readOnly
+                      role="button"
+                      tabIndex={canEdit && !saving ? 0 : -1}
+                      aria-pressed={profile.preferences.notifications}
+                      aria-label="Toggle notifications"
                     />
                     <Helper>Click the field to toggle.</Helper>
                   </Field>

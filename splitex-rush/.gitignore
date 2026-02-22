@@ -118,6 +118,8 @@ lib-es6/
 lib-esnext/
 lib-commonjs/
 lib-shim/
+!apps/web/src/lib/
+!apps/web/src/lib/**
 dist/
 dist-storybook/
 *.tsbuildinfo
@@ -184,3 +186,5 @@ apps/mobile/maestro/.firebase-data/
 
 # Debug keystore (machine-specific, regenerated if missing)
 **/debug.keystore
+.vercel
+.env*.local

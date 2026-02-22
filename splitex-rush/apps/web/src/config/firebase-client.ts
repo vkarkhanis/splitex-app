@@ -8,15 +8,15 @@ import { connectStorageEmulator, getStorage } from 'firebase/storage';
 import { isFirebaseEmulatorEnabled } from './dev-options';
 
 export const firebaseConfig = {
-  // Replace these values with your Firebase project configuration
-  // Get these from: Firebase Console → Project Settings → General → Your apps → Web app
-  apiKey: "AIzaSyAdw0Qu_T9SHu4SUAQsJ-z1DDt3rn7enIo",
-  authDomain: "app-splitex.firebaseapp.com",
-  projectId: "app-splitex",
-  storageBucket: "app-splitex.firebasestorage.app",
-  messagingSenderId: "368026022797",
-  appId: "1:368026022797:web:58a7ebb934a2f8af5183c4",
-  measurementId: "G-8G5C8Q1RZW"
+  // Uses env vars first so staging/prod can be deployed without code changes.
+  // Fallback values keep current local behavior.
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyAdw0Qu_T9SHu4SUAQsJ-z1DDt3rn7enIo",
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "app-splitex.firebaseapp.com",
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "app-splitex",
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "app-splitex.firebasestorage.app",
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "368026022797",
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:368026022797:web:58a7ebb934a2f8af5183c4",
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || "G-8G5C8Q1RZW"
 };
 
 // Singleton instance for Firebase app

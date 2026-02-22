@@ -1,74 +1,59 @@
-# Splitex Deployment Runbook (Local, Staging, Production)
+# Splitex Deployment Runbook (First-Time Friendly)
 
-Deployment files live in:
-
+Deployment folder:
 - `/Users/vkarkhanis/workspace/Splitex/splitex-app/deployment`
 
-App source being deployed is:
-
+Source repo:
 - `/Users/vkarkhanis/workspace/Splitex/splitex-rush`
 
-This runbook is for the repo at:
+This runbook gives exact steps for:
+1. Local development
+2. Staging (internal testing / TestFlight / Play Internal)
+3. Production (App Store / Play Store)
 
-- `/Users/vkarkhanis/workspace/Splitex/splitex-rush`
+## 0) Current recommended environment names
 
-It covers:
+Use separate projects:
+- Dev: `app-splitex`
+- Staging: `app-splitex-staging`
+- Production: `app-splitex-prod`
 
-1. Local development setup
-2. Staging deployment (Cloud Run + Firebase staging project)
-3. Production deployment (Cloud Run + Firebase production project)
-4. Mobile/TestFlight/Play internal + production environment mapping
+Do not reuse the same Firebase project for staging and production.
 
-## 0) First-time release prerequisites (store accounts)
+## 1) What you can do before store developer accounts
 
-For first-ever TestFlight/Play internal/prod release, these are mandatory:
+You can fully complete these before Apple/Play account approval:
+1. Create Firebase staging + prod projects
+2. Deploy API to Cloud Run (staging + prod)
+3. Configure Firebase Auth providers
+4. Configure Firestore/Storage rules
+5. Validate mobile app against staging API/Firebase locally
 
-1. Apple Developer Program enrollment (paid) for your org/team
-2. App Store Connect app created for iOS
-3. Google Play Console developer account (one-time fee)
-4. Play Console app created for Android
-5. At least one tester account list prepared
-6. App privacy policy URL and support URL prepared
+You need store accounts only for:
+- TestFlight distribution (Apple Developer account)
+- Play internal/production distribution (Google Play Console developer account)
 
-Without these, mobile build artifacts can be produced, but store distribution cannot be completed.
+## 2) One-time machine setup
 
-## 1) What differs by environment
-
-These values must be different between local/staging/production:
-
-- Firebase Admin credentials (API server)
-  - `FIREBASE_PROJECT_ID`
-  - `FIREBASE_CLIENT_EMAIL`
-  - `FIREBASE_PRIVATE_KEY`
-  - `FIREBASE_STORAGE_BUCKET`
-- JWT secrets
-  - `JWT_SECRET`
-  - `JWT_REFRESH_SECRET`
-- API environment
-  - `NODE_ENV`
-  - `APP_URL`
-- API URL consumed by mobile
-  - `EXPO_PUBLIC_API_URL`
-- Google OAuth client IDs used by mobile
-  - `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`
-  - `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`
-  - `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`
-- Optional SMTP/email settings
-  - `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
-
-## 2) One-time prerequisites (machine + accounts)
-
-### 2.1 Install tooling
+### 2.1 Install CLIs
 
 ```bash
 brew install --cask google-cloud-sdk
+brew install firebase-cli
+npm install -g eas-cli
 corepack enable
-npx @microsoft/rush@5.167.0 --version
-pnpm dlx firebase-tools --version
-pnpm dlx eas-cli --version
 ```
 
-### 2.2 Authenticate
+Verify:
+
+```bash
+gcloud --version
+firebase --version
+eas --version
+node --version
+```
+
+### 2.2 Login
 
 ```bash
 gcloud auth login
@@ -76,17 +61,26 @@ firebase login
 eas login
 ```
 
-### 2.3 One-time EAS setup for mobile project
+### 2.3 Set active gcloud project
 
-From mobile app folder:
+```bash
+gcloud config set project app-splitex-staging
+gcloud config get-value project
+```
+
+Expected output for staging should be exactly:
+- `app-splitex-staging`
+
+### 2.4 Ensure EAS project/profiles exist
+
+From mobile app directory:
 
 ```bash
 cd /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile
 eas whoami
-eas init --id <EAS_PROJECT_ID>
 ```
 
-If `eas.json` does not exist, create it:
+If `eas.json` is missing, create:
 
 ```bash
 cat > /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile/eas.json <<'EOF'
@@ -110,375 +104,374 @@ cat > /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile/eas.json <<'E
 EOF
 ```
 
-Update `/Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile/app.json` and set a valid EAS UUID in `expo.extra.eas.projectId`.
+If EAS project is not initialized, run:
 
-### 2.4 Repo bootstrap
+```bash
+cd /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile
+eas init
+```
+
+## 3) Firebase setup (run once per environment)
+
+Do this for both `app-splitex-staging` and `app-splitex-prod`.
+
+### 3.1 Create project
+
+Go to [Firebase Console](https://console.firebase.google.com/) and create project.
+
+### 3.2 Enable products
+
+In each project, enable:
+1. Authentication
+2. Firestore Database
+3. Storage
+
+### 3.3 Auth providers
+
+In Authentication -> Sign-in method:
+1. Enable `Google`
+2. Enable `Email/Password`
+3. Enable `Email link (passwordless sign-in)` if you want passwordless flow
+
+### 3.4 Authorized domains (for email-link)
+
+In Authentication -> Settings -> Authorized domains, add:
+- Your API service URL domain (for staging now):
+  - `splitex-api-staging-862789756309.us-central1.run.app`
+- Later add custom domains if used
+
+Cloud Run service URL does not change on every deploy for the same service name.
+
+### 3.5 Register apps in Firebase project
+
+Per environment project, register:
+1. Android app package: `com.splitex.app`
+2. iOS bundle ID: `com.splitex.app`
+3. Web app (needed to get Firebase Web API key)
+
+Download and store per environment:
+- `google-services.json` (Android)
+- `GoogleService-Info.plist` (iOS)
+
+### 3.6 Android SHA fingerprints
+
+Add SHA-1 and SHA-256 values in Firebase Android app settings:
+1. For internal builds: from local/upload keystore
+2. For production Play release: from Play Console -> App integrity
+
+You need active Play Console access to get Play App Signing cert fingerprints.
+
+### 3.7 Service account JSON (for API)
+
+In Firebase project:
+- Project settings -> Service accounts -> Generate new private key
+
+This JSON file is used by deploy scripts via `FIREBASE_PRIVATE_KEY_FILE`.
+
+### 3.8 Firebase Web API key (for email-link endpoint)
+
+From project settings -> General -> Your apps -> Web app config:
+- `apiKey` value is `FIREBASE_WEB_API_KEY`
+
+## 4) Firestore and Storage security rules
+
+If all business logic/data access is through your API, keep client access locked.
+
+Firestore rules:
+
+```text
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+```
+
+Storage rules:
+
+```text
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
+```
+
+Note: Firestore rules and Storage rules are edited in separate screens:
+- Firestore Database -> Rules
+- Storage -> Rules
+
+## 5) API deployment (Cloud Run)
+
+Scripts:
+- `/Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-staging.sh`
+- `/Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-prod.sh`
+
+### 5.1 Fill staging script placeholders
+
+Edit `/Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-staging.sh` and set:
+- `GCP_PROJECT_ID=app-splitex-staging`
+- `FIREBASE_PROJECT_ID=app-splitex-staging`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_STORAGE_BUCKET`
+- `FIREBASE_PRIVATE_KEY_FILE` (absolute path to service-account JSON)
+- `JWT_SECRET`
+- `JWT_REFRESH_SECRET`
+
+Optional email-link vars (if enabled):
+- `FIREBASE_WEB_API_KEY`
+- `AUTH_EMAIL_LINK_CONTINUE_URL`
+- `AUTH_ANDROID_PACKAGE_NAME=com.splitex.app`
+- `AUTH_IOS_BUNDLE_ID=com.splitex.app`
+
+For staging continue URL, use:
+- `https://splitex-api-staging-862789756309.us-central1.run.app/auth/email-link`
+
+Optional SMTP (Gmail example):
+- `SMTP_HOST=smtp.gmail.com`
+- `SMTP_PORT=465`
+- `SMTP_SECURE=true`
+- `SMTP_USER=<gmail_address>`
+- `SMTP_PASS=<gmail_app_password>`
+- `SMTP_FROM=<gmail_address>`
+
+### 5.2 Deploy staging API
+
+```bash
+bash /Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-staging.sh
+```
+
+### 5.3 Verify staging API
+
+```bash
+curl https://splitex-api-staging-862789756309.us-central1.run.app/health
+```
+
+### 5.4 Deploy production API
+
+Edit placeholders in `/Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-prod.sh` then run:
+
+```bash
+bash /Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-prod.sh
+```
+
+## 6) Local app vs staging vs production mapping
+
+### 6.1 Local
+
+- API: `http://localhost:3001`
+- Firebase: dev project (`app-splitex`)
+- `NODE_ENV=development`
+
+Run:
 
 ```bash
 cd /Users/vkarkhanis/workspace/Splitex/splitex-rush
 rush update
-rush build:shared
-rush build:api
-```
-
-### 2.5 Create API container files (if not already present)
-
-Create `/Users/vkarkhanis/workspace/Splitex/splitex-rush/Dockerfile`:
-
-```dockerfile
-FROM node:24-alpine
-WORKDIR /app
-
-COPY . .
-
-RUN corepack enable \
- && npx @microsoft/rush@5.167.0 update --bypass-policy \
- && npx @microsoft/rush@5.167.0 build:shared \
- && npx @microsoft/rush@5.167.0 build:api
-
-WORKDIR /app/apps/api
-ENV NODE_ENV=production
-EXPOSE 8080
-CMD ["node", "dist/index.js"]
-```
-
-Create `/Users/vkarkhanis/workspace/Splitex/splitex-rush/.dockerignore`:
-
-```text
-.git
-**/node_modules
-**/.expo
-**/dist
-**/build
-common/temp
-common/autoinstallers
-```
-
-## 3) Firebase setup per environment
-
-Repeat once for staging and once for production.
-
-### 3.1 Create Firebase projects
-
-- Staging: `splitex-staging` (or your name)
-- Production: `splitex-prod` (or your name)
-
-### 3.2 Enable Firebase products
-
-In each Firebase project:
-
-- Authentication (enable Google provider)
-- Firestore Database
-- Storage
-
-For passwordless email-link sign-in, additionally in Firebase Authentication:
-
-1. Enable `Email/Password`
-2. Enable `Email link (passwordless sign-in)`
-3. Add authorized domains used in action links
-
-### 3.3 Mobile app registration in Firebase (per env)
-
-In each Firebase project:
-
-1. Register Android app package (current package is `com.splitex.app`)
-2. Register iOS app bundle ID (current bundle is `com.splitex.app`)
-3. Add SHA fingerprints for Android signing certs (internal + Play App Signing for prod)
-4. Download:
-   - `google-services.json`
-   - `GoogleService-Info.plist`
-
-Keep staging and production versions separate in secure local folders.
-
-### 3.4 Place mobile Firebase files before environment build
-
-Before staging/internal builds, copy staging Firebase config files:
-
-```bash
-cp <STAGING_GOOGLE_SERVICES_JSON> /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile/google-services.json
-cp <STAGING_GOOGLESERVICE_INFO_PLIST> /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile/ios/Splitex/GoogleService-Info.plist
-```
-
-Before production/store builds, copy production Firebase config files:
-
-```bash
-cp <PROD_GOOGLE_SERVICES_JSON> /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile/google-services.json
-cp <PROD_GOOGLESERVICE_INFO_PLIST> /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile/ios/Splitex/GoogleService-Info.plist
-```
-
-### 3.5 Backend service account key (per env)
-
-In each Firebase project:
-
-- Project Settings -> Service Accounts -> Generate new private key
-- Save JSON securely
-- Extract:
-  - `project_id`
-  - `client_email`
-  - `private_key`
-
-### 3.6 Google Cloud / Firebase config for email-link auth
-
-For each environment (staging/prod), collect and set:
-
-1. Firebase Web API key (`FIREBASE_WEB_API_KEY`)
-   - Firebase Console -> Project settings -> General -> Your apps -> Web app config
-2. Cloud Run env vars (already supported in deploy scripts)
-   - `AUTH_EMAIL_LINK_CONTINUE_URL`
-   - `AUTH_ANDROID_PACKAGE_NAME`
-   - `AUTH_ANDROID_MIN_VERSION`
-   - `AUTH_IOS_BUNDLE_ID`
-
-In scripts:
-
-- `/Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-staging.sh`
-- `/Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-prod.sh`
-
-fill optional email-link placeholders when enabling this feature.
-
-## 4) Local environment steps
-
-### 4.1 Create local API env
-
-Create `/Users/vkarkhanis/workspace/Splitex/splitex-rush/.env.local`:
-
-```env
-FIREBASE_PROJECT_ID=<LOCAL_FIREBASE_PROJECT_ID>
-FIREBASE_CLIENT_EMAIL=<LOCAL_FIREBASE_CLIENT_EMAIL>
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-FIREBASE_STORAGE_BUCKET=<LOCAL_FIREBASE_STORAGE_BUCKET>
-
-JWT_SECRET=<LOCAL_JWT_SECRET>
-JWT_REFRESH_SECRET=<LOCAL_JWT_REFRESH_SECRET>
-
-PORT=3001
-NODE_ENV=development
-APP_URL=http://localhost:3000
-
-# Optional SMTP
-# SMTP_HOST=smtp.gmail.com
-# SMTP_PORT=587
-# SMTP_SECURE=false
-# SMTP_USER=<USER>
-# SMTP_PASS=<PASS>
-# SMTP_FROM=noreply@splitex.app
-```
-
-### 4.2 Start local API
-
-```bash
-cd /Users/vkarkhanis/workspace/Splitex/splitex-rush
 rush dev:api
 ```
 
-### 4.3 Start mobile against local API
-
-iOS simulator/local dev:
+Mobile local:
 
 ```bash
 cd /Users/vkarkhanis/workspace/Splitex/splitex-rush
 EXPO_PUBLIC_API_URL=http://localhost:3001 rush dev:mobile
 ```
 
-Android emulator:
+### 6.2 Staging (internal testing)
+
+- API: Cloud Run staging URL
+- Firebase: `app-splitex-staging`
+- `NODE_ENV=staging`
+
+Before building mobile:
+
+```bash
+cp <STAGING_GOOGLE_SERVICES_JSON> /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile/google-services.json
+cp <STAGING_GOOGLESERVICE_INFO_PLIST> /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile/ios/Splitex/GoogleService-Info.plist
+```
+
+Then build:
+
+```bash
+cd /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile
+EXPO_PUBLIC_API_URL=https://splitex-api-staging-862789756309.us-central1.run.app \
+EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=<STAGING_WEB_CLIENT_ID> \
+EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=<STAGING_ANDROID_CLIENT_ID> \
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=<STAGING_IOS_CLIENT_ID> \
+eas build --platform ios --profile staging
+
+EXPO_PUBLIC_API_URL=https://splitex-api-staging-862789756309.us-central1.run.app \
+EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=<STAGING_WEB_CLIENT_ID> \
+EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=<STAGING_ANDROID_CLIENT_ID> \
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=<STAGING_IOS_CLIENT_ID> \
+eas build --platform android --profile staging
+```
+
+### 6.3 Production
+
+- API: production Cloud Run/custom domain
+- Firebase: `app-splitex-prod`
+- `NODE_ENV=production`
+
+Before prod builds, copy prod Firebase mobile files and run same commands with prod API/client IDs.
+
+## 7) Store deployment requirements
+
+### 7.1 TestFlight
+
+Requires active Apple Developer Program membership.
+
+### 7.2 Play Internal/Production
+
+Requires active Google Play Console developer account.
+
+If account shows `Account closed` for inactivity, create a new Play Console account and complete verification before release.
+
+## 8) Known errors and exact fixes
+
+### 8.1 `gcloud: command not found`
+
+Install gcloud SDK and restart terminal.
+
+### 8.2 `firebase: command not found`
+
+```bash
+brew install firebase-cli
+```
+
+### 8.3 `You do not currently have an active account selected`
+
+```bash
+gcloud auth login
+gcloud config set project app-splitex-staging
+```
+
+### 8.4 `Billing account ... not found`
+
+Link billing account in GCP project before enabling Cloud Run/Build/Artifact Registry APIs.
+
+### 8.5 `Missing .../Dockerfile`
+
+Ensure file exists at:
+- `/Users/vkarkhanis/workspace/Splitex/splitex-rush/Dockerfile`
+
+### 8.6 `bash: not found` during Cloud Build
+
+Already fixed in Dockerfile by installing bash via `apk add --no-cache bash`.
+
+### 8.7 Project lacks `environment` tag warning
+
+This warning is non-blocking for deployment. You can continue.
+
+## 9) Cost model (quick)
+
+- Firebase Spark (free) is limited; Cloud Run + Secret Manager + Artifact Registry require billing (Blaze/pay-as-you-go).
+- With `min instances = 0` staging can stay very low cost when idle.
+- Add budget alert in GCP:
+  1. Billing -> Budgets & alerts -> Create budget
+  2. Set monthly amount and alert thresholds (50%, 90%, 100%)
+
+## 10) Security notes
+
+1. Do not keep real secrets committed in shell scripts.
+2. Use placeholders in repo and local private copies for real values.
+3. Rotate secrets if any real value was ever committed.
+4. Keep staging and production secrets different.
+
+## 11) Web hosting status
+
+API deployment path is working (Cloud Run). For web in this monorepo, the recommended path is:
+1. Deploy web to Cloud Run using monorepo `Dockerfile.web`
+2. Put Firebase Hosting in front with rewrite to Cloud Run
+
+This avoids Firebase App Hosting buildpack issues with Rush + `workspace:` dependencies.
+
+### 11.1 Why this works with workspace dependencies
+
+`apps/web` depends on `@splitex/ui` and `@splitex/shared` via `workspace:^...`.
+Firebase App Hosting buildpack often installs with `npm` from `apps/web` root and fails on workspace protocols in this monorepo layout.
+
+`Dockerfile.web` builds from repo root using Rush, so workspace dependencies are resolved exactly like local/dev.
+
+### 11.2 Files used
+
+- `/Users/vkarkhanis/workspace/Splitex/splitex-rush/Dockerfile.web`
+- `/Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-web-staging.sh`
+- `/Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-web-prod.sh`
+
+### 11.3 Staging web deploy (one command)
+
+1. Edit placeholders in:
+   - `/Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-web-staging.sh`
+2. Ensure web source files are tracked in git (important):
+
+```bash
+git -C /Users/vkarkhanis/workspace/Splitex ls-files -- splitex-rush/apps/web/src/lib/StyledComponentsRegistry.tsx
+```
+
+If empty, add/fix and push branch before deploy.
+3. Ensure Hosting site exists (or script creates it):
+
+```bash
+firebase hosting:sites:create <HOSTING_SITE_ID> --project app-splitex-staging
+```
+4. Run:
+
+```bash
+bash /Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-web-staging.sh
+```
+
+### 11.4 Production web deploy (one command)
+
+1. Edit placeholders in:
+   - `/Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-web-prod.sh`
+2. Ensure Hosting site exists:
+
+```bash
+firebase hosting:sites:create <HOSTING_SITE_ID> --project app-splitex-prod
+```
+3. Run:
+
+```bash
+bash /Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-web-prod.sh
+```
+
+### 11.5 Web deployment troubleshooting
+
+If Cloud Run is deployed but script appears to stop after that, run Hosting deploy directly:
 
 ```bash
 cd /Users/vkarkhanis/workspace/Splitex/splitex-rush
-EXPO_PUBLIC_API_URL=http://10.0.2.2:3001 rush mobile:android
+firebase deploy --project app-splitex-staging --only hosting --config .firebase-hosting-staging.generated.json --non-interactive --debug
 ```
 
-## 5) Staging deployment steps
+If you get `Directory 'apps/web/public' for Hosting does not exist`:
+1. Ensure config file is inside repo root (already handled in current scripts).
+2. Run deploy from repo root.
 
-### 5.1 Configure script placeholders
+### 11.6 If you still want Firebase App Hosting (Git-based)
 
-Edit:
-
-- `/Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-staging.sh`
-
-Replace all `CHANGE_ME_*` values.
-
-`FIREBASE_PRIVATE_KEY_FILE` accepts either:
-
-1. A file containing only the PEM private key text
-2. A Firebase service-account JSON file (script auto-extracts `private_key`)
-
-### 5.2 Run one command
+Correct CLI syntax:
 
 ```bash
-bash /Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-staging.sh
+firebase apphosting:backends:create \
+  --project app-splitex-staging \
+  --backend app-splitex-staging \
+  --primary-region us-central1 \
+  --root-dir splitex-rush/apps/web
+
+firebase apphosting:rollouts:create app-splitex-staging \
+  --project app-splitex-staging \
+  --git-branch stage
 ```
 
-This script will:
-
-1. Validate placeholders
-2. Enable required GCP APIs
-3. Create runtime service account and IAM grants
-4. Upsert all required secrets into Secret Manager
-5. Deploy Cloud Run service
-6. Optionally create domain mapping
-7. Print health check URL and service URL
-
-### 5.3 Verify
-
-```bash
-curl https://api-staging.splitex.app/health
-```
-
-(or script output URL if domain mapping not configured)
-
-## 6) Production deployment steps
-
-### 6.1 Configure script placeholders
-
-Edit:
-
-- `/Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-prod.sh`
-
-Replace all `CHANGE_ME_*` values.
-
-`FIREBASE_PRIVATE_KEY_FILE` accepts either:
-
-1. A file containing only the PEM private key text
-2. A Firebase service-account JSON file (script auto-extracts `private_key`)
-
-### 6.2 Run one command
-
-```bash
-bash /Users/vkarkhanis/workspace/Splitex/splitex-app/deployment/scripts/deploy-prod.sh
-```
-
-### 6.3 Verify
-
-```bash
-curl https://api.splitex.app/health
-```
-
-(or script output URL if domain mapping not configured)
-
-## 7) Mobile build mapping (staging vs production)
-
-Build commands from `/Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile`.
-
-### 7.1 Staging/Internal builds
-
-```bash
-EXPO_PUBLIC_API_URL=https://api-staging.splitex.app \
-EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=<STAGING_WEB_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=<STAGING_ANDROID_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=<STAGING_IOS_CLIENT_ID> \
-eas build --platform ios --profile staging
-
-EXPO_PUBLIC_API_URL=https://api-staging.splitex.app \
-EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=<STAGING_WEB_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=<STAGING_ANDROID_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=<STAGING_IOS_CLIENT_ID> \
-eas build --platform android --profile staging
-```
-
-### 7.2 Production/AppStore/Play builds
-
-```bash
-EXPO_PUBLIC_API_URL=https://api.splitex.app \
-EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=<PROD_WEB_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=<PROD_ANDROID_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=<PROD_IOS_CLIENT_ID> \
-eas build --platform ios --profile production
-
-EXPO_PUBLIC_API_URL=https://api.splitex.app \
-EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=<PROD_WEB_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=<PROD_ANDROID_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=<PROD_IOS_CLIENT_ID> \
-eas build --platform android --profile production
-```
-
-## 8) TestFlight and Play Internal testing (first-time flow)
-
-### 8.1 TestFlight (iOS internal/external)
-
-1. Create app record once in App Store Connect with bundle id `com.splitex.app`
-2. Build and submit:
-
-```bash
-cd /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile
-eas build --platform ios --profile staging
-eas submit --platform ios --latest
-```
-
-3. In App Store Connect:
-1. Open TestFlight tab
-2. Add internal testers (team users) or external tester group
-3. For external testers, submit beta review and wait approval
-
-### 8.2 Play Console internal testing
-
-1. Create app record once in Play Console with package `com.splitex.app`
-2. Build and submit:
-
-```bash
-cd /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile
-eas build --platform android --profile staging
-eas submit --platform android --latest
-```
-
-3. In Play Console:
-1. Open Testing > Internal testing
-2. Create tester list/email group
-3. Roll out release to internal track
-
-## 9) Production store release flow
-
-1. Ensure production API is deployed and healthy
-2. Ensure production Firebase files are copied into mobile project
-3. Build and submit production artifacts:
-
-```bash
-cd /Users/vkarkhanis/workspace/Splitex/splitex-rush/apps/mobile
-eas build --platform ios --profile production
-eas submit --platform ios --latest
-eas build --platform android --profile production
-eas submit --platform android --latest
-```
-
-4. Finalize release in consoles:
-1. App Store Connect -> select build for App Store release
-2. Play Console -> Production track rollout
-## 10) DNS and domain mapping notes
-
-If you set `DOMAIN_NAME` in scripts:
-
-1. Script creates Cloud Run domain mapping
-2. Run:
-
-```bash
-gcloud run domain-mappings describe <YOUR_DOMAIN> --region <YOUR_REGION>
-```
-
-3. Add the returned DNS records in your DNS provider
-4. Wait for certificate provisioning and DNS propagation
-
-## 11) Security/operations notes (important)
-
-1. Never commit Firebase private keys
-2. Use separate Firebase projects for staging/prod
-3. Use separate JWT secrets for staging/prod
-4. Use Cloud Run `min instances = 0` for staging to reduce cost
-5. Set Cloud Run `min instances = 1` for production if websocket usage must stay warm
-6. Rotate compromised keys immediately if any secret was committed in git history
-7. Restrict Firebase API keys in Google Cloud Console by app/bundle/package where possible
-8. Keep `apps/mobile/google-services.json` and `apps/mobile/ios/Splitex/GoogleService-Info.plist` environment-specific and out of git
-
-## 12) Rollback strategy
-
-List revisions:
-
-```bash
-gcloud run revisions list --service splitex-api-staging --region us-central1
-gcloud run revisions list --service splitex-api-prod --region us-central1
-```
-
-Route traffic back to previous revision:
-
-```bash
-gcloud run services update-traffic splitex-api-staging --to-revisions <REVISION>=100 --region us-central1
-gcloud run services update-traffic splitex-api-prod --to-revisions <REVISION>=100 --region us-central1
-```
+Notes:
+1. Use `--git-branch` (hyphen), not `--git_branch`.
+2. App Hosting may still fail with this monorepo because of workspace dependency installation.
