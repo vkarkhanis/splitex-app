@@ -1,14 +1,90 @@
 import { Router, Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
 import { ApiResponse, LoginRequest, RegisterRequest, User } from '@splitex/shared';
-import { db } from '../config/firebase';
+import { auth, db } from '../config/firebase';
 import bcrypt from 'bcryptjs';
+import { EmailService } from '../services/email.service';
 
 const router: Router = Router();
 const authService = new AuthService();
+const emailService = new EmailService();
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+function getActionCodeSettings() {
+  return {
+    url: process.env.AUTH_EMAIL_LINK_CONTINUE_URL || `${process.env.APP_URL || 'http://localhost:3000'}/auth/email-link`,
+    handleCodeInApp: true,
+    iOS: process.env.AUTH_IOS_BUNDLE_ID ? { bundleId: process.env.AUTH_IOS_BUNDLE_ID } : undefined,
+    android: process.env.AUTH_ANDROID_PACKAGE_NAME
+      ? {
+          packageName: process.env.AUTH_ANDROID_PACKAGE_NAME,
+          installApp: true,
+          minimumVersion: process.env.AUTH_ANDROID_MIN_VERSION || '1',
+        }
+      : undefined,
+  };
+}
+
+function extractOobCode(link?: string, code?: string): string | undefined {
+  if (code) return code;
+  if (!link) return undefined;
+  try {
+    const parsed = new URL(link);
+    return parsed.searchParams.get('oobCode') || undefined;
+  } catch {
+    const match = link.match(/[?&]oobCode=([^&]+)/);
+    return match ? decodeURIComponent(match[1]) : undefined;
+  }
+}
+
+async function upsertEmailUserFromFirebase(uid: string, email: string, displayName?: string): Promise<User> {
+  const now = new Date().toISOString();
+  const userRef = db.collection('users').doc(uid);
+  const existing = await userRef.get();
+  const existingData = existing.exists ? existing.data() || {} : {};
+
+  const userDoc = {
+    userId: uid,
+    email,
+    phoneNumber: typeof existingData.phoneNumber === 'string' ? existingData.phoneNumber : '',
+    displayName:
+      (typeof existingData.displayName === 'string' && existingData.displayName) ||
+      displayName ||
+      email.split('@')[0],
+    photoURL: typeof existingData.photoURL === 'string' ? existingData.photoURL : '',
+    authProviders: Array.from(
+      new Set([...(Array.isArray(existingData.authProviders) ? existingData.authProviders : []), 'email'])
+    ),
+    tier: existingData.tier || 'free',
+    entitlementStatus: existingData.entitlementStatus || 'active',
+    entitlementExpiresAt: existingData.entitlementExpiresAt || null,
+    entitlementSource: existingData.entitlementSource || 'system',
+    internalTester: Boolean(existingData.internalTester),
+    preferences: existingData.preferences || {
+      notifications: true,
+      currency: 'USD',
+      timezone: 'UTC'
+    },
+    createdAt: existingData.createdAt || now,
+    updatedAt: now
+  };
+
+  await userRef.set(userDoc, { merge: true });
+
+  return {
+    id: uid,
+    email: userDoc.email,
+    phoneNumber: userDoc.phoneNumber,
+    displayName: userDoc.displayName,
+    photoURL: userDoc.photoURL,
+    authProviders: userDoc.authProviders as any,
+    preferences: userDoc.preferences,
+    createdAt: new Date(userDoc.createdAt),
+    updatedAt: new Date(userDoc.updatedAt)
+  };
 }
 
 // Email Register (mobile compatibility)
@@ -177,6 +253,139 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({
       success: false,
       error: 'Login failed'
+    } as ApiResponse);
+  }
+});
+
+// Forgot Password (email)
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email is required'
+      } as ApiResponse);
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    try {
+      const link = await auth.generatePasswordResetLink(normalizedEmail, getActionCodeSettings() as any);
+      await emailService.sendAuthLinkEmail(normalizedEmail, link, 'reset-password');
+    } catch (err) {
+      // Keep response generic to avoid account enumeration.
+      console.warn('forgot-password link generation failed:', err);
+    }
+
+    return res.json({
+      success: true,
+      data: { message: 'If an account exists, a reset link has been sent.' }
+    } as ApiResponse);
+  } catch {
+    return res.json({
+      success: true,
+      data: { message: 'If an account exists, a reset link has been sent.' }
+    } as ApiResponse);
+  }
+});
+
+// Send email link (passwordless sign-in)
+router.post('/email-link/send', async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email is required'
+      } as ApiResponse);
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    try {
+      const link = await auth.generateSignInWithEmailLink(normalizedEmail, getActionCodeSettings() as any);
+      await emailService.sendAuthLinkEmail(normalizedEmail, link, 'sign-in');
+    } catch (err) {
+      console.error('email-link send failed:', err);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to send sign-in link'
+      } as ApiResponse);
+    }
+
+    return res.json({
+      success: true,
+      data: { message: 'Sign-in link sent if email is valid.' }
+    } as ApiResponse);
+  } catch {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to send sign-in link'
+    } as ApiResponse);
+  }
+});
+
+// Complete email-link sign-in and issue Splitex JWT tokens
+router.post('/email-link/complete', async (req, res) => {
+  try {
+    const { email, link, oobCode } = req.body || {};
+    if (!email || (!link && !oobCode)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email and link (or oobCode) are required'
+      } as ApiResponse);
+    }
+
+    const webApiKey = process.env.FIREBASE_WEB_API_KEY;
+    if (!webApiKey) {
+      return res.status(501).json({
+        success: false,
+        error: 'Email link sign-in is not configured on server'
+      } as ApiResponse);
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    const resolvedCode = extractOobCode(link, oobCode);
+    if (!resolvedCode) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid sign-in link'
+      } as ApiResponse);
+    }
+
+    const signInResp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithEmailLink?key=${webApiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: normalizedEmail, oobCode: resolvedCode, returnSecureToken: true })
+    });
+
+    const signInData: any = await signInResp.json().catch(() => ({}));
+    if (!signInResp.ok || !signInData?.idToken) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid or expired sign-in link'
+      } as ApiResponse);
+    }
+
+    const decoded = await auth.verifyIdToken(signInData.idToken);
+    const firebaseEmail = ((decoded as any).email || normalizedEmail) as string;
+    const user = await upsertEmailUserFromFirebase(decoded.uid, normalizeEmail(firebaseEmail), (decoded as any).name);
+    const tokens = await authService.generateTokens(user);
+
+    return res.json({
+      success: true,
+      data: {
+        user,
+        tokens,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        token: tokens.accessToken
+      }
+    } as ApiResponse);
+  } catch (err) {
+    console.error('email-link complete failed:', err);
+    return res.status(401).json({
+      success: false,
+      error: 'Email link sign-in failed'
     } as ApiResponse);
   }
 });

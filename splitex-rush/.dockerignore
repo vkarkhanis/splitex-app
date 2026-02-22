@@ -1,0 +1,7 @@
+.git
+**/node_modules
+**/.expo
+**/dist
+**/build
+common/temp
+common/autoinstallers

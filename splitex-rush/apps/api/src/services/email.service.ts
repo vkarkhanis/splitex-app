@@ -123,6 +123,73 @@ export class EmailService {
     }
   }
 
+  async sendAuthLinkEmail(
+    recipientEmail: string,
+    link: string,
+    type: 'sign-in' | 'reset-password'
+  ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    const subject =
+      type === 'sign-in'
+        ? 'Your Splitex sign-in link'
+        : 'Your Splitex password reset link';
+    const buttonText = type === 'sign-in' ? 'Sign In to Splitex' : 'Reset Password';
+    const intro =
+      type === 'sign-in'
+        ? 'Use the secure link below to sign in to your Splitex account.'
+        : 'Use the secure link below to reset your Splitex password.';
+
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: #3b82f6; color: white; padding: 20px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="margin: 0; font-size: 24px;">Splitex</h1>
+          <p style="margin: 4px 0 0; opacity: 0.9;">Expense Splitting Made Simple</p>
+        </div>
+        <div style="background: #f8fafc; padding: 24px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 12px 12px;">
+          <p style="color: #475569; line-height: 1.6;">${intro}</p>
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="${link}" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+              ${buttonText}
+            </a>
+          </div>
+          <p style="color: #94a3b8; font-size: 12px;">
+            If the button does not work, copy this link into your browser:<br />
+            ${link}
+          </p>
+        </div>
+      </div>
+    `;
+
+    const text = `${intro}\n\n${buttonText}: ${link}`;
+
+    try {
+      const info = await this.transporter.sendMail({
+        from: `"Splitex" <${this.fromAddress}>`,
+        to: recipientEmail,
+        subject,
+        text,
+        html,
+      });
+
+      if (this.isEtherealHost) {
+        const previewUrl = nodemailer.getTestMessageUrl(info);
+        console.log(`📧 [ETHEREAL] Auth email to: ${recipientEmail} | ${type}`);
+        if (previewUrl) console.log(`📧 [ETHEREAL] Preview: ${previewUrl}`);
+        return { success: true, messageId: info.messageId || `ethereal-${Date.now()}` };
+      }
+
+      if (!process.env.SMTP_HOST) {
+        console.log(`📧 [MOCK] Auth email to: ${recipientEmail} | ${type}`);
+        console.log(`📧 [MOCK] Link: ${link}`);
+        return { success: true, messageId: `mock-${Date.now()}` };
+      }
+
+      return { success: true, messageId: info.messageId };
+    } catch (err: any) {
+      console.error(`📧 Auth email failed (${type}):`, err.message);
+      return { success: false, error: err.message };
+    }
+  }
+
   private getNotificationSubject(data: NotificationEmailData): string {
     const labels: Record<string, string> = {
       expense_added: `New expense added in "${data.eventName}"`,

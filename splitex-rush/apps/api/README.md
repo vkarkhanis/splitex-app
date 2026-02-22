@@ -1,81 +1,142 @@
-# Splitex API
+# Splitex API — Developer Guide
 
-Express API for Splitex web/mobile clients.
+This README is API-only. Global setup (Firebase project creation, env overview, monorepo commands) is in:
+- `../../README.md`
 
-## Entitlement and Tiering
+## What This Service Owns
+- Auth/session APIs
+- Events/expenses/groups/invitations/settlements APIs
+- Entitlement and capability enforcement (Free/Pro)
+- Payment gateway policy and checkout initiation
+- RevenueCat webhook ingestion
+- WebSocket events
 
-### Source of truth
-- Server-side entitlement state on user profile.
-- RevenueCat webhook updates entitlement lifecycle.
+## Startup Sequences (By Consumer)
 
-### Internal tier switch (non-production only)
-- `GET /api/internal/entitlements/me`
-- `POST /api/internal/entitlements/switch`
-- Guardrails:
-  - disabled in production
-  - requires `INTERNAL_TIER_SWITCH_ENABLED=true`
-  - local/dev/test allow local testing
-  - staging/internal requires internal tester authorization
+### A) API for Web (local emulator stack)
+1. Start Firebase emulators
+2. Start API with emulator env
+3. Start web client
 
-### Pro-gated feature contract
-- Pro-only FX/multi-currency event fields are API-enforced.
-- Denial response:
-  - HTTP `403`
-  - `code: FEATURE_REQUIRES_PRO`
-  - `feature: multi_currency_settlement`
+Recommended single command from repo root:
+```bash
+sh scripts/local-dev/02_emulator_web.sh
+```
 
-## Billing (RevenueCat)
+### B) API for Mobile (local emulator stack)
+1. Start Firebase emulators
+2. Start API with emulator env
+3. Start mobile client
 
-### Endpoint
-- `POST /api/billing/revenuecat/webhook`
+Recommended single command from repo root:
+```bash
+sh scripts/local-dev/01_emulator_mobile.sh
+```
 
-### Required env
+### C) API with real Firebase (local)
+- Web stack: `sh scripts/local-dev/04_real_web.sh`
+- Mobile stack: `sh scripts/local-dev/03_real_mobile.sh`
+
+## API Run Commands
+From `splitex-rush/apps/api`:
+```bash
+# npm flow (avoids Rush lock contention)
+npm run dev
+npm run typecheck
+npm run test
+
+# rushx flow
+rushx dev
+rushx typecheck
+rushx test
+```
+
+## Required API Environment Variables
+Refer `../../README.md` for full catalog. API-critical keys:
+
+### Core
+- `APP_ENV`
+- `PORT`
+- `JWT_SECRET`
+- `JWT_REFRESH_SECRET`
+
+### Firebase (Admin SDK)
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY`
+- `FIREBASE_STORAGE_BUCKET`
+
+### Emulator mode
+- `FIREBASE_USE_EMULATOR=true|false`
+- `FIREBASE_AUTH_EMULATOR_HOST`
+- `FIRESTORE_EMULATOR_HOST`
+- `STORAGE_EMULATOR_HOST`
+
+### Tiering + entitlement
+- `INTERNAL_TIER_SWITCH_ENABLED=true|false`
 - `REVENUECAT_WEBHOOK_SECRET`
-- `REVENUECAT_PRO_ENTITLEMENT_ID` (default `pro`)
+- `REVENUECAT_PRO_ENTITLEMENT_KEY`
 
-### Behavior
-- Validates webhook secret
-- idempotently processes event ID
-- maps RevenueCat event to internal tier/status
-- emits websocket `user:tier-updated`
+### Settlement/payment policy
+- `PAYMENT_GATEWAY_MODE=auto|mock|live`
+- `PAYMENT_ALLOW_REAL_IN_NON_PROD=true|false`
+- `RAZORPAY_KEY_ID`
+- `RAZORPAY_KEY_SECRET`
+- `STRIPE_SECRET_KEY`
+- `PAYMENT_SUCCESS_URL`
+- `PAYMENT_CANCEL_URL`
 
-## Settlement policy (safe defaults)
+## Tiering and Capability Enforcement
+- Source of truth: server-side entitlement state.
+- Free/Pro gates are enforced in API even if client tries bypass.
+- Local/internal manual switch is available only when enabled and non-production.
 
-### Non-production default
-- Mocked payments by default.
+Endpoints:
+- `POST /api/internal/entitlements/switch`
+- `GET /api/internal/entitlements/me`
 
-### Real gateway in non-prod allowed only when all true
-- `PAYMENT_ALLOW_REAL_IN_NON_PROD=true`
-- request body `useRealGateway=true`
-- user is internal tester
+## Settlement and Gateway Safety
+Default behavior:
+- Local/staging/internal/TestFlight: mocked gateway by default.
+- Production: governed by production live policy.
 
-### Production
-- governed by production payment/live credentials policy
+Real gateway in non-prod only when all are true:
+1. `PAYMENT_ALLOW_REAL_IN_NON_PROD=true`
+2. client request sets `useRealGateway=true`
+3. caller is authorized internal tester
 
-## Firebase Local Emulator Suite (local only)
+## RevenueCat Integration
+- Webhook endpoint: `POST /api/billing/revenuecat/webhook`
+- Use scripts:
+  - `../../scripts/revenuecat/bootstrap.sh`
+  - `../../scripts/revenuecat/check-config.sh`
+  - `../../scripts/revenuecat/smoke-webhook.sh`
 
-### Required env
-- `FIREBASE_USE_EMULATOR=true`
-- `FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099`
-- `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080`
-- `STORAGE_EMULATOR_HOST=127.0.0.1:9199`
+Full details: `../../docs/REVENUECAT_INTEGRATION_RUNBOOK.md`
 
-### Rush commands
-- `rush dev:firebase:emulators`
-- `rush dev:api:emulator`
-
-## Quick local validation
-
+## API Health and Smoke Verification
 ```bash
-cd /Users/vkarkhanis/workspace/Splitex/splitex-rush
-./scripts/revenuecat/bootstrap.sh
-./scripts/revenuecat/check-config.sh
-rush dev:api
+# health
+curl http://localhost:3001/health
+
+# entitlement introspection (with auth token)
+curl -H "Authorization: Bearer <token>" http://localhost:3001/api/internal/entitlements/me
 ```
 
-In another terminal:
-
+## Tests
 ```bash
-cd /Users/vkarkhanis/workspace/Splitex/splitex-rush
-./scripts/revenuecat/smoke-webhook.sh
+# unit/integration
+npm run test
+npm run test:coverage
+
+# targeted
+npm run test -- settlement.service.test.ts
 ```
+
+## Troubleshooting
+- If local runs fail due Firebase quotas, use emulator mode scripts from repo root.
+- If Rush lock blocks execution, use app-local `npm run ...` commands.
+- If real gateway appears unexpectedly in non-prod, verify `PAYMENT_ALLOW_REAL_IN_NON_PROD` and internal tester authorization.
+
+## Legacy Full-Detail Archive
+- `../../docs/readme-archives/README.api.archive.md`

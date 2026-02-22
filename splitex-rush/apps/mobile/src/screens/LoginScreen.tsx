@@ -21,11 +21,12 @@ import { ENV } from '../config/env';
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
 
 export default function LoginScreen({ navigation }: any) {
-  const { login, loginWithGoogle } = useAuth();
+  const { login, loginWithGoogle, sendEmailLinkSignIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [emailLinkLoading, setEmailLinkLoading] = useState(false);
 
   const handleGoogleSignIn = async () => {
     if (!GOOGLE_ENABLED) return;
@@ -72,6 +73,25 @@ export default function LoginScreen({ navigation }: any) {
     }
   };
 
+  const handleEmailLinkSignIn = async () => {
+    if (!email.trim()) {
+      Alert.alert('Email Required', 'Enter your email address first.');
+      return;
+    }
+    setEmailLinkLoading(true);
+    try {
+      await sendEmailLinkSignIn(email.trim());
+      Alert.alert(
+        'Check Your Email',
+        `We sent a secure sign-in link to ${email.trim()}. Open it on this device to sign in.`
+      );
+    } catch (err: any) {
+      Alert.alert('Email Link Failed', err.message || 'Could not send sign-in link.');
+    } finally {
+      setEmailLinkLoading(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -114,6 +134,18 @@ export default function LoginScreen({ navigation }: any) {
             <ActivityIndicator color={colors.white} />
           ) : (
             <Text style={styles.buttonText}>Sign In</Text>
+          )}
+        </Pressable>
+
+        <Pressable
+          style={({pressed}) => [styles.secondaryButton, emailLinkLoading && styles.buttonDisabled, pressed && styles.buttonPressed]}
+          onPress={handleEmailLinkSignIn}
+          disabled={emailLinkLoading}
+        >
+          {emailLinkLoading ? (
+            <ActivityIndicator color={colors.text} />
+          ) : (
+            <Text style={styles.secondaryButtonText}>Email me a sign-in link</Text>
           )}
         </Pressable>
 
@@ -203,6 +235,20 @@ const styles = StyleSheet.create({
   buttonPressed: { opacity: 0.7 },
   buttonText: {
     color: colors.white,
+    fontSize: fontSizes.md,
+    fontWeight: '600',
+  },
+  secondaryButton: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  secondaryButtonText: {
+    color: colors.text,
     fontSize: fontSizes.md,
     fontWeight: '600',
   },

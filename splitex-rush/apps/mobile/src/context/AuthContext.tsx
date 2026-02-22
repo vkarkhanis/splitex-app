@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { Linking } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, setToken, clearToken, getToken } from '../api';
 import { ENV, isLocalLikeEnv } from '../config/env';
 
@@ -19,6 +21,8 @@ interface AuthContextType {
   capabilities: AuthCapabilities;
   internalTester: boolean;
   login: (email: string, password: string) => Promise<void>;
+  sendEmailLinkSignIn: (email: string) => Promise<void>;
+  completeEmailLinkSignIn: (url: string, email?: string) => Promise<void>;
   loginWithGoogle: (idToken: string) => Promise<void>;
   register: (email: string, password: string, displayName: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -33,6 +37,8 @@ const AuthContext = createContext<AuthContextType>({
   capabilities: { multiCurrencySettlement: false },
   internalTester: false,
   login: async () => {},
+  sendEmailLinkSignIn: async () => {},
+  completeEmailLinkSignIn: async () => {},
   loginWithGoogle: async () => {},
   register: async () => {},
   logout: async () => {},
@@ -41,6 +47,13 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export const useAuth = () => useContext(AuthContext);
+
+const EMAIL_LINK_PENDING_EMAIL_KEY = '@splitex_pending_email_link_email';
+
+function isEmailLinkSignInUrl(url?: string | null): boolean {
+  if (!url) return false;
+  return url.includes('oobCode=') && url.includes('mode=signIn');
+}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -103,6 +116,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await loadUser();
   };
 
+  const sendEmailLinkSignIn = async (email: string) => {
+    const normalized = email.trim().toLowerCase();
+    await api.post('/api/auth/email-link/send', { email: normalized });
+    await AsyncStorage.setItem(EMAIL_LINK_PENDING_EMAIL_KEY, normalized);
+  };
+
+  const completeEmailLinkSignIn = useCallback(async (url: string, emailOverride?: string) => {
+    const storedEmail = await AsyncStorage.getItem(EMAIL_LINK_PENDING_EMAIL_KEY);
+    const email = (emailOverride || storedEmail || '').trim().toLowerCase();
+    if (!email) {
+      throw new Error('Enter your email first, then tap the sign-in link from your inbox.');
+    }
+
+    const { data } = await api.post('/api/auth/email-link/complete', { email, link: url });
+    const token = data.tokens?.accessToken || data.accessToken || data.token;
+    if (!token) throw new Error('No token received from server');
+
+    await setToken(token);
+    await AsyncStorage.removeItem(EMAIL_LINK_PENDING_EMAIL_KEY);
+    await loadUser();
+  }, [loadUser]);
+
   const loginWithGoogle = async (idToken: string) => {
     try {
       const { data } = await api.post('/api/auth/google', { token: idToken });
@@ -139,6 +174,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await refreshProfile();
   };
 
+  useEffect(() => {
+    let active = true;
+
+    const processUrl = async (url?: string | null) => {
+      if (!active || !url || !isEmailLinkSignInUrl(url)) return;
+      try {
+        await completeEmailLinkSignIn(url);
+      } catch (err) {
+        console.warn('Email link completion failed:', err);
+      }
+    };
+
+    Linking.getInitialURL().then(processUrl).catch(() => {});
+    const sub = Linking.addEventListener('url', (evt) => {
+      processUrl(evt?.url).catch(() => {});
+    });
+
+    return () => {
+      active = false;
+      sub.remove();
+    };
+  }, [completeEmailLinkSignIn]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -148,6 +206,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         capabilities,
         internalTester,
         login,
+        sendEmailLinkSignIn,
+        completeEmailLinkSignIn,
         loginWithGoogle,
         register,
         logout,
