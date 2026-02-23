@@ -1,0 +1,7 @@
+# ── Release signing credentials ──
+# Copy this file to gradle.properties.local and fill in your values.
+# gradle.properties.local is gitignored and will NOT be committed.
+TRAXETTLE_UPLOAD_STORE_FILE=traxettle-release-key.keystore
+TRAXETTLE_UPLOAD_KEY_ALIAS=your-key-alias
+TRAXETTLE_UPLOAD_STORE_PASSWORD=your-store-password
+TRAXETTLE_UPLOAD_KEY_PASSWORD=your-key-password
