@@ -1,0 +1,141 @@
+appId: com.traxettle.app
+name: Event Creation and Management
+---
+- launchApp:
+    clearState: true
+- evalScript: ${output.runId = Date.now().toString()}
+
+# Ensure signed out first
+- tapOn:
+    id: "dashboard-open-profile"
+    optional: true
+- tapOn:
+    id: "profile-signout-button"
+    optional: true
+- tapOn:
+    text: "Sign Out"
+    optional: true
+
+# Register a new user
+- tapOn:
+    id: "login-go-register"
+    optional: true
+- tapOn:
+    id: "register-display-name-input"
+    optional: true
+- tapOn:
+    id: "login-go-register"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "register-display-name-input"
+    timeout: 20000
+- tapOn:
+    id: "register-display-name-input"
+- inputText: "Event Manager ${output.runId}"
+- tapOn:
+    id: "register-email-input"
+- inputText: "evtmgr${output.runId}@example.com"
+- tapOn:
+    id: "register-password-input"
+- inputText: "Password123!"
+- pressKey: Enter
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 30000
+
+# Create a new event
+- tapOn:
+    id: "dashboard-create-event-button"
+- tapOn:
+    id: "create-event-name-input"
+- inputText: "Maestro Event ${output.runId}"
+- tapOn:
+    id: "create-event-currency-USD"
+- tapOn:
+    id: "create-event-settlement-same"
+- tapOn:
+    id: "create-event-submit-button"
+- tapOn: "OK"
+- assertVisible: "Maestro Event ${output.runId}"
+
+# Navigate to expense tab
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-tab-expenses"
+    timeout: 20000
+
+# Add an expense
+- tapOn:
+    id: "event-detail-add-expense-button"
+- tapOn:
+    id: "create-expense-title-input"
+- inputText: "Lunch ${output.runId}"
+- tapOn:
+    id: "create-expense-amount-input"
+- inputText: "50"
+- pressKey: Enter
+- scrollUntilVisible:
+    element:
+      id: "create-expense-submit-button"
+    direction: DOWN
+- tapOn:
+    id: "create-expense-submit-button"
+    optional: true
+- extendedWaitUntil:
+    notVisible: "Add Expense"
+    timeout: 30000
+- tapOn:
+    text: "OK"
+    optional: true
+- extendedWaitUntil:
+    visible: "Maestro Event ${output.runId}"
+    timeout: 10000
+- assertVisible: "Lunch ${output.runId}"
+
+# Navigate to participants tab
+- tapOn:
+    id: "event-detail-tab-participants"
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-open-invite-modal-participants"
+    timeout: 10000
+
+# Open invite modal
+- tapOn:
+    id: "event-detail-open-invite-modal-participants"
+- tapOn:
+    id: "event-detail-invite-email-input"
+- inputText: "invited${output.runId}@example.com"
+- tapOn:
+    text: "Send"
+- tapOn:
+    text: "Send"
+    optional: true
+- extendedWaitUntil:
+    notVisible: "Invite to Event"
+    timeout: 10000
+
+# Navigate to invitations tab and verify
+- tapOn:
+    id: "event-detail-tab-invitations"
+- extendedWaitUntil:
+    visible: "invited${output.runId}@example.com"
+    timeout: 10000
+
+# Navigate to groups tab
+- tapOn:
+    id: "event-detail-tab-groups"
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-create-group-button"
+    timeout: 10000
+
+# Go back to dashboard
+- back
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 10000
+- assertVisible: "Maestro Event ${output.runId}"

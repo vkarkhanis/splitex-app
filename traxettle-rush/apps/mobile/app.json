@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "Traxettle",
+    "slug": "traxettle",
+    "scheme": "com.traxettle.app",
+    "version": "1.0.5",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#6366f1",
+      "image": "./assets/splash.png"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.traxettle.app",
+      "icon": "./assets/icon.png"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#6366f1"
+      },
+      "package": "com.traxettle.app"
+    },
+    "plugins": [
+      "./plugins/copy-google-service-plist"
+    ],
+    "owner": "vkarkhanis",
+    "extra": {
+      "eas": {
+        "projectId": "c54ee544-0b20-4d5a-b8d3-873f4df16602"
+      }
+    }
+  }
+}

@@ -1,0 +1,70 @@
+appId: com.traxettle.app
+name: Auth and Profile Smoke
+---
+- launchApp:
+    clearState: true
+- evalScript: ${output.runId = Date.now().toString()}
+- tapOn:
+    id: "dashboard-open-profile"
+    optional: true
+- tapOn:
+    id: "profile-signout-button"
+    optional: true
+- tapOn:
+    text: "Sign Out"
+    optional: true
+- tapOn:
+    id: "login-go-register"
+    optional: true
+- tapOn:
+    id: "register-display-name-input"
+    optional: true
+- tapOn:
+    id: "login-go-register"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "register-display-name-input"
+    timeout: 20000
+- tapOn:
+    id: "register-display-name-input"
+- inputText: "Maestro User ${output.runId}"
+- tapOn:
+    id: "register-email-input"
+- inputText: "maestro.auth.${output.runId}@example.com"
+- tapOn:
+    id: "register-password-input"
+- inputText: "Password123!"
+- pressKey: Enter
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 30000
+- tapOn:
+    id: "dashboard-open-profile"
+- scrollUntilVisible:
+    element:
+      id: "profile-signout-button"
+    direction: DOWN
+- tapOn:
+    id: "profile-signout-button"
+- tapOn:
+    text: "Sign Out"
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 20000
+- tapOn:
+    id: "login-email-input"
+- inputText: "maestro.auth.${output.runId}@example.com"
+- tapOn:
+    id: "login-password-input"
+- inputText: "Password123!"
+- pressKey: Enter
+- tapOn:
+    id: "login-submit-button"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 30000

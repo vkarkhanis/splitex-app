@@ -1,0 +1,48 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/rush/v5/rush.schema.json",
+  "rushVersion": "5.167.0",
+  "pnpmVersion": "9.15.9",
+  "nodeSupportedVersionRange": ">=24.11.1 <25.0.0",
+  "repository": {
+    "url": "https://github.com/traxettle/traxettle",
+    "defaultBranch": "main"
+  },
+  "eventHooks": {
+    "preRushInstall": [],
+    "postRushInstall": [],
+    "preRushBuild": [],
+    "postRushBuild": []
+  },
+  "projects": [
+    {
+      "packageName": "@traxettle/web",
+      "projectFolder": "apps/web",
+      "reviewCategory": "production"
+    },
+    {
+      "packageName": "@traxettle/mobile",
+      "projectFolder": "apps/mobile",
+      "reviewCategory": "production"
+    },
+    {
+      "packageName": "@traxettle/api",
+      "projectFolder": "apps/api",
+      "reviewCategory": "production"
+    },
+    {
+      "packageName": "@traxettle/shared",
+      "projectFolder": "libraries/shared",
+      "reviewCategory": "production"
+    },
+    {
+      "packageName": "@traxettle/ui",
+      "projectFolder": "libraries/ui",
+      "reviewCategory": "production"
+    },
+    {
+      "packageName": "@traxettle/e2e",
+      "projectFolder": "e2e",
+      "reviewCategory": "production"
+    }
+  ]
+}
