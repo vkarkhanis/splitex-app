@@ -14,13 +14,16 @@ import {
   GoogleSignin,
   statusCodes,
 } from '@react-native-google-signin/google-signin';
-import { colors, spacing, radii, fontSizes } from '../theme';
+import { spacing, radii, fontSizes } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { ENV } from '../config/env';
 
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
 
 export default function LoginScreen({ navigation }: any) {
+  const { theme } = useTheme();
+  const c = theme.colors;
   const { login, loginWithGoogle, sendEmailLinkSignIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -35,8 +38,9 @@ export default function LoginScreen({ navigation }: any) {
       if (Platform.OS === 'android') {
         await GoogleSignin.hasPlayServices();
       }
+      console.log('[GoogleSignIn] Calling signIn()... webClientId=', ENV.GOOGLE_WEB_CLIENT_ID);
       const result: any = await GoogleSignin.signIn();
-      console.log('Google Sign-In result:', JSON.stringify(result, null, 2));
+      console.log('[GoogleSignIn] signIn() resolved:', JSON.stringify(result, null, 2));
       const idToken = result?.data?.idToken || result?.idToken;
       if (!idToken) {
         Alert.alert(
@@ -97,18 +101,18 @@ export default function LoginScreen({ navigation }: any) {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={[styles.container, { backgroundColor: c.background }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.card}>
-        <Text style={styles.brand}>Traxettle</Text>
-        <Text style={styles.subtitle}>Sign in to your account</Text>
+      <View style={[styles.card, { backgroundColor: c.surface, shadowColor: c.black }]}>
+        <Text style={[styles.brand, { color: c.primary }]}>Traxettle</Text>
+        <Text style={[styles.subtitle, { color: c.textSecondary }]}>Sign in to your account</Text>
 
         <TextInput
           testID="login-email-input"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
           placeholder="Email"
-          placeholderTextColor={colors.muted}
+          placeholderTextColor={c.muted}
           keyboardType="email-address"
           autoCapitalize="none"
           value={email}
@@ -118,9 +122,9 @@ export default function LoginScreen({ navigation }: any) {
 
         <TextInput
           testID="login-password-input"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
           placeholder="Password"
-          placeholderTextColor={colors.muted}
+          placeholderTextColor={c.muted}
           secureTextEntry
           value={password}
           onChangeText={setPassword}
@@ -129,57 +133,57 @@ export default function LoginScreen({ navigation }: any) {
 
         <Pressable
           testID="login-submit-button"
-          style={({pressed}) => [styles.button, loading && styles.buttonDisabled, pressed && styles.buttonPressed]}
+          style={({pressed}) => [styles.button, { backgroundColor: c.primary }, loading && styles.buttonDisabled, pressed && styles.buttonPressed]}
           onPress={handleLogin}
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator color={colors.white} />
+            <ActivityIndicator color={c.white} />
           ) : (
             <Text style={styles.buttonText}>Sign In</Text>
           )}
         </Pressable>
 
         <Pressable
-          style={({pressed}) => [styles.secondaryButton, emailLinkLoading && styles.buttonDisabled, pressed && styles.buttonPressed]}
+          style={({pressed}) => [styles.secondaryButton, { backgroundColor: c.surface, borderColor: c.border }, emailLinkLoading && styles.buttonDisabled, pressed && styles.buttonPressed]}
           onPress={handleEmailLinkSignIn}
           disabled={emailLinkLoading}
         >
           {emailLinkLoading ? (
-            <ActivityIndicator color={colors.text} />
+            <ActivityIndicator color={c.text} />
           ) : (
-            <Text style={styles.secondaryButtonText}>Email me a sign-in link</Text>
+            <Text style={[styles.secondaryButtonText, { color: c.text }]}>Email me a sign-in link</Text>
           )}
         </Pressable>
 
         <Pressable onPress={() => navigation.navigate('ForgotPassword')}>
-          <Text style={styles.forgotLink}>Forgot Password?</Text>
+          <Text style={[styles.forgotLink, { color: c.muted }]}>Forgot Password?</Text>
         </Pressable>
 
         {GOOGLE_ENABLED && (
           <>
             <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
+              <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
+              <Text style={[styles.dividerText, { color: c.muted }]}>or</Text>
+              <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
             </View>
 
             <Pressable
-              style={({pressed}) => [styles.googleButton, googleLoading && styles.buttonDisabled, pressed && styles.buttonPressed]}
+              style={({pressed}) => [styles.googleButton, { backgroundColor: c.surface, borderColor: c.border }, googleLoading && styles.buttonDisabled, pressed && styles.buttonPressed]}
               onPress={handleGoogleSignIn}
               disabled={googleLoading}
             >
               {googleLoading ? (
-                <ActivityIndicator color={colors.text} />
+                <ActivityIndicator color={c.text} />
               ) : (
-                <Text style={styles.googleButtonText}>Sign in with Google</Text>
+                <Text style={[styles.googleButtonText, { color: c.text }]}>Sign in with Google</Text>
               )}
             </Pressable>
           </>
         )}
 
         <Pressable testID="login-go-register" onPress={() => navigation.navigate('Register')}>
-          <Text style={styles.link}>Don't have an account? Register</Text>
+          <Text style={[styles.link, { color: c.primary }]}>Don't have an account? Register</Text>
         </Pressable>
       </View>
     </KeyboardAvoidingView>
@@ -189,15 +193,12 @@ export default function LoginScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
     justifyContent: 'center',
     padding: spacing.xl,
   },
   card: {
-    backgroundColor: colors.surface,
     borderRadius: radii.lg,
     padding: spacing.xxl,
-    shadowColor: colors.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
@@ -206,28 +207,22 @@ const styles = StyleSheet.create({
   brand: {
     fontSize: fontSizes.xxxl,
     fontWeight: '800',
-    color: colors.primary,
     textAlign: 'center',
     marginBottom: spacing.xs,
   },
   subtitle: {
     fontSize: fontSizes.md,
-    color: colors.textSecondary,
     textAlign: 'center',
     marginBottom: spacing.xxl,
   },
   input: {
-    backgroundColor: colors.surfaceAlt,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.border,
     padding: spacing.md,
     fontSize: fontSizes.md,
-    color: colors.text,
     marginBottom: spacing.md,
   },
   button: {
-    backgroundColor: colors.primary,
     borderRadius: radii.sm,
     padding: spacing.lg,
     alignItems: 'center',
@@ -237,21 +232,18 @@ const styles = StyleSheet.create({
   buttonDisabled: { opacity: 0.6 },
   buttonPressed: { opacity: 0.7 },
   buttonText: {
-    color: colors.white,
+    color: '#ffffff',
     fontSize: fontSizes.md,
     fontWeight: '600',
   },
   secondaryButton: {
-    backgroundColor: colors.surface,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.border,
     padding: spacing.lg,
     alignItems: 'center',
     marginBottom: spacing.md,
   },
   secondaryButtonText: {
-    color: colors.text,
     fontSize: fontSizes.md,
     fontWeight: '600',
   },
@@ -263,35 +255,28 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: colors.border,
   },
   dividerText: {
     marginHorizontal: spacing.sm,
-    color: colors.muted,
     fontSize: fontSizes.sm,
   },
   googleButton: {
-    backgroundColor: colors.surface,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.border,
     padding: spacing.lg,
     alignItems: 'center',
     marginBottom: spacing.lg,
   },
   googleButtonText: {
-    color: colors.text,
     fontSize: fontSizes.md,
     fontWeight: '600',
   },
   forgotLink: {
-    color: colors.muted,
     fontSize: fontSizes.sm,
     textAlign: 'center',
     marginBottom: spacing.sm,
   },
   link: {
-    color: colors.primary,
     fontSize: fontSizes.sm,
     textAlign: 'center',
   },

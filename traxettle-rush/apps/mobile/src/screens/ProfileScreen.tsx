@@ -13,6 +13,7 @@ import {
 import { spacing, radii, fontSizes } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, THEME_NAMES } from '../context/ThemeContext';
+import { usePurchase } from '../context/PurchaseContext';
 import { api, getResolvedApiBaseUrl, isFirebaseEmulatorEnabled, setFirebaseEmulatorEnabled } from '../api';
 import { ENV, isLocalLikeEnv } from '../config/env';
 
@@ -40,6 +41,7 @@ export default function ProfileScreen({ navigation }: any) {
   const { user, logout, tier, switchTier, internalTester } = useAuth();
   const { theme, themeName, setThemeName } = useTheme();
   const c = theme.colors;
+  const { isPro, priceString } = usePurchase();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -231,6 +233,36 @@ export default function ProfileScreen({ navigation }: any) {
         </View>
       </View>
 
+      {/* Pro Upgrade */}
+      {!isPro && (
+        <TouchableOpacity
+          testID="profile-upgrade-pro-button"
+          style={[styles.proCard, { backgroundColor: c.primary + '10', borderColor: c.primary + '30' }]}
+          onPress={() => navigation.navigate('ProUpgrade')}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.proEmoji}>⭐</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.proTitle, { color: c.primary }]}>Upgrade to Pro</Text>
+            <Text style={[styles.proDesc, { color: c.textSecondary }]}>
+              Unlimited events, multi-currency &amp; more · {priceString}/year
+            </Text>
+          </View>
+          <Text style={[styles.proArrow, { color: c.primary }]}>›</Text>
+        </TouchableOpacity>
+      )}
+      {isPro && (
+        <View style={[styles.proCard, { backgroundColor: c.success + '10', borderColor: c.success + '30' }]}>
+          <Text style={styles.proEmoji}>🎉</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.proTitle, { color: c.success }]}>Pro Active</Text>
+            <Text style={[styles.proDesc, { color: c.textSecondary }]}>
+              You have access to all Pro features
+            </Text>
+          </View>
+        </View>
+      )}
+
       {/* Theme */}
       <View style={[styles.card, { backgroundColor: c.surface }]}>
         <Text style={[styles.cardTitle, { color: c.text }]}>Theme</Text>
@@ -376,4 +408,19 @@ const styles = StyleSheet.create({
   },
   signOutText: { fontSize: fontSizes.md, fontWeight: '600' },
   version: { textAlign: 'center', fontSize: fontSizes.xs, marginTop: spacing.md },
+
+  // Pro upgrade card
+  proCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radii.md,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+    borderWidth: 1.5,
+    gap: spacing.md,
+  },
+  proEmoji: { fontSize: 28 },
+  proTitle: { fontSize: fontSizes.md, fontWeight: '700' },
+  proDesc: { fontSize: fontSizes.xs, marginTop: 2, lineHeight: 16 },
+  proArrow: { fontSize: 28, fontWeight: '300' },
 });

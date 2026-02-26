@@ -9,8 +9,11 @@ import {
   ScrollView,
   Alert,
   Switch,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { colors, spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
+import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 import { api } from '../api';
 import type { EventParticipant, Group, OnBehalfOfEntry } from '@traxettle/shared';
 
@@ -54,6 +57,8 @@ function buildEntities(participants: EventParticipant[], groups: Group[]): Split
 }
 
 export default function CreateExpenseScreen({ route, navigation }: any) {
+  const { theme } = useTheme();
+  const c = theme.colors;
   const { eventId, currency } = route.params;
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -231,7 +236,7 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
   };
 
   if (fetchLoading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>;
+    return <View style={[styles.center, { backgroundColor: c.background }]}><ActivityIndicator size="large" color={c.primary} /></View>;
   }
 
   const sym = CURRENCY_SYMBOLS[expCurrency] || expCurrency;
@@ -241,34 +246,39 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
     && Math.abs(splitTotal - expenseAmount) > 0.01;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.heading}>Add Expense</Text>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
+    >
+    <ScrollView style={[styles.container, { backgroundColor: c.background }]} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <Text style={[styles.heading, { color: c.text }]}>Add Expense</Text>
 
-      <Text style={styles.label}>Title</Text>
-      <TextInput testID="create-expense-title-input" style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Dinner" placeholderTextColor={colors.muted} />
+      <Text style={[styles.label, { color: c.textSecondary }]}>Title</Text>
+      <TextInput testID="create-expense-title-input" style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={title} onChangeText={setTitle} placeholder="e.g. Dinner" placeholderTextColor={c.muted} />
 
-      <Text style={styles.label}>Description (optional)</Text>
-      <TextInput testID="create-expense-description-input" style={styles.input} value={description} onChangeText={setDescription} placeholder="Brief note..." placeholderTextColor={colors.muted} />
+      <Text style={[styles.label, { color: c.textSecondary }]}>Description (optional)</Text>
+      <TextInput testID="create-expense-description-input" style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={description} onChangeText={setDescription} placeholder="Brief note..." placeholderTextColor={c.muted} />
 
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.label}>Amount ({sym})</Text>
-          <TextInput testID="create-expense-amount-input" style={styles.input} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={colors.muted} />
+          <Text style={[styles.label, { color: c.textSecondary }]}>Amount ({sym})</Text>
+          <TextInput testID="create-expense-amount-input" style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} />
         </View>
       </View>
 
       {!isPrivate && (
         <>
-          <Text style={styles.label}>Split Type</Text>
+          <Text style={[styles.label, { color: c.textSecondary }]}>Split Type</Text>
           <View style={styles.splitTypeRow}>
             {(['equal', 'ratio', 'custom'] as const).map(type => (
               <TouchableOpacity
                 key={type}
                 testID={`create-expense-split-type-${type}`}
-                style={[styles.splitTypeBtn, splitType === type && styles.splitTypeBtnActive]}
+                style={[styles.splitTypeBtn, { borderColor: c.border, backgroundColor: c.surface }, splitType === type && { borderColor: c.primary, backgroundColor: c.primary + '14' }]}
                 onPress={() => setSplitType(type)}
               >
-                <Text style={[styles.splitTypeBtnText, splitType === type && styles.splitTypeBtnTextActive]}>
+                <Text style={[styles.splitTypeBtnText, { color: c.textSecondary }, splitType === type && { color: c.primary }]}>
                   {type === 'equal' ? 'Equal' : type === 'ratio' ? 'By Ratio' : 'Custom'}
                 </Text>
               </TouchableOpacity>
@@ -278,22 +288,22 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
       )}
 
       {/* Private toggle */}
-      <View style={styles.toggleRow}>
-        <Text style={styles.toggleLabel}>Private expense</Text>
-        <Switch value={isPrivate} onValueChange={(v) => { setIsPrivate(v); if (v) { setOnBehalfOf(false); setOnBehalfOfEntities([]); } }} trackColor={{ true: colors.primary }} />
+      <View style={[styles.toggleRow, { borderBottomColor: c.border }]}>
+        <Text style={[styles.toggleLabel, { color: c.text }]}>Private expense</Text>
+        <Switch value={isPrivate} onValueChange={(v) => { setIsPrivate(v); if (v) { setOnBehalfOf(false); setOnBehalfOfEntities([]); } }} trackColor={{ true: c.primary }} />
       </View>
 
       {/* On Behalf Of toggle */}
       {!isPrivate && (
         <>
-          <View style={styles.toggleRow}>
-            <Text style={styles.toggleLabel}>On behalf of (your share = 0)</Text>
-            <Switch value={onBehalfOf} onValueChange={(v) => { setOnBehalfOf(v); if (!v) setOnBehalfOfEntities([]); }} trackColor={{ true: colors.primary }} />
+          <View style={[styles.toggleRow, { borderBottomColor: c.border }]}>
+            <Text style={[styles.toggleLabel, { color: c.text }]}>On behalf of (your share = 0)</Text>
+            <Switch value={onBehalfOf} onValueChange={(v) => { setOnBehalfOf(v); if (!v) setOnBehalfOfEntities([]); }} trackColor={{ true: c.primary }} />
           </View>
 
           {onBehalfOf && (
-            <View style={styles.infoBox}>
-              <Text style={styles.infoText}>Select who you're paying on behalf of (multiple allowed):</Text>
+            <View style={[styles.infoBox, { backgroundColor: c.infoBg }]}>
+              <Text style={[styles.infoText, { color: c.info }]}>Select who you're paying on behalf of (multiple allowed):</Text>
               {entities
                 .filter(ent => ent.entityId !== payerEntityId)
                 .map((ent) => {
@@ -303,10 +313,10 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
                   return (
                     <TouchableOpacity
                       key={ent.entityId}
-                      style={[styles.entityChip, isOb && styles.entityChipActive]}
+                      style={[styles.entityChip, { borderColor: c.border, backgroundColor: c.surface }, isOb && { borderColor: c.primary, backgroundColor: c.primary + '15' }]}
                       onPress={() => toggleOnBehalfOfEntity(ent)}
                     >
-                      <Text style={[styles.entityChipText, isOb && styles.entityChipTextActive]}>
+                      <Text style={[styles.entityChipText, { color: c.text }, isOb && { color: c.primary, fontWeight: '600' }]}>
                         {isOb ? '✓ ' : ''}{ent.entityType === 'group' ? `[G] ${ent.name}` : ent.name}
                       </Text>
                     </TouchableOpacity>
@@ -320,7 +330,7 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
       {/* Split entities */}
       {!isPrivate && (
         <>
-          <Text style={styles.label}>Split between</Text>
+          <Text style={[styles.label, { color: c.textSecondary }]}>Split between</Text>
           {entities.map((ent, i) => {
             const isPayerEntity = onBehalfOf && ent.entityId === payerEntityId;
             return (
@@ -328,17 +338,17 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
                 key={ent.entityId}
                 testID={`create-expense-split-entity-${ent.entityType}-${ent.entityId}`}
                 style={[
-                  styles.entityRow,
-                  ent.selected && styles.entityRowSelected,
-                  isPayerEntity && styles.entityRowDisabled,
+                  styles.entityRow, { backgroundColor: c.surface, borderColor: c.border },
+                  ent.selected && { borderColor: c.primary, backgroundColor: c.primary + '08' },
+                  isPayerEntity && { opacity: 0.45, backgroundColor: c.surface },
                 ]}
                 onPress={() => toggleEntity(i)}
                 disabled={isPayerEntity}
               >
-                <View style={[styles.checkbox, ent.selected && styles.checkboxChecked, isPayerEntity && styles.checkboxDisabled]}>
-                  {ent.selected && <Text style={styles.checkmark}>✓</Text>}
+                <View style={[styles.checkbox, { borderColor: c.border }, ent.selected && { backgroundColor: c.primary, borderColor: c.primary }, isPayerEntity && { backgroundColor: c.border, borderColor: c.border }]}>
+                  {ent.selected && <Text style={[styles.checkmark, { color: c.white }]}>✓</Text>}
                 </View>
-                <Text style={[styles.entityName, isPayerEntity && styles.entityNameDisabled]} numberOfLines={1}>
+                <Text style={[styles.entityName, { color: c.text }, isPayerEntity && { color: c.muted, fontStyle: 'italic' }]} numberOfLines={1}>
                   {ent.entityType === 'group' ? `[Group] ${ent.name}` : ent.name}
                   {isPayerEntity ? ' (You — excluded)' : ''}
                 </Text>
@@ -348,30 +358,30 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
                       <View style={styles.inlineInputWrap}>
                         <TextInput
                           testID={`create-expense-split-ratio-${ent.entityType}-${ent.entityId}`}
-                          style={styles.inlineInput}
+                          style={[styles.inlineInput, { backgroundColor: c.background, borderColor: c.border, color: c.text }]}
                           value={String(ent.ratio)}
                           onChangeText={(v) => updateEntity(i, { ratio: parseFloat(v) || 0 })}
                           keyboardType="number-pad"
                         />
-                        <Text style={styles.inlineSuffix}>ratio</Text>
+                        <Text style={[styles.inlineSuffix, { color: c.muted }]}>ratio</Text>
                       </View>
                     )}
                     {splitType === 'custom' && (
                       <View style={styles.inlineInputWrap}>
                         <TextInput
                           testID={`create-expense-split-amount-${ent.entityType}-${ent.entityId}`}
-                          style={styles.inlineInput}
+                          style={[styles.inlineInput, { backgroundColor: c.background, borderColor: c.border, color: c.text }]}
                           value={String(ent.amount || '')}
                           onChangeText={(v) => updateEntity(i, { amount: parseFloat(v) || 0 })}
                           keyboardType="decimal-pad"
                         />
                       </View>
                     )}
-                    <Text style={styles.entityAmount}>{sym}{ent.amount.toFixed(2)}</Text>
+                    <Text style={[styles.entityAmount, { color: c.primary }]}>{sym}{ent.amount.toFixed(2)}</Text>
                   </>
                 )}
                 {isPayerEntity && (
-                  <Text style={styles.entityAmountZero}>{sym}0.00</Text>
+                  <Text style={[styles.entityAmountZero, { color: c.muted }]}>{sym}0.00</Text>
                 )}
               </TouchableOpacity>
             );
@@ -380,107 +390,81 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
       )}
 
       {splitMismatch && (
-        <Text style={styles.errorText}>
+        <Text style={[styles.errorText, { color: c.error }]}>
           Split amounts ({sym}{splitTotal.toFixed(2)}) do not match total ({sym}{expenseAmount.toFixed(2)}).
         </Text>
       )}
 
       <TouchableOpacity
         testID="create-expense-submit-button"
-        style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+        style={[styles.submitBtn, { backgroundColor: c.primary }, loading && styles.submitBtnDisabled]}
         onPress={handleSubmit}
         disabled={loading || splitMismatch}
       >
         {loading ? (
-          <ActivityIndicator color={colors.white} />
+          <ActivityIndicator color={c.white} />
         ) : (
           <Text style={styles.submitBtnText}>Add Expense</Text>
         )}
       </TouchableOpacity>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1 },
   content: { padding: spacing.xl, paddingBottom: spacing.xxxl * 2 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  heading: { fontSize: fontSizes.xxl, fontWeight: '700', color: colors.text, marginBottom: spacing.lg },
-  label: { fontSize: fontSizes.sm, fontWeight: '600', color: colors.textSecondary, marginBottom: spacing.xs, marginTop: spacing.md },
+  heading: { fontSize: fontSizes.xxl, fontWeight: '700', marginBottom: spacing.lg },
+  label: { fontSize: fontSizes.sm, fontWeight: '600', marginBottom: spacing.xs, marginTop: spacing.md },
   input: {
-    backgroundColor: colors.surface, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.border,
-    padding: spacing.md, fontSize: fontSizes.md, color: colors.text,
+    borderRadius: radii.sm, borderWidth: 1,
+    padding: spacing.md, fontSize: fontSizes.md,
   },
   row: { flexDirection: 'row', gap: spacing.md },
   splitTypeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
   splitTypeBtn: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
+    flex: 1, paddingVertical: spacing.sm, borderRadius: radii.md, borderWidth: 1, alignItems: 'center',
   },
-  splitTypeBtnActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary + '14',
-  },
-  splitTypeBtnText: { fontSize: fontSizes.sm, color: colors.textSecondary, fontWeight: '600' },
-  splitTypeBtnTextActive: { color: colors.primary },
+  splitTypeBtnText: { fontSize: fontSizes.sm, fontWeight: '600' },
   toggleRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border,
+    paddingVertical: spacing.md, borderBottomWidth: 1,
   },
-  toggleLabel: { fontSize: fontSizes.sm, color: colors.text },
+  toggleLabel: { fontSize: fontSizes.sm },
   infoBox: {
-    backgroundColor: colors.infoBg, borderRadius: radii.sm, padding: spacing.md,
-    marginTop: spacing.sm, gap: spacing.sm,
+    borderRadius: radii.sm, padding: spacing.md, marginTop: spacing.sm, gap: spacing.sm,
   },
-  infoText: { fontSize: fontSizes.xs, color: colors.info, marginBottom: spacing.xs },
+  infoText: { fontSize: fontSizes.xs, marginBottom: spacing.xs },
   entityChip: {
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    borderRadius: radii.full, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface,
+    borderRadius: radii.full, borderWidth: 1,
   },
-  entityChipActive: { borderColor: colors.primary, backgroundColor: colors.primary + '15' },
-  entityChipText: { fontSize: fontSizes.sm, color: colors.text },
-  entityChipTextActive: { color: colors.primary, fontWeight: '600' },
+  entityChipText: { fontSize: fontSizes.sm },
   entityRow: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-    padding: spacing.md, backgroundColor: colors.surface, borderRadius: radii.sm,
-    marginBottom: spacing.xs, borderWidth: 1, borderColor: colors.border,
+    padding: spacing.md, borderRadius: radii.sm, marginBottom: spacing.xs, borderWidth: 1,
   },
-  entityRowSelected: { borderColor: colors.primary, backgroundColor: colors.primary + '08' },
-  entityRowDisabled: { opacity: 0.45, backgroundColor: colors.surface },
   checkbox: {
-    width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: colors.border,
+    width: 22, height: 22, borderRadius: 4, borderWidth: 2,
     justifyContent: 'center', alignItems: 'center',
   },
-  checkboxChecked: { backgroundColor: colors.primary, borderColor: colors.primary },
-  checkboxDisabled: { backgroundColor: colors.border, borderColor: colors.border },
-  checkmark: { color: colors.white, fontSize: 13, fontWeight: '700' },
-  entityName: { flex: 1, fontSize: fontSizes.sm, color: colors.text },
-  entityNameDisabled: { color: colors.muted, fontStyle: 'italic' },
-  entityAmount: { fontSize: fontSizes.sm, fontWeight: '600', color: colors.primary },
-  entityAmountZero: { fontSize: fontSizes.sm, fontWeight: '600', color: colors.muted },
+  checkmark: { fontSize: 13, fontWeight: '700' },
+  entityName: { flex: 1, fontSize: fontSizes.sm },
+  entityAmount: { fontSize: fontSizes.sm, fontWeight: '600' },
+  entityAmountZero: { fontSize: fontSizes.sm, fontWeight: '600' },
   inlineInputWrap: { width: 86, marginRight: spacing.sm },
   inlineInput: {
-    backgroundColor: colors.background,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    fontSize: fontSizes.sm,
-    color: colors.text,
-    textAlign: 'center',
+    borderRadius: radii.sm, borderWidth: 1,
+    paddingHorizontal: spacing.sm, paddingVertical: spacing.xs,
+    fontSize: fontSizes.sm, textAlign: 'center',
   },
-  inlineSuffix: { fontSize: fontSizes.xs, color: colors.muted, textAlign: 'center', marginTop: 2 },
-  errorText: { marginTop: spacing.sm, color: colors.error, fontSize: fontSizes.sm, fontWeight: '600' },
+  inlineSuffix: { fontSize: fontSizes.xs, textAlign: 'center', marginTop: 2 },
+  errorText: { marginTop: spacing.sm, fontSize: fontSizes.sm, fontWeight: '600' },
   submitBtn: {
-    backgroundColor: colors.primary, borderRadius: radii.md, padding: spacing.lg,
-    alignItems: 'center', marginTop: spacing.xxl,
+    borderRadius: radii.md, padding: spacing.lg, alignItems: 'center', marginTop: spacing.xxl,
   },
   submitBtnDisabled: { opacity: 0.6 },
-  submitBtnText: { color: colors.white, fontSize: fontSizes.md, fontWeight: '600' },
+  submitBtnText: { color: '#ffffff', fontSize: fontSizes.md, fontWeight: '600' },
 });

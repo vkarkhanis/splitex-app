@@ -70,6 +70,7 @@ export type WsEventType =
   | 'group:deleted'
   | 'participant:added'
   | 'participant:removed'
+  | 'participants:updated'
   | 'invitation:created'
   | 'invitation:accepted'
   | 'invitation:declined'

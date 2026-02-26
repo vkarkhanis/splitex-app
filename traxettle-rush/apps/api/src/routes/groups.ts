@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ApiResponse, CreateGroupDto, UpdateGroupDto } from '@traxettle/shared';
 import { GroupService } from '../services/group.service';
+import { EventService } from '../services/event.service';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { emitToEvent } from '../config/websocket';
 import { notifyEventParticipants } from '../utils/notification-helper';
@@ -8,6 +9,7 @@ import { requireActiveEvent } from '../utils/event-guards';
 
 const router: Router = Router();
 const groupService = new GroupService();
+const eventService = new EventService();
 
 // Get all groups for the current user (for reuse suggestions) — MUST be before /:groupId
 router.get('/my', requireAuth, async (req: AuthenticatedRequest, res) => {
@@ -99,7 +101,8 @@ router.put('/:groupId', requireAuth, async (req: AuthenticatedRequest, res) => {
     // Check event lock before allowing update
     const groupToCheck = await groupService.getGroup(req.params.groupId);
     if (groupToCheck) await requireActiveEvent(groupToCheck.eventId);
-    const group = await groupService.updateGroup(req.params.groupId, uid, dto);
+    const isAdmin = groupToCheck ? await eventService.isAdmin(groupToCheck.eventId, uid) : false;
+    const group = await groupService.updateGroup(req.params.groupId, uid, dto, isAdmin);
 
     if (!group) {
       return res.status(404).json({ success: false, error: 'Group not found' } as ApiResponse);
@@ -127,7 +130,8 @@ router.delete('/:groupId', requireAuth, async (req: AuthenticatedRequest, res) =
     // Get group before deletion to know the eventId for WS emit
     const groupToDelete = await groupService.getGroup(req.params.groupId);
     if (groupToDelete) await requireActiveEvent(groupToDelete.eventId);
-    const deleted = await groupService.deleteGroup(req.params.groupId, uid);
+    const isDeleteAdmin = groupToDelete ? await eventService.isAdmin(groupToDelete.eventId, uid) : false;
+    const deleted = await groupService.deleteGroup(req.params.groupId, uid, isDeleteAdmin);
 
     if (!deleted) {
       return res.status(404).json({ success: false, error: 'Group not found' } as ApiResponse);

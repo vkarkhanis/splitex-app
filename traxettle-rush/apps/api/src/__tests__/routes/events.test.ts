@@ -587,6 +587,299 @@ describe('Error handling - POST /api/events/:eventId/participants', () => {
   });
 });
 
+describe('PUT /api/events/:eventId — status guards', () => {
+  it('should return 403 when event is closed', async () => {
+    mockEvents['evt-closed'] = {
+      name: 'Closed Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'closed',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .put('/api/events/evt-closed')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ name: 'Updated' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('closed');
+  });
+
+  it('should return 403 when event is in payment mode', async () => {
+    mockEvents['evt-payment'] = {
+      name: 'Payment Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'payment',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .put('/api/events/evt-payment')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ name: 'Updated' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('payments are in progress');
+  });
+
+  it('should return 403 when event is settled and update is not just closing', async () => {
+    mockEvents['evt-settled'] = {
+      name: 'Settled Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'settled',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .put('/api/events/evt-settled')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ name: 'Updated' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('settled');
+  });
+
+  it('should allow closing a settled event', async () => {
+    mockEvents['evt-settled-close'] = {
+      name: 'Settled Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'settled',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .put('/api/events/evt-settled-close')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ status: 'closed' });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  it('should return 403 when changing currency during review', async () => {
+    mockEvents['evt-review-fx'] = {
+      name: 'Review Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'review',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .put('/api/events/evt-review-fx')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ currency: 'EUR' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('currency');
+  });
+});
+
+describe('DELETE /api/events/:eventId — status guards', () => {
+  it('should return 403 when event is settled', async () => {
+    mockEvents['evt-del-settled'] = {
+      name: 'Settled',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'settled',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .delete('/api/events/evt-del-settled')
+      .set('Authorization', 'Bearer mock-user-1');
+    expect(res.status).toBe(403);
+  });
+
+  it('should return 403 when event is closed', async () => {
+    mockEvents['evt-del-closed'] = {
+      name: 'Closed',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'closed',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .delete('/api/events/evt-del-closed')
+      .set('Authorization', 'Bearer mock-user-1');
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('PUT /api/events/:eventId/participants/:userId/role', () => {
+  it('should return 400 for invalid role', async () => {
+    const app = createApp();
+    const res = await request(app)
+      .put('/api/events/evt-1/participants/user-1/role')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ role: 'superadmin' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('role must be');
+  });
+
+  it('should return 400 when role is missing', async () => {
+    const app = createApp();
+    const res = await request(app)
+      .put('/api/events/evt-1/participants/user-1/role')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('should update role successfully', async () => {
+    mockEvents['evt-role'] = {
+      name: 'Role Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'active',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    mockParticipants['evt-role/mock-user-2'] = {
+      userId: 'mock-user-2',
+      role: 'member',
+      joinedAt: new Date().toISOString(),
+      invitedBy: 'mock-user-1',
+      status: 'accepted',
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .put('/api/events/evt-role/participants/mock-user-2/role')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ role: 'admin' });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  it('should return 500 when service throws', async () => {
+    const { db } = require('../../config/firebase');
+    const origCollection = db.collection;
+    db.collection = jest.fn().mockImplementation(() => ({
+      doc: jest.fn().mockImplementation(() => ({
+        get: jest.fn().mockRejectedValue(new Error('Firestore error')),
+      })),
+    }));
+
+    const app = createApp();
+    const res = await request(app)
+      .put('/api/events/evt-err/participants/user-1/role')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ role: 'admin' });
+    expect(res.status).toBe(500);
+
+    db.collection = origCollection;
+  });
+});
+
+describe('POST /api/events/:eventId/backfill-participants', () => {
+  it('should return 403 when user is not admin', async () => {
+    mockEvents['evt-bf-noadmin'] = {
+      name: 'Backfill Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'active',
+      createdBy: 'other-user',
+      admins: ['other-user'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/events/evt-bf-noadmin/backfill-participants')
+      .set('Authorization', 'Bearer mock-user-1');
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('Only admins');
+  });
+
+  it('should backfill participants successfully', async () => {
+    mockEvents['evt-bf'] = {
+      name: 'Backfill Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'active',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    mockParticipants['evt-bf/mock-user-1'] = {
+      userId: 'mock-user-1',
+      role: 'admin',
+      joinedAt: new Date().toISOString(),
+      invitedBy: 'mock-user-1',
+      status: 'accepted',
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/events/evt-bf/backfill-participants')
+      .set('Authorization', 'Bearer mock-user-1');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.participantIds).toBeDefined();
+  });
+
+  it('should return 500 when service throws', async () => {
+    const { db } = require('../../config/firebase');
+    const origCollection = db.collection;
+    db.collection = jest.fn().mockImplementation(() => ({
+      doc: jest.fn().mockImplementation(() => ({
+        get: jest.fn().mockRejectedValue(new Error('Firestore error')),
+      })),
+    }));
+
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/events/evt-err/backfill-participants')
+      .set('Authorization', 'Bearer mock-user-1');
+    expect(res.status).toBe(500);
+
+    db.collection = origCollection;
+  });
+});
+
 describe('DELETE /api/events/:eventId/participants/:userId', () => {
   it('should return 403 when trying to remove creator', async () => {
     mockEvents['evt-creator'] = {

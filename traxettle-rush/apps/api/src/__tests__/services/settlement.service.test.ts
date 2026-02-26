@@ -5,6 +5,8 @@ const mockExpenses: Record<string, any> = {};
 const mockGroups: Record<string, any> = {};
 const mockSettlements: Record<string, any> = {};
 const mockEvents: Record<string, any> = {};
+// Subcollection store: key = 'parentDocId/subcollectionName', value = Record<docId, data>
+const mockSubcollections: Record<string, Record<string, any>> = {};
 let docIdCounter = 0;
 
 jest.mock('../../config/firebase', () => ({
@@ -38,6 +40,16 @@ jest.mock('../../config/firebase', () => ({
               store[docId] = data;
             }
             return Promise.resolve();
+          }),
+          collection: jest.fn().mockImplementation((subName: string) => {
+            const subKey = `${docId}/${subName}`;
+            return {
+              get: jest.fn().mockImplementation(() => {
+                const subStore = mockSubcollections[subKey] || {};
+                const docs = Object.entries(subStore).map(([id, d]) => ({ id, data: () => d, exists: true }));
+                return Promise.resolve({ docs, empty: docs.length === 0 });
+              }),
+            };
           }),
         })),
         add: jest.fn().mockImplementation((data: any) => {
@@ -77,6 +89,7 @@ describe('SettlementService', () => {
     Object.keys(mockGroups).forEach(k => delete mockGroups[k]);
     Object.keys(mockSettlements).forEach(k => delete mockSettlements[k]);
     Object.keys(mockEvents).forEach(k => delete mockEvents[k]);
+    Object.keys(mockSubcollections).forEach(k => delete mockSubcollections[k]);
     docIdCounter = 0;
     service = new SettlementService();
   });
@@ -509,6 +522,12 @@ describe('SettlementService', () => {
         currency: 'USD',
       };
 
+      // Add participants so buildApprovalsMap can resolve entities
+      mockSubcollections['evt-1/participants'] = {
+        'user-A': { userId: 'user-A', status: 'accepted', displayName: 'User A' },
+        'user-B': { userId: 'user-B', status: 'accepted', displayName: 'User B' },
+      };
+
       mockExpenses['exp-1'] = {
         eventId: 'evt-1',
         paidBy: 'user-A',
@@ -524,8 +543,13 @@ describe('SettlementService', () => {
       expect(plan.eventId).toBe('evt-1');
       expect(plan.totalTransactions).toBe(1);
       expect(plan.settlements[0].amount).toBe(100);
-      // Event should be in 'payment' mode (has pending transactions)
-      expect(mockEvents['evt-1'].status).toBe('payment');
+      // Event should be in 'review' mode (approval phase before payment)
+      expect(mockEvents['evt-1'].status).toBe('review');
+      // Should have settlement approvals initialized
+      expect(mockEvents['evt-1'].settlementApprovals).toBeDefined();
+      expect(Object.keys(mockEvents['evt-1'].settlementApprovals).length).toBe(2);
+      expect(mockEvents['evt-1'].settlementApprovals['user-A'].approved).toBe(false);
+      expect(mockEvents['evt-1'].settlementApprovals['user-B'].approved).toBe(false);
     });
   });
 
@@ -784,6 +808,10 @@ describe('SettlementService', () => {
         currency: 'USD',
       };
 
+      mockSubcollections['evt-balanced/participants'] = {
+        'user-A': { userId: 'user-A', status: 'accepted', displayName: 'User A' },
+      };
+
       // Single expense where payer is also the only split entity → net zero
       mockExpenses['exp-balanced'] = {
         eventId: 'evt-balanced',
@@ -807,6 +835,12 @@ describe('SettlementService', () => {
         createdBy: 'admin-1',
         admins: ['admin-1'],
         currency: 'USD',
+      };
+
+      mockSubcollections['evt-grp/participants'] = {
+        'user-A': { userId: 'user-A', status: 'accepted', displayName: 'User A' },
+        'user-B': { userId: 'user-B', status: 'accepted', displayName: 'User B' },
+        'user-C': { userId: 'user-C', status: 'accepted', displayName: 'User C' },
       };
 
       mockGroups['grp-1'] = {
@@ -1030,6 +1064,406 @@ describe('SettlementService', () => {
       expect(allComplete).toBe(true);
       // Event should be auto-settled
       expect(mockEvents['evt-2'].status).toBe('settled');
+    });
+  });
+
+  describe('approveSettlementReview', () => {
+    it('should throw if event not found', async () => {
+      await expect(service.approveSettlementReview('nonexistent', 'user-1'))
+        .rejects.toThrow('Event not found');
+    });
+
+    it('should throw if event is not in review status', async () => {
+      mockEvents['evt-nr'] = { status: 'active', settlementApprovals: {} };
+      await expect(service.approveSettlementReview('evt-nr', 'user-1'))
+        .rejects.toThrow('Event is not in review status');
+    });
+
+    it('should throw if settlement is stale', async () => {
+      mockEvents['evt-stale'] = { status: 'review', settlementStale: true, settlementApprovals: {} };
+      await expect(service.approveSettlementReview('evt-stale', 'user-1'))
+        .rejects.toThrow('Settlement is stale');
+    });
+
+    it('should throw if user is not authorized to approve', async () => {
+      mockEvents['evt-rev'] = {
+        status: 'review',
+        createdBy: 'admin-1',
+        admins: ['admin-1'],
+        settlementApprovals: {
+          'user-A': { approved: false, entityType: 'user', displayName: 'A' },
+        },
+        settlementStale: false,
+      };
+      await expect(service.approveSettlementReview('evt-rev', 'outsider'))
+        .rejects.toThrow('not authorized');
+    });
+
+    it('should throw if entity already approved (resolves as not authorized)', async () => {
+      mockEvents['evt-dup'] = {
+        status: 'review',
+        createdBy: 'admin-1',
+        admins: ['admin-1'],
+        settlementApprovals: {
+          'user-A': { approved: true, entityType: 'user', displayName: 'A', approvedAt: '2024-01-01' },
+        },
+        settlementStale: false,
+      };
+      await expect(service.approveSettlementReview('evt-dup', 'user-A'))
+        .rejects.toThrow('not authorized');
+    });
+
+    it('should approve for individual user and not transition when others pending', async () => {
+      mockEvents['evt-partial'] = {
+        status: 'review',
+        createdBy: 'admin-1',
+        admins: ['admin-1'],
+        settlementApprovals: {
+          'user-A': { approved: false, entityType: 'user', displayName: 'A' },
+          'user-B': { approved: false, entityType: 'user', displayName: 'B' },
+        },
+        settlementStale: false,
+      };
+
+      const result = await service.approveSettlementReview('evt-partial', 'user-A');
+      expect(result.approvals['user-A'].approved).toBe(true);
+      expect(result.approvals['user-A'].approvedAt).toBeDefined();
+      expect(result.allApproved).toBe(false);
+      expect(mockEvents['evt-partial'].status).toBe('review');
+    });
+
+    it('should transition to payment when all entities approved', async () => {
+      mockEvents['evt-all'] = {
+        status: 'review',
+        createdBy: 'admin-1',
+        admins: ['admin-1'],
+        settlementApprovals: {
+          'user-A': { approved: true, entityType: 'user', displayName: 'A', approvedAt: '2024-01-01' },
+          'user-B': { approved: false, entityType: 'user', displayName: 'B' },
+        },
+        settlementStale: false,
+      };
+
+      const result = await service.approveSettlementReview('evt-all', 'user-B');
+      expect(result.allApproved).toBe(true);
+      expect(mockEvents['evt-all'].status).toBe('payment');
+    });
+
+    it('should allow group representative to approve for group', async () => {
+      mockGroups['grp-appr'] = {
+        eventId: 'evt-grp-appr',
+        members: ['user-X', 'user-Y'],
+        payerUserId: 'user-X',
+        representative: 'user-X',
+      };
+
+      mockEvents['evt-grp-appr'] = {
+        status: 'review',
+        createdBy: 'admin-1',
+        admins: ['admin-1'],
+        settlementApprovals: {
+          'grp-appr': { approved: false, entityType: 'group', displayName: 'Group' },
+        },
+        settlementStale: false,
+      };
+
+      const result = await service.approveSettlementReview('evt-grp-appr', 'user-X');
+      expect(result.approvals['grp-appr'].approved).toBe(true);
+      expect(result.allApproved).toBe(true);
+    });
+  });
+
+  describe('regenerateSettlement', () => {
+    it('should throw if event not found', async () => {
+      await expect(service.regenerateSettlement('nonexistent', 'user-1'))
+        .rejects.toThrow('Event not found');
+    });
+
+    it('should throw if event is not in review status', async () => {
+      mockEvents['evt-active'] = { status: 'active', createdBy: 'admin-1' };
+      await expect(service.regenerateSettlement('evt-active', 'admin-1'))
+        .rejects.toThrow('Can only regenerate settlement during review phase');
+    });
+
+    it('should throw if user is not admin or group rep', async () => {
+      mockEvents['evt-noauth'] = { status: 'review', createdBy: 'admin-1', admins: ['admin-1'], currency: 'USD' };
+      await expect(service.regenerateSettlement('evt-noauth', 'random-user'))
+        .rejects.toThrow('Forbidden');
+    });
+
+    it('should regenerate settlement and reset affected approvals', async () => {
+      mockEvents['evt-regen'] = {
+        status: 'review',
+        createdBy: 'admin-1',
+        admins: ['admin-1'],
+        currency: 'USD',
+        settlementApprovals: {
+          'user-A': { approved: true, entityType: 'user', displayName: 'A', approvedAt: '2024-01-01' },
+          'user-B': { approved: true, entityType: 'user', displayName: 'B', approvedAt: '2024-01-01' },
+        },
+      };
+
+      mockSubcollections['evt-regen/participants'] = {
+        'user-A': { userId: 'user-A', status: 'accepted', displayName: 'User A' },
+        'user-B': { userId: 'user-B', status: 'accepted', displayName: 'User B' },
+      };
+
+      // Old settlement
+      mockSettlements['s-old'] = {
+        eventId: 'evt-regen',
+        fromEntityId: 'user-B',
+        fromEntityType: 'user',
+        toEntityId: 'user-A',
+        toEntityType: 'user',
+        fromUserId: 'user-B',
+        toUserId: 'user-A',
+        amount: 100,
+        currency: 'USD',
+        status: 'pending',
+      };
+
+      // New expense changes the amount
+      mockExpenses['exp-regen'] = {
+        eventId: 'evt-regen',
+        paidBy: 'user-A',
+        amount: 400,
+        isPrivate: false,
+        splits: [
+          { entityType: 'user', entityId: 'user-A', amount: 200 },
+          { entityType: 'user', entityId: 'user-B', amount: 200 },
+        ],
+      };
+
+      const plan = await service.regenerateSettlement('evt-regen', 'admin-1');
+      expect(plan.eventId).toBe('evt-regen');
+      expect(plan.totalTransactions).toBe(1);
+      expect(plan.settlements[0].amount).toBe(200);
+      // Approvals should be reset for affected entities
+      expect(mockEvents['evt-regen'].status).toBe('review');
+      expect(mockEvents['evt-regen'].settlementStale).toBe(false);
+    });
+
+    it('should set event to settled when regeneration results in zero settlements', async () => {
+      mockEvents['evt-regen-zero'] = {
+        status: 'review',
+        createdBy: 'admin-1',
+        admins: ['admin-1'],
+        currency: 'USD',
+        settlementApprovals: {
+          'user-A': { approved: true, entityType: 'user', displayName: 'A' },
+        },
+      };
+
+      mockSubcollections['evt-regen-zero/participants'] = {
+        'user-A': { userId: 'user-A', status: 'accepted', displayName: 'User A' },
+      };
+
+      // Balanced expense → no settlements needed
+      mockExpenses['exp-balanced-regen'] = {
+        eventId: 'evt-regen-zero',
+        paidBy: 'user-A',
+        amount: 100,
+        isPrivate: false,
+        splits: [{ entityType: 'user', entityId: 'user-A', amount: 100 }],
+      };
+
+      const plan = await service.regenerateSettlement('evt-regen-zero', 'admin-1');
+      expect(plan.settlements).toHaveLength(0);
+      expect(mockEvents['evt-regen-zero'].status).toBe('settled');
+    });
+
+    it('should allow group representative to regenerate', async () => {
+      mockGroups['grp-rep'] = {
+        eventId: 'evt-grp-regen',
+        members: ['user-X', 'user-Y'],
+        payerUserId: 'user-X',
+        representative: 'user-X',
+      };
+
+      mockEvents['evt-grp-regen'] = {
+        status: 'review',
+        createdBy: 'admin-1',
+        admins: ['admin-1'],
+        currency: 'USD',
+        settlementApprovals: {},
+      };
+
+      mockSubcollections['evt-grp-regen/participants'] = {
+        'user-X': { userId: 'user-X', status: 'accepted', displayName: 'X' },
+      };
+
+      const plan = await service.regenerateSettlement('evt-grp-regen', 'user-X');
+      expect(plan.eventId).toBe('evt-grp-regen');
+    });
+  });
+
+  describe('markSettlementStale', () => {
+    it('should do nothing if event not found', async () => {
+      await expect(service.markSettlementStale('nonexistent')).resolves.toBeUndefined();
+    });
+
+    it('should do nothing if event is not in review status', async () => {
+      mockEvents['evt-active-stale'] = { status: 'active' };
+      await service.markSettlementStale('evt-active-stale');
+      expect(mockEvents['evt-active-stale'].settlementStale).toBeUndefined();
+    });
+
+    it('should mark settlement as stale when event is in review', async () => {
+      mockEvents['evt-review-stale'] = { status: 'review' };
+      await service.markSettlementStale('evt-review-stale');
+      expect(mockEvents['evt-review-stale'].settlementStale).toBe(true);
+    });
+  });
+
+  describe('generateSettlement with FX conversion', () => {
+    it('should apply FX conversion when settlementCurrency differs from event currency', async () => {
+      mockEvents['evt-fx'] = {
+        createdBy: 'admin-1',
+        admins: ['admin-1'],
+        currency: 'USD',
+        settlementCurrency: 'EUR',
+        fxRateMode: 'predefined',
+        predefinedFxRates: { 'USD/EUR': 0.85 },
+      };
+
+      mockSubcollections['evt-fx/participants'] = {
+        'user-A': { userId: 'user-A', status: 'accepted', displayName: 'User A' },
+        'user-B': { userId: 'user-B', status: 'accepted', displayName: 'User B' },
+      };
+
+      mockExpenses['exp-fx'] = {
+        eventId: 'evt-fx',
+        paidBy: 'user-A',
+        amount: 200,
+        isPrivate: false,
+        splits: [
+          { entityType: 'user', entityId: 'user-A', amount: 100 },
+          { entityType: 'user', entityId: 'user-B', amount: 100 },
+        ],
+      };
+
+      const plan = await service.generateSettlement('evt-fx', 'admin-1');
+      expect(plan.totalTransactions).toBe(1);
+      // Should have FX fields
+      const s = plan.settlements[0];
+      expect(s.settlementCurrency).toBe('EUR');
+      expect(s.fxRate).toBeDefined();
+      expect(s.settlementAmount).toBeDefined();
+    });
+
+    it('should clear existing settlements before generating new ones', async () => {
+      // Pre-populate existing settlement
+      mockSettlements['old-s'] = {
+        eventId: 'evt-clear',
+        fromEntityId: 'user-B',
+        toEntityId: 'user-A',
+        amount: 50,
+        status: 'pending',
+      };
+
+      mockEvents['evt-clear'] = {
+        createdBy: 'admin-1',
+        admins: ['admin-1'],
+        currency: 'USD',
+      };
+
+      mockSubcollections['evt-clear/participants'] = {
+        'user-A': { userId: 'user-A', status: 'accepted', displayName: 'User A' },
+        'user-B': { userId: 'user-B', status: 'accepted', displayName: 'User B' },
+      };
+
+      mockExpenses['exp-clear'] = {
+        eventId: 'evt-clear',
+        paidBy: 'user-A',
+        amount: 300,
+        isPrivate: false,
+        splits: [
+          { entityType: 'user', entityId: 'user-A', amount: 150 },
+          { entityType: 'user', entityId: 'user-B', amount: 150 },
+        ],
+      };
+
+      const plan = await service.generateSettlement('evt-clear', 'admin-1');
+      expect(plan.totalTransactions).toBe(1);
+      expect(plan.settlements[0].amount).toBe(150);
+    });
+  });
+
+  describe('retryPayment edge cases', () => {
+    it('should throw if settlement not found', async () => {
+      await expect(service.retryPayment('nonexistent', 'user-1'))
+        .rejects.toThrow('Settlement not found');
+    });
+
+    it('should throw if user is not the payer', async () => {
+      mockSettlements['s-retry-auth'] = {
+        eventId: 'evt-1',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'initiated',
+        amount: 100,
+      };
+      await expect(service.retryPayment('s-retry-auth', 'user-B'))
+        .rejects.toThrow('Forbidden');
+    });
+
+    it('should delegate to initiatePayment when status is pending', async () => {
+      mockEvents['evt-pending-retry'] = { status: 'payment' };
+      mockSettlements['s-retry-pending'] = {
+        eventId: 'evt-pending-retry',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'pending',
+        amount: 100,
+      };
+
+      const result = await service.retryPayment('s-retry-pending', 'user-A');
+      expect(result.status).toBe('initiated');
+    });
+
+    it('should reject retry for invalid status', async () => {
+      mockSettlements['s-retry-invalid'] = {
+        eventId: 'evt-1',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'some_other_status',
+        amount: 100,
+      };
+      await expect(service.retryPayment('s-retry-invalid', 'user-A'))
+        .rejects.toThrow('Cannot retry payment');
+    });
+  });
+
+  describe('initiatePayment with FX settlement amounts', () => {
+    it('should use settlementAmount when available', async () => {
+      mockEvents['evt-fx-pay'] = { status: 'payment' };
+      mockSettlements['s-fx-pay'] = {
+        eventId: 'evt-fx-pay',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'pending',
+        amount: 100,
+        settlementAmount: 85,
+        settlementCurrency: 'EUR',
+        currency: 'USD',
+      };
+
+      const result = await service.initiatePayment('s-fx-pay', 'user-A');
+      expect(result.status).toBe('initiated');
+    });
+
+    it('should lock event to payment when event is in active status', async () => {
+      mockEvents['evt-lock'] = { status: 'active' };
+      mockSettlements['s-lock'] = {
+        eventId: 'evt-lock',
+        fromUserId: 'user-A',
+        toUserId: 'user-B',
+        status: 'pending',
+        amount: 100,
+      };
+
+      await service.initiatePayment('s-lock', 'user-A');
+      expect(mockEvents['evt-lock'].status).toBe('payment');
     });
   });
 

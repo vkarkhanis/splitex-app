@@ -11,6 +11,7 @@ jest.mock('../../api', () => ({
   getToken: jest.fn(async () => null),
 }));
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthProvider, useAuth } from '../../context/AuthContext';
 import { api, clearToken, getToken, setToken } from '../../api';
 
@@ -269,6 +270,336 @@ describe('AuthContext', () => {
 
     expect(clearToken).toHaveBeenCalled();
     expect(captured?.user).toBeNull();
+  });
+
+  it('sendEmailLinkSignIn calls API and stores email', async () => {
+    (api.post as jest.Mock).mockResolvedValueOnce({ data: {} });
+    (AsyncStorage.setItem as jest.Mock).mockResolvedValue(undefined);
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    await act(async () => {
+      await captured?.sendEmailLinkSignIn(' Test@Example.COM ');
+    });
+
+    expect(api.post).toHaveBeenCalledWith('/api/auth/email-link/send', { email: 'test@example.com' });
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+      '@traxettle_pending_email_link_email',
+      'test@example.com'
+    );
+  });
+
+  it('completeEmailLinkSignIn succeeds with stored email', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue('stored@test.com');
+    (AsyncStorage.removeItem as jest.Mock).mockResolvedValue(undefined);
+
+    (api.post as jest.Mock).mockResolvedValueOnce({
+      data: { tokens: { accessToken: 'link-token' } },
+    });
+    (getToken as jest.Mock).mockResolvedValue('link-token');
+    (api.get as jest.Mock).mockResolvedValue({
+      data: {
+        userId: 'u-link',
+        email: 'stored@test.com',
+        displayName: 'Link User',
+        tier: 'free',
+        internalTester: false,
+        capabilities: { multiCurrencySettlement: false },
+      },
+    });
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    await act(async () => {
+      await captured?.completeEmailLinkSignIn('https://app.test?oobCode=abc&mode=signIn');
+    });
+
+    expect(api.post).toHaveBeenCalledWith('/api/auth/email-link/complete', {
+      email: 'stored@test.com',
+      link: 'https://app.test?oobCode=abc&mode=signIn',
+    });
+    expect(setToken).toHaveBeenCalledWith('link-token');
+    expect(AsyncStorage.removeItem).toHaveBeenCalledWith('@traxettle_pending_email_link_email');
+  });
+
+  it('completeEmailLinkSignIn uses emailOverride over stored email', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue('stored@test.com');
+    (AsyncStorage.removeItem as jest.Mock).mockResolvedValue(undefined);
+
+    (api.post as jest.Mock).mockResolvedValueOnce({
+      data: { accessToken: 'link-token-2' },
+    });
+    (getToken as jest.Mock).mockResolvedValue('link-token-2');
+    (api.get as jest.Mock).mockResolvedValue({
+      data: {
+        userId: 'u-override',
+        email: 'override@test.com',
+        displayName: 'Override User',
+        tier: 'free',
+        internalTester: false,
+        capabilities: { multiCurrencySettlement: false },
+      },
+    });
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    await act(async () => {
+      await captured?.completeEmailLinkSignIn(
+        'https://app.test?oobCode=abc&mode=signIn',
+        'Override@Test.COM'
+      );
+    });
+
+    expect(api.post).toHaveBeenCalledWith('/api/auth/email-link/complete', {
+      email: 'override@test.com',
+      link: 'https://app.test?oobCode=abc&mode=signIn',
+    });
+  });
+
+  it('completeEmailLinkSignIn throws when no email available', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    await expect(
+      captured!.completeEmailLinkSignIn('https://app.test?oobCode=abc&mode=signIn')
+    ).rejects.toThrow('Enter your email');
+  });
+
+  it('completeEmailLinkSignIn throws when server returns no token', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue('notoken@test.com');
+    (api.post as jest.Mock).mockResolvedValueOnce({ data: {} });
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    await expect(
+      captured!.completeEmailLinkSignIn('https://app.test?oobCode=abc&mode=signIn')
+    ).rejects.toThrow('No token received');
+  });
+
+  it('refreshProfile updates user data', async () => {
+    (getToken as jest.Mock).mockResolvedValue('existing-token');
+    (api.get as jest.Mock)
+      .mockResolvedValueOnce({
+        data: {
+          userId: 'u-refresh',
+          email: 'refresh@test.com',
+          displayName: 'Before Refresh',
+          tier: 'free',
+          internalTester: false,
+          capabilities: { multiCurrencySettlement: false },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          userId: 'u-refresh',
+          email: 'refresh@test.com',
+          displayName: 'After Refresh',
+          tier: 'pro',
+          internalTester: true,
+          capabilities: { multiCurrencySettlement: true },
+        },
+      });
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    expect(captured?.user?.displayName).toBe('Before Refresh');
+
+    await act(async () => {
+      await captured?.refreshProfile();
+    });
+
+    expect(captured?.user?.displayName).toBe('After Refresh');
+    expect(captured?.tier).toBe('pro');
+  });
+
+  it('switchTier calls internal endpoint and refreshes profile', async () => {
+    (getToken as jest.Mock).mockResolvedValue('existing-token');
+    (api.get as jest.Mock)
+      .mockResolvedValueOnce({
+        data: {
+          userId: 'u-switch',
+          email: 'switch@test.com',
+          displayName: 'Switch User',
+          tier: 'free',
+          internalTester: false,
+          capabilities: { multiCurrencySettlement: false },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          userId: 'u-switch',
+          email: 'switch@test.com',
+          displayName: 'Switch User',
+          tier: 'pro',
+          internalTester: false,
+          capabilities: { multiCurrencySettlement: true },
+        },
+      });
+    (api.post as jest.Mock).mockResolvedValueOnce({ data: {} });
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    expect(captured?.tier).toBe('free');
+
+    await act(async () => {
+      await captured?.switchTier('pro');
+    });
+
+    expect(api.post).toHaveBeenCalledWith('/api/internal/entitlements/switch', { tier: 'pro' });
+    expect(captured?.tier).toBe('pro');
+  });
+
+  it('deep link useEffect processes email link from getInitialURL', async () => {
+    const { Linking } = require('react-native');
+    const emailLinkUrl = 'https://app.test?oobCode=deep123&mode=signIn';
+    (Linking.getInitialURL as jest.Mock).mockResolvedValueOnce(emailLinkUrl);
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue('deep@test.com');
+    (AsyncStorage.removeItem as jest.Mock).mockResolvedValue(undefined);
+
+    (api.post as jest.Mock).mockResolvedValueOnce({
+      data: { tokens: { accessToken: 'deep-token' } },
+    });
+    (getToken as jest.Mock).mockResolvedValue('deep-token');
+    (api.get as jest.Mock).mockResolvedValue({
+      data: {
+        userId: 'u-deep',
+        email: 'deep@test.com',
+        displayName: 'Deep User',
+        tier: 'free',
+        internalTester: false,
+        capabilities: { multiCurrencySettlement: false },
+      },
+    });
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    // The deep link should have triggered completeEmailLinkSignIn
+    expect(api.post).toHaveBeenCalledWith('/api/auth/email-link/complete', {
+      email: 'deep@test.com',
+      link: emailLinkUrl,
+    });
+  });
+
+  it('deep link useEffect handles non-email-link URLs gracefully', async () => {
+    const { Linking } = require('react-native');
+    (Linking.getInitialURL as jest.Mock).mockResolvedValueOnce('https://app.test/some-page');
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    // Should NOT call email-link/complete for non-email-link URLs
+    expect(api.post).not.toHaveBeenCalledWith(
+      '/api/auth/email-link/complete',
+      expect.anything()
+    );
+  });
+
+  it('deep link useEffect handles null getInitialURL', async () => {
+    const { Linking } = require('react-native');
+    (Linking.getInitialURL as jest.Mock).mockResolvedValueOnce(null);
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    expect(api.post).not.toHaveBeenCalledWith(
+      '/api/auth/email-link/complete',
+      expect.anything()
+    );
+  });
+
+  it('deep link useEffect catches errors from completeEmailLinkSignIn', async () => {
+    const { Linking } = require('react-native');
+    const emailLinkUrl = 'https://app.test?oobCode=fail123&mode=signIn';
+    (Linking.getInitialURL as jest.Mock).mockResolvedValueOnce(emailLinkUrl);
+    // No email stored → completeEmailLinkSignIn will throw
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    // Should have warned about the failure, not crashed
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Email link completion failed:',
+      expect.any(Error)
+    );
+    warnSpy.mockRestore();
   });
 
   it('clears token when loading profile fails with an existing token', async () => {

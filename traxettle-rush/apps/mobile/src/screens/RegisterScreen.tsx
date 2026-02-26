@@ -14,13 +14,16 @@ import {
   GoogleSignin,
   statusCodes,
 } from '@react-native-google-signin/google-signin';
-import { colors, spacing, radii, fontSizes } from '../theme';
+import { spacing, radii, fontSizes } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { ENV } from '../config/env';
 
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
 
 export default function RegisterScreen({ navigation }: any) {
+  const { theme } = useTheme();
+  const c = theme.colors;
   const { register, loginWithGoogle } = useAuth();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -78,27 +81,27 @@ export default function RegisterScreen({ navigation }: any) {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={[styles.container, { backgroundColor: c.background }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.card}>
-        <Text style={styles.title}>Create Account</Text>
-        <Text style={styles.subtitle}>Join Traxettle to start splitting expenses</Text>
+      <View style={[styles.card, { backgroundColor: c.surface, shadowColor: c.black }]}>
+        <Text style={[styles.title, { color: c.text }]}>Create Account</Text>
+        <Text style={[styles.subtitle, { color: c.textSecondary }]}>Join Traxettle to start splitting expenses</Text>
 
         <TextInput
           testID="register-display-name-input"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
           placeholder="Display Name"
-          placeholderTextColor={colors.muted}
+          placeholderTextColor={c.muted}
           value={displayName}
           onChangeText={setDisplayName}
           editable={!loading}
         />
         <TextInput
           testID="register-email-input"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
           placeholder="Email"
-          placeholderTextColor={colors.muted}
+          placeholderTextColor={c.muted}
           keyboardType="email-address"
           autoCapitalize="none"
           value={email}
@@ -107,9 +110,9 @@ export default function RegisterScreen({ navigation }: any) {
         />
         <TextInput
           testID="register-password-input"
-          style={styles.input}
+          style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
           placeholder="Password"
-          placeholderTextColor={colors.muted}
+          placeholderTextColor={c.muted}
           secureTextEntry
           value={password}
           onChangeText={setPassword}
@@ -120,12 +123,12 @@ export default function RegisterScreen({ navigation }: any) {
 
         <TouchableOpacity
           testID="register-submit-button"
-          style={[styles.button, loading && styles.buttonDisabled]}
+          style={[styles.button, { backgroundColor: c.primary }, loading && styles.buttonDisabled]}
           onPress={handleRegister}
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator color={colors.white} />
+            <ActivityIndicator color={c.white} />
           ) : (
             <Text style={styles.buttonText}>Create Account</Text>
           )}
@@ -134,27 +137,27 @@ export default function RegisterScreen({ navigation }: any) {
         {GOOGLE_ENABLED && (
           <>
             <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
+              <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
+              <Text style={[styles.dividerText, { color: c.muted }]}>or</Text>
+              <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
             </View>
 
             <TouchableOpacity
-              style={[styles.googleButton, googleLoading && styles.buttonDisabled]}
+              style={[styles.googleButton, { backgroundColor: c.surface, borderColor: c.border }, googleLoading && styles.buttonDisabled]}
               onPress={handleGoogleSignIn}
               disabled={googleLoading}
             >
               {googleLoading ? (
-                <ActivityIndicator color={colors.text} />
+                <ActivityIndicator color={c.text} />
               ) : (
-                <Text style={styles.googleButtonText}>Sign up with Google</Text>
+                <Text style={[styles.googleButtonText, { color: c.text }]}>Sign up with Google</Text>
               )}
             </TouchableOpacity>
           </>
         )}
 
         <TouchableOpacity testID="register-go-login" onPress={() => navigation.goBack()}>
-          <Text style={styles.link}>Already have an account? Sign In</Text>
+          <Text style={[styles.link, { color: c.primary }]}>Already have an account? Sign In</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -164,15 +167,12 @@ export default function RegisterScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
     justifyContent: 'center',
     padding: spacing.xl,
   },
   card: {
-    backgroundColor: colors.surface,
     borderRadius: radii.lg,
     padding: spacing.xxl,
-    shadowColor: colors.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
@@ -181,28 +181,22 @@ const styles = StyleSheet.create({
   title: {
     fontSize: fontSizes.xxl,
     fontWeight: '700',
-    color: colors.text,
     textAlign: 'center',
     marginBottom: spacing.xs,
   },
   subtitle: {
     fontSize: fontSizes.md,
-    color: colors.textSecondary,
     textAlign: 'center',
     marginBottom: spacing.xxl,
   },
   input: {
-    backgroundColor: colors.surfaceAlt,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.border,
     padding: spacing.md,
     fontSize: fontSizes.md,
-    color: colors.text,
     marginBottom: spacing.md,
   },
   button: {
-    backgroundColor: colors.primary,
     borderRadius: radii.sm,
     padding: spacing.lg,
     alignItems: 'center',
@@ -211,7 +205,7 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.6 },
   buttonText: {
-    color: colors.white,
+    color: '#ffffff',
     fontSize: fontSizes.md,
     fontWeight: '600',
   },
@@ -223,29 +217,23 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: colors.border,
   },
   dividerText: {
     marginHorizontal: spacing.sm,
-    color: colors.muted,
     fontSize: fontSizes.sm,
   },
   googleButton: {
-    backgroundColor: colors.surface,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.border,
     padding: spacing.lg,
     alignItems: 'center',
     marginBottom: spacing.lg,
   },
   googleButtonText: {
-    color: colors.text,
     fontSize: fontSizes.md,
     fontWeight: '600',
   },
   link: {
-    color: colors.primary,
     fontSize: fontSizes.sm,
     textAlign: 'center',
   },

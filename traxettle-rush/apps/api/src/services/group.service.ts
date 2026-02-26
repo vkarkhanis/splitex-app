@@ -115,12 +115,12 @@ export class GroupService {
     return groups;
   }
 
-  async updateGroup(groupId: string, userId: string, dto: UpdateGroupDto): Promise<Group | null> {
+  async updateGroup(groupId: string, userId: string, dto: UpdateGroupDto, isEventAdmin = false): Promise<Group | null> {
     const group = await this.getGroup(groupId);
     if (!group) return null;
 
-    if (group.createdBy !== userId && group.representative !== userId) {
-      throw new Error('Forbidden: Only the group creator or representative can update this group');
+    if (group.createdBy !== userId && group.representative !== userId && !isEventAdmin) {
+      throw new Error('Forbidden: Only the group creator, representative, or event admin can update this group');
     }
 
     const now = new Date().toISOString();
@@ -144,13 +144,13 @@ export class GroupService {
     return this.getGroup(groupId);
   }
 
-  async deleteGroup(groupId: string, userId: string): Promise<boolean> {
+  async deleteGroup(groupId: string, userId: string, isEventAdmin = false): Promise<boolean> {
     const group = await this.getGroup(groupId);
     if (!group) return false;
 
-    // Creator or representative can delete
-    if (group.createdBy !== userId && group.representative !== userId) {
-      throw new Error('Forbidden: Only the group creator or representative can delete this group');
+    // Creator, representative, or event admin can delete
+    if (group.createdBy !== userId && group.representative !== userId && !isEventAdmin) {
+      throw new Error('Forbidden: Only the group creator, representative, or event admin can delete this group');
     }
 
     await db.collection(this.collection).doc(groupId).delete();

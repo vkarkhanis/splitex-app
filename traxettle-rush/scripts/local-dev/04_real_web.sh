@@ -13,6 +13,9 @@ fi
 
 echo "[local-dev] mode=real-firebase+web tier=$DEV_TIER real_payments=$DEV_REAL_PAYMENTS"
 
+# ── Bootstrap: validate & copy Firebase config files ──
+sh "$ROOT_DIR/scripts/local-dev/bootstrap.sh" staging
+
 run_rushx() {
   local project_dir="$1"
   local script_name="$2"

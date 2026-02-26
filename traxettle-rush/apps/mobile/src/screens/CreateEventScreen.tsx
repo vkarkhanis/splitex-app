@@ -8,14 +8,19 @@ import {
   ActivityIndicator,
   ScrollView,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { colors, spacing, radii, fontSizes } from '../theme';
+import { spacing, radii, fontSizes } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 import { api, ApiRequestError } from '../api';
 import { useAuth } from '../context/AuthContext';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
 
 export default function CreateEventScreen({ navigation }: any) {
+  const { theme } = useTheme();
+  const colors = theme.colors;
   const { tier, capabilities } = useAuth();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -89,26 +94,31 @@ export default function CreateEventScreen({ navigation }: any) {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.heading}>Create Event</Text>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
+    >
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <Text style={[styles.heading, { color: colors.text }]}>Create Event</Text>
 
-      <Text style={styles.label}>Event Name</Text>
-      <TextInput testID="create-event-name-input" style={styles.input} value={name} onChangeText={setName} placeholder="e.g. Goa Trip 2025" placeholderTextColor={colors.muted} />
+      <Text style={[styles.label, { color: colors.textSecondary }]}>Event Name</Text>
+      <TextInput testID="create-event-name-input" style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]} value={name} onChangeText={setName} placeholder="e.g. Goa Trip 2025" placeholderTextColor={colors.muted} />
 
-      <Text style={styles.label}>Description (optional)</Text>
-      <TextInput testID="create-event-description-input" style={styles.input} value={description} onChangeText={setDescription} placeholder="Brief description..." placeholderTextColor={colors.muted} multiline />
+      <Text style={[styles.label, { color: colors.textSecondary }]}>Description (optional)</Text>
+      <TextInput testID="create-event-description-input" style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]} value={description} onChangeText={setDescription} placeholder="Brief description..." placeholderTextColor={colors.muted} multiline />
 
       {/* Type */}
-      <Text style={styles.label}>Type</Text>
+      <Text style={[styles.label, { color: colors.textSecondary }]}>Type</Text>
       <View style={styles.chipRow}>
         {(['event', 'trip'] as const).map(t => (
           <TouchableOpacity
             key={t}
             testID={`create-event-type-${t}`}
-            style={[styles.chip, type === t && styles.chipActive]}
+            style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.surface }, type === t && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]}
             onPress={() => setType(t)}
           >
-            <Text style={[styles.chipText, type === t && styles.chipTextActive]}>
+            <Text style={[styles.chipText, { color: colors.text }, type === t && { color: colors.primary, fontWeight: '600' }]}>
               {t === 'event' ? 'Event' : 'Trip'}
             </Text>
           </TouchableOpacity>
@@ -116,77 +126,77 @@ export default function CreateEventScreen({ navigation }: any) {
       </View>
 
       {/* Currency */}
-      <Text style={styles.label}>Expense Currency</Text>
+      <Text style={[styles.label, { color: colors.textSecondary }]}>Expense Currency</Text>
       <View style={styles.chipRow}>
-        {CURRENCIES.map(c => (
+        {CURRENCIES.map(cur => (
           <TouchableOpacity
-            key={c}
-            testID={`create-event-currency-${c}`}
-            style={[styles.chip, currency === c && styles.chipActive]}
-            onPress={() => setCurrency(c)}
+            key={cur}
+            testID={`create-event-currency-${cur}`}
+            style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.surface }, currency === cur && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]}
+            onPress={() => setCurrency(cur)}
           >
-            <Text style={[styles.chipText, currency === c && styles.chipTextActive]}>{c}</Text>
+            <Text style={[styles.chipText, { color: colors.text }, currency === cur && { color: colors.primary, fontWeight: '600' }]}>{cur}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
       {/* Settlement Currency */}
-      <Text style={styles.label}>
+      <Text style={[styles.label, { color: colors.textSecondary }]}>
         Settlement Currency (optional)
-        {tier === 'free' && <Text style={styles.proBadge}> PRO</Text>}
+        {tier === 'free' && <Text style={[styles.proBadge, { color: colors.warning }]}> PRO</Text>}
       </Text>
       <View style={styles.chipRow}>
         <TouchableOpacity
           testID="create-event-settlement-same"
-          style={[styles.chip, !settlementCurrency && styles.chipActive]}
+          style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.surface }, !settlementCurrency && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]}
           onPress={() => setSettlementCurrency('')}
         >
-          <Text style={[styles.chipText, !settlementCurrency && styles.chipTextActive]}>Same</Text>
+          <Text style={[styles.chipText, { color: colors.text }, !settlementCurrency && { color: colors.primary, fontWeight: '600' }]}>Same</Text>
         </TouchableOpacity>
-        {CURRENCIES.filter(c => c !== currency).map(c => (
+        {CURRENCIES.filter(cur => cur !== currency).map(cur => (
           <TouchableOpacity
-            key={c}
-            testID={`create-event-settlement-${c}`}
-            style={[styles.chip, settlementCurrency === c && styles.chipActive]}
-            onPress={() => setSettlementCurrency(c)}
+            key={cur}
+            testID={`create-event-settlement-${cur}`}
+            style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.surface }, settlementCurrency === cur && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]}
+            onPress={() => setSettlementCurrency(cur)}
           >
-            <Text style={[styles.chipText, settlementCurrency === c && styles.chipTextActive]}>{c}</Text>
+            <Text style={[styles.chipText, { color: colors.text }, settlementCurrency === cur && { color: colors.primary, fontWeight: '600' }]}>{cur}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
       {/* FX Settings */}
       {needsFx && (
-        <View style={styles.fxSection}>
-          <Text style={styles.fxTitle}>FX Rate: {currency} → {settlementCurrency}</Text>
+        <View style={[styles.fxSection, { borderColor: colors.border }]}>
+          <Text style={[styles.fxTitle, { color: colors.text }]}>FX Rate: {currency} → {settlementCurrency}</Text>
           {isFxProFeature && (
-            <View style={styles.proWarning}>
-              <Text style={styles.proWarningText}>⭐ Multi-currency settlement is a Pro feature</Text>
+            <View style={[styles.proWarning, { backgroundColor: colors.warningBg }]}>
+              <Text style={[styles.proWarningText, { color: colors.warning }]}>⭐ Multi-currency settlement is a Pro feature</Text>
             </View>
           )}
-          <Text style={styles.label}>FX Rate Mode</Text>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>FX Rate Mode</Text>
           <View style={styles.chipRow}>
             <TouchableOpacity
               testID="create-event-fx-mode-eod"
-              style={[styles.chip, fxRateMode === 'eod' && styles.chipActive]}
+              style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.surface }, fxRateMode === 'eod' && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]}
               onPress={() => setFxRateMode('eod')}
             >
-              <Text style={[styles.chipText, fxRateMode === 'eod' && styles.chipTextActive]}>EOD Rate</Text>
+              <Text style={[styles.chipText, { color: colors.text }, fxRateMode === 'eod' && { color: colors.primary, fontWeight: '600' }]}>EOD Rate</Text>
             </TouchableOpacity>
             <TouchableOpacity
               testID="create-event-fx-mode-predefined"
-              style={[styles.chip, fxRateMode === 'predefined' && styles.chipActive]}
+              style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.surface }, fxRateMode === 'predefined' && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]}
               onPress={() => setFxRateMode('predefined')}
             >
-              <Text style={[styles.chipText, fxRateMode === 'predefined' && styles.chipTextActive]}>Predefined</Text>
+              <Text style={[styles.chipText, { color: colors.text }, fxRateMode === 'predefined' && { color: colors.primary, fontWeight: '600' }]}>Predefined</Text>
             </TouchableOpacity>
           </View>
           {fxRateMode === 'predefined' && (
             <>
-              <Text style={styles.label}>1 {currency} = ? {settlementCurrency}</Text>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>1 {currency} = ? {settlementCurrency}</Text>
               <TextInput
                 testID="create-event-fx-rate-input"
-                style={styles.input}
+                style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
                 value={predefinedFxRate}
                 onChangeText={setPredefinedFxRate}
                 keyboardType="decimal-pad"
@@ -200,7 +210,7 @@ export default function CreateEventScreen({ navigation }: any) {
 
       <TouchableOpacity
         testID="create-event-submit-button"
-        style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+        style={[styles.submitBtn, { backgroundColor: colors.primary }, loading && styles.submitBtnDisabled]}
         onPress={handleSubmit}
         disabled={loading}
       >
@@ -211,40 +221,39 @@ export default function CreateEventScreen({ navigation }: any) {
         )}
       </TouchableOpacity>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1 },
   content: { padding: spacing.xl, paddingBottom: spacing.xxxl * 2 },
-  heading: { fontSize: fontSizes.xxl, fontWeight: '700', color: colors.text, marginBottom: spacing.lg },
-  label: { fontSize: fontSizes.sm, fontWeight: '600', color: colors.textSecondary, marginBottom: spacing.xs, marginTop: spacing.lg },
-  proBadge: { color: colors.warning, fontWeight: '700', fontSize: fontSizes.xs },
+  heading: { fontSize: fontSizes.xxl, fontWeight: '700', marginBottom: spacing.lg },
+  label: { fontSize: fontSizes.sm, fontWeight: '600', marginBottom: spacing.xs, marginTop: spacing.lg },
+  proBadge: { fontWeight: '700', fontSize: fontSizes.xs },
   input: {
-    backgroundColor: colors.surface, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.border,
-    padding: spacing.md, fontSize: fontSizes.md, color: colors.text,
+    borderRadius: radii.sm, borderWidth: 1,
+    padding: spacing.md, fontSize: fontSizes.md,
   },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: {
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    borderRadius: radii.full, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.surface,
+    borderRadius: radii.full, borderWidth: 1.5,
   },
-  chipActive: { borderColor: colors.primary, backgroundColor: colors.primary + '15' },
-  chipText: { fontSize: fontSizes.sm, color: colors.text },
-  chipTextActive: { color: colors.primary, fontWeight: '600' },
+  chipText: { fontSize: fontSizes.sm },
   fxSection: {
-    marginTop: spacing.lg, borderWidth: 1, borderColor: colors.border,
+    marginTop: spacing.lg, borderWidth: 1,
     borderRadius: radii.md, padding: spacing.lg,
   },
-  fxTitle: { fontSize: fontSizes.md, fontWeight: '600', color: colors.text },
+  fxTitle: { fontSize: fontSizes.md, fontWeight: '600' },
   proWarning: {
-    backgroundColor: colors.warningBg, borderRadius: radii.sm, padding: spacing.md, marginTop: spacing.sm,
+    borderRadius: radii.sm, padding: spacing.md, marginTop: spacing.sm,
   },
-  proWarningText: { fontSize: fontSizes.xs, color: colors.warning, fontWeight: '600' },
+  proWarningText: { fontSize: fontSizes.xs, fontWeight: '600' },
   submitBtn: {
-    backgroundColor: colors.primary, borderRadius: radii.md, padding: spacing.lg,
+    borderRadius: radii.md, padding: spacing.lg,
     alignItems: 'center', marginTop: spacing.xxl,
   },
   submitBtnDisabled: { opacity: 0.6 },
-  submitBtnText: { color: colors.white, fontSize: fontSizes.md, fontWeight: '600' },
+  submitBtnText: { color: '#ffffff', fontSize: fontSizes.md, fontWeight: '600' },
 });

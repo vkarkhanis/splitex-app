@@ -5,7 +5,7 @@ import { EventService } from '../services/event.service';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { emitToEvent } from '../config/websocket';
 import { notifyEventParticipants } from '../utils/notification-helper';
-import { requireActiveEvent } from '../utils/event-guards';
+import { requireActiveEvent, markStaleIfInReview } from '../utils/event-guards';
 
 const router: Router = Router();
 const expenseService = new ExpenseService();
@@ -81,6 +81,7 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
 
     await requireActiveEvent(body.eventId);
     const expense = await expenseService.createExpense(uid, body);
+    await markStaleIfInReview(body.eventId);
     emitToEvent(body.eventId, 'expense:created', { expense });
     notifyEventParticipants(body.eventId, uid, 'expense_added', {
       Title: expense.title,
@@ -113,6 +114,7 @@ router.put('/:expenseId', requireAuth, async (req: AuthenticatedRequest, res) =>
       return res.status(404).json({ success: false, error: 'Expense not found' } as ApiResponse);
     }
 
+    await markStaleIfInReview(expense.eventId);
     emitToEvent(expense.eventId, 'expense:updated', { expense });
     notifyEventParticipants(expense.eventId, uid, 'expense_updated', {
       Title: expense.title,
@@ -145,6 +147,7 @@ router.delete('/:expenseId', requireAuth, async (req: AuthenticatedRequest, res)
     }
 
     if (expenseToDelete) {
+      await markStaleIfInReview(expenseToDelete.eventId);
       emitToEvent(expenseToDelete.eventId, 'expense:deleted', { expenseId: req.params.expenseId });
       notifyEventParticipants(expenseToDelete.eventId, uid, 'expense_deleted', {
         Title: expenseToDelete.title,

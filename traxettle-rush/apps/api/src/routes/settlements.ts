@@ -54,8 +54,8 @@ router.post('/event/:eventId/generate', requireAuth, async (req: AuthenticatedRe
     const uid = req.user!.uid;
     const plan = await settlementService.generateSettlement(req.params.eventId, uid);
     emitToEvent(req.params.eventId, 'settlement:generated', { plan });
-    // Emit event:updated so dashboard tiles reflect the new status (payment or settled)
-    const newStatus = (plan as any)?.settlements?.length > 0 ? 'payment' : 'settled';
+    // Emit event:updated so dashboard tiles reflect the new status (review or settled)
+    const newStatus = (plan as any)?.settlements?.length > 0 ? 'review' : 'settled';
     emitToEvent(req.params.eventId, 'event:updated', { event: { status: newStatus } });
     notifyEventParticipants(req.params.eventId, uid, 'settlement_generated', {
       'Settlements': `${(plan as any)?.settlements?.length || 0} payment(s) calculated`,
@@ -70,6 +70,54 @@ router.post('/event/:eventId/generate', requireAuth, async (req: AuthenticatedRe
       return res.status(404).json({ success: false, error: err.message } as ApiResponse);
     }
     return res.status(500).json({ success: false, error: 'Failed to generate settlement' } as ApiResponse);
+  }
+});
+
+// Approve settlement review for a participant entity
+router.post('/event/:eventId/approve-settlement', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const { approvals, allApproved } = await settlementService.approveSettlementReview(req.params.eventId, uid);
+    emitToEvent(req.params.eventId, 'settlement:updated', { approvals, allApproved });
+    if (allApproved) {
+      emitToEvent(req.params.eventId, 'event:updated', { event: { status: 'payment' } });
+      notifyEventParticipants(req.params.eventId, uid, 'settlement_generated', {
+        'Status': 'All participants approved. Payments can now proceed.',
+      });
+    }
+    return res.json({ success: true, data: { approvals, allApproved } } as ApiResponse);
+  } catch (err: any) {
+    console.error('POST /settlements/event/:eventId/approve-settlement error:', err);
+    if (err.message?.includes('Forbidden') || err.message?.includes('not authorized')) {
+      return res.status(403).json({ success: false, error: err.message } as ApiResponse);
+    }
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ success: false, error: err.message } as ApiResponse);
+    }
+    return res.status(400).json({ success: false, error: err.message } as ApiResponse);
+  }
+});
+
+// Regenerate settlement after expense edits during review
+router.post('/event/:eventId/regenerate', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const plan = await settlementService.regenerateSettlement(req.params.eventId, uid);
+    emitToEvent(req.params.eventId, 'settlement:generated', { plan });
+    emitToEvent(req.params.eventId, 'event:updated', { event: { status: 'review' } });
+    notifyEventParticipants(req.params.eventId, uid, 'settlement_generated', {
+      'Settlements': `Settlement regenerated — ${(plan as any)?.settlements?.length || 0} payment(s) recalculated`,
+    });
+    return res.status(201).json({ success: true, data: plan } as ApiResponse);
+  } catch (err: any) {
+    console.error('POST /settlements/event/:eventId/regenerate error:', err);
+    if (err.message?.includes('Forbidden')) {
+      return res.status(403).json({ success: false, error: err.message } as ApiResponse);
+    }
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ success: false, error: err.message } as ApiResponse);
+    }
+    return res.status(400).json({ success: false, error: err.message } as ApiResponse);
   }
 });
 

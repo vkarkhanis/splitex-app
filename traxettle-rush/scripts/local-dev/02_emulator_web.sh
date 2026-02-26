@@ -13,6 +13,9 @@ fi
 
 echo "[local-dev] mode=emulator+web tier=$DEV_TIER real_payments=$DEV_REAL_PAYMENTS"
 
+# ── Bootstrap: validate & copy Firebase config files ──
+sh "$ROOT_DIR/scripts/local-dev/bootstrap.sh" local
+
 if ! command -v java >/dev/null 2>&1; then
   echo "[local-dev] Java is required for Firebase emulators (JDK 21+)."
   exit 1

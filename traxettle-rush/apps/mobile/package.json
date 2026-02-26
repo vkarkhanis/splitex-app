@@ -1,6 +1,6 @@
 {
   "name": "@traxettle/mobile",
-  "version": "1.0.1",
+  "version": "1.0.5",
   "description": "Traxettle mobile app — iOS & Android",
   "main": "index.js",
   "scripts": {
@@ -17,9 +17,10 @@
     "prebuild:android": "expo prebuild --platform android --clean",
     "build:ios": "eas build --platform ios --profile development",
     "build:android": "eas build --platform android --profile development",
+    "build:android:debug": "bash scripts/build-android.sh debug",
+    "build:android:debug:staging": "bash scripts/build-android.sh debug:staging",
     "build:android:staging": "bash scripts/build-android.sh staging",
     "build:android:production": "bash scripts/build-android.sh production",
-    "build:android:debug": "bash scripts/build-android.sh debug",
     "test": "jest",
     "test:coverage": "jest --coverage",
     "test:maestro": "RUN_ID=${RUN_ID:-$(date +%s)} sh maestro/scripts/run-maestro.sh normal",
@@ -70,7 +71,8 @@
     "expo-web-browser": "~15.0.0",
     "expo-crypto": "~15.0.0",
     "socket.io-client": "^4.7.0",
-    "@react-native-google-signin/google-signin": "^12.2.0"
+    "@react-native-google-signin/google-signin": "^12.2.0",
+    "react-native-purchases": "^8.2.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",

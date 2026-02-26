@@ -99,9 +99,7 @@ From Firebase Console > Project Settings > General > Web app config:
   - Storage: `127.0.0.1:9199`
 
 Detailed Firebase docs:
-- `docs/FIREBASE_QUICK_START.md`
-- `docs/FIREBASE_SETUP.md`
-- `docs/SETUP_SUMMARY.md`
+- `../traxettle-app/docs/utility/FIREBASE_SETUP.md`
 
 ## Global Environment Variable Summary
 Use `.env.example` as base. This table summarizes **why** each key exists.
@@ -161,7 +159,7 @@ Use `.env.example` as base. This table summarizes **why** each key exists.
 | `REVENUECAT_PRO_ENTITLEMENT_KEY` | Entitlement mapping key (`pro`) |
 
 Full RevenueCat runbook:
-- `docs/REVENUECAT_INTEGRATION_RUNBOOK.md`
+- `../traxettle-app/docs/utility/REVENUECAT_INTEGRATION_RUNBOOK.md`
 - `scripts/revenuecat/bootstrap.sh`
 - `scripts/revenuecat/check-config.sh`
 - `scripts/revenuecat/smoke-webhook.sh`
@@ -174,9 +172,9 @@ Full RevenueCat runbook:
 | Production | No manual switch | Live policy | Production policy | No |
 
 Reference docs:
-- `docs/TIER_ENTITLEMENT_ENV_MATRIX.md`
-- `docs/SETTLEMENT_GATEWAY_TESTING_POLICY.md`
-- `docs/TIER_SWITCH_TESTING_GUIDE.md`
+- `../traxettle-app/docs/utility/TIER_ENTITLEMENT_ENV_MATRIX.md`
+- `../traxettle-app/docs/utility/SETTLEMENT_GATEWAY_TESTING_POLICY.md`
+- `../traxettle-app/docs/utility/TIER_SWITCH_TESTING_GUIDE.md`
 
 ## Orchestration: What to Start First
 For any stack:
@@ -214,9 +212,8 @@ Switch to local emulators (`01_emulator_mobile.sh` / `02_emulator_web.sh`) for l
 ### Java errors for emulators
 Firebase emulators require JDK 21+.
 
-## Legacy Full-Detail Archives (No Information Removed)
-To keep these README files clean while preserving previous exhaustive content:
-- `docs/readme-archives/README.root.archive.md`
-- `docs/readme-archives/README.api.archive.md`
-- `docs/readme-archives/README.web.archive.md`
-- `docs/readme-archives/README.mobile.archive.md`
+## Documentation
+All project documentation lives under `../traxettle-app/docs/`:
+- **Deployment**: `../traxettle-app/docs/deployment/` — Cloud Run, store releases, checklists
+- **Runbook**: `../traxettle-app/docs/runbook/` — Local development modes and commands
+- **Utility**: `../traxettle-app/docs/utility/` — Firebase, RevenueCat, tiers, settlements

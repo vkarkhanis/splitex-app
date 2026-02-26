@@ -3,9 +3,10 @@
 # build-android.sh — Seamless Android staging & production builds
 #
 # Usage:
-#   ./scripts/build-android.sh staging      # Internal testing (.aab)
-#   ./scripts/build-android.sh production   # Play Store (.aab)
-#   ./scripts/build-android.sh debug        # Debug APK (local testing)
+#   ./scripts/build-android.sh staging        # Release .aab → staging API
+#   ./scripts/build-android.sh production     # Release .aab → production API
+#   ./scripts/build-android.sh debug          # Debug APK → local API (needs Metro)
+#   ./scripts/build-android.sh debug:staging  # Release APK → staging API (self-contained, no Metro)
 #
 # What it does automatically:
 #   1. Validates prerequisites (google-services.json, keystore, signing creds)
@@ -46,16 +47,17 @@ if [ -z "$PROFILE" ]; then
   echo "Usage: ./scripts/build-android.sh <profile>"
   echo ""
   echo "Profiles:"
-  echo "  staging      Internal testing build (.aab)"
-  echo "  production   Play Store release build (.aab)"
-  echo "  debug        Local debug build (.apk)"
+  echo "  staging         Release .aab pointing to staging API"
+  echo "  production      Release .aab pointing to production API"
+  echo "  debug           Debug APK pointing to local API (needs Metro running)"
+  echo "  debug:staging   Release APK pointing to staging API (self-contained, no Metro)"
   echo ""
   exit 1
 fi
 
 case "$PROFILE" in
-  staging|production|debug) ;;
-  *) fail "Unknown profile '$PROFILE'. Use: staging, production, or debug" ;;
+  staging|production|debug|debug:staging) ;;
+  *) fail "Unknown profile '$PROFILE'. Use: staging, production, debug, or debug:staging" ;;
 esac
 
 echo ""
@@ -67,19 +69,42 @@ echo ""
 # ── Step 1: Validate prerequisites ──────────────────────────────────────────
 info "Checking prerequisites..."
 
-GOOGLE_SERVICES_SRC="$MOBILE_DIR/google-services.json"
+# Determine Firebase environment based on profile
+case "$PROFILE" in
+  debug)          FIREBASE_ENV="local" ;;
+  *)              FIREBASE_ENV="staging" ;;
+esac
+
+GOOGLE_SERVICES_SRC="$MOBILE_DIR/google-services.$FIREBASE_ENV.json"
+GOOGLE_SERVICES_FALLBACK="$MOBILE_DIR/google-services.json"
 GOOGLE_SERVICES_DST="$ANDROID_DIR/app/google-services.json"
 KEYSTORE_FILE="$ANDROID_DIR/app/traxettle-release-key.keystore"
 LOCAL_PROPS="$ANDROID_DIR/gradle.properties.local"
 
 # google-services.json is required for all builds
-if [ ! -f "$GOOGLE_SERVICES_SRC" ]; then
-  fail "Missing: google-services.json
-       Place your Firebase config at: $GOOGLE_SERVICES_SRC
-       See google-services.json.example for the template."
+if [ -f "$GOOGLE_SERVICES_SRC" ]; then
+  ok "google-services.$FIREBASE_ENV.json found"
+elif [ -f "$GOOGLE_SERVICES_FALLBACK" ]; then
+  GOOGLE_SERVICES_SRC="$GOOGLE_SERVICES_FALLBACK"
+  warn "google-services.$FIREBASE_ENV.json not found — using google-services.json (fallback)"
+else
+  fail "Missing: google-services.$FIREBASE_ENV.json (or google-services.json)
+       Download from Firebase Console → Project Settings → Android app."
 fi
 
-# Release builds need keystore + signing credentials
+# Copy per-env debug keystore for debug builds
+if [ "$PROFILE" = "debug" ]; then
+  DEBUG_KS_SRC="$MOBILE_DIR/debug.keystore.$FIREBASE_ENV"
+  DEBUG_KS_DST="$ANDROID_DIR/app/debug.keystore"
+  if [ -f "$DEBUG_KS_SRC" ]; then
+    cp "$DEBUG_KS_SRC" "$DEBUG_KS_DST"
+    ok "debug.keystore.$FIREBASE_ENV → android/app/debug.keystore"
+  else
+    warn "debug.keystore.$FIREBASE_ENV not found — using existing debug.keystore (if any)"
+  fi
+fi
+
+# Release builds (including debug:staging which uses assembleRelease) need keystore + signing credentials
 if [ "$PROFILE" != "debug" ]; then
   if [ ! -f "$KEYSTORE_FILE" ]; then
     fail "Missing: release keystore
@@ -94,10 +119,8 @@ if [ "$PROFILE" != "debug" ]; then
   ok "Signing credentials found"
 fi
 
-ok "google-services.json found"
-
 # ── Step 2: Copy google-services.json ────────────────────────────────────────
-info "Copying google-services.json → android/app/"
+info "Copying google-services.$FIREBASE_ENV.json → android/app/"
 cp "$GOOGLE_SERVICES_SRC" "$GOOGLE_SERVICES_DST"
 ok "google-services.json placed"
 
@@ -105,9 +128,13 @@ ok "google-services.json placed"
 info "Setting environment for profile: $PROFILE"
 
 case "$PROFILE" in
-  staging)
+  staging|debug:staging)
     export EXPO_PUBLIC_APP_ENV="staging"
     export EXPO_PUBLIC_API_URL="https://traxettle-api-staging-lomxjapdhq-uc.a.run.app"
+    # Google OAuth client IDs for traxettle-staging (943648574702)
+    export EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID="943648574702-n7h4msh3iho1187po0dnc8tja7insc89.apps.googleusercontent.com"
+    export EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID="943648574702-0qk99r3oql0sv3k4h6cgluffdqs7letj.apps.googleusercontent.com"
+    export EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID="943648574702-cvgj086ppdcbqgcagrekjs4pekn0q1ok.apps.googleusercontent.com"
     ;;
   production)
     export EXPO_PUBLIC_APP_ENV="production"
@@ -116,14 +143,46 @@ case "$PROFILE" in
       warn "Set it via: EXPO_PUBLIC_API_URL=https://your-prod-api.run.app ./scripts/build-android.sh production"
       export EXPO_PUBLIC_API_URL="https://traxettle-api-staging-lomxjapdhq-uc.a.run.app"
     fi
+    # Google OAuth client IDs for traxettle-staging (943648574702) — update when production Firebase project is ready
+    export EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID="943648574702-n7h4msh3iho1187po0dnc8tja7insc89.apps.googleusercontent.com"
+    export EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID="943648574702-0qk99r3oql0sv3k4h6cgluffdqs7letj.apps.googleusercontent.com"
+    export EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID="943648574702-cvgj086ppdcbqgcagrekjs4pekn0q1ok.apps.googleusercontent.com"
     ;;
   debug)
     export EXPO_PUBLIC_APP_ENV="local"
+    # Google OAuth client IDs for traxettle-test (603084161476) — matches env.ts defaults
+    export EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID="603084161476-igddelh46pe5l2t0hajsl52da0rici6o.apps.googleusercontent.com"
+    export EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID="603084161476-ii602klf0go223a0ve690kopl7u5e7a0.apps.googleusercontent.com"
+    export EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID="603084161476-j4ht8hs7kk6tqqh273q2ks89udmdc3pe.apps.googleusercontent.com"
     ;;
 esac
 
 ok "EXPO_PUBLIC_APP_ENV=$EXPO_PUBLIC_APP_ENV"
 [ "$PROFILE" != "debug" ] && ok "EXPO_PUBLIC_API_URL=$EXPO_PUBLIC_API_URL"
+
+# Write .env so Metro/Expo inlines EXPO_PUBLIC_* at bundle time
+ENV_FILE="$MOBILE_DIR/.env"
+ENV_FILE_EXISTED=false
+[ -f "$ENV_FILE" ] && ENV_FILE_EXISTED=true && cp "$ENV_FILE" "$ENV_FILE.build-backup"
+
+cat > "$ENV_FILE" <<EOF
+EXPO_PUBLIC_APP_ENV=$EXPO_PUBLIC_APP_ENV
+EXPO_PUBLIC_API_URL=${EXPO_PUBLIC_API_URL:-}
+EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=$EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
+EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=$EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=$EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID
+EOF
+ok ".env written for Metro bundler"
+
+# Ensure .env is cleaned up after build (restore previous or remove)
+cleanup_env() {
+  if [ "$ENV_FILE_EXISTED" = true ]; then
+    mv "$ENV_FILE.build-backup" "$ENV_FILE"
+  else
+    rm -f "$ENV_FILE"
+  fi
+}
+trap cleanup_env EXIT
 
 # ── Step 4: Run Gradle build ────────────────────────────────────────────────
 echo ""
@@ -143,6 +202,11 @@ case "$PROFILE" in
     OUTPUT_DIR="$ANDROID_DIR/app/build/outputs/apk/debug"
     OUTPUT_FILE="app-debug.apk"
     ;;
+  debug:staging)
+    GRADLE_TASK="app:assembleRelease"
+    OUTPUT_DIR="$ANDROID_DIR/app/build/outputs/apk/release"
+    OUTPUT_FILE="app-release.apk"
+    ;;
 esac
 
 ./gradlew "$GRADLE_TASK" --no-daemon
@@ -158,6 +222,21 @@ if [ "$PROFILE" = "staging" ]; then
   echo "  Upload to Firebase App Distribution or install directly."
 elif [ "$PROFILE" = "production" ]; then
   echo "  Upload to Google Play Console → Production track."
+fi
+
+# Auto-install debug APK on connected device/emulator
+if [ "$PROFILE" = "debug" ] || [ "$PROFILE" = "debug:staging" ]; then
+  APK_PATH="$OUTPUT_DIR/$OUTPUT_FILE"
+  if command -v adb >/dev/null 2>&1 && adb get-state >/dev/null 2>&1; then
+    echo ""
+    info "Installing APK on connected device..."
+    adb install -r "$APK_PATH"
+    ok "Installed! Launching app..."
+    adb shell am start -n com.traxettle.app/.MainActivity
+  else
+    warn "No device/emulator detected. Install manually:"
+    echo "  adb install -r $APK_PATH"
+  fi
 fi
 
 echo "═══════════════════════════════════════════════════════════"

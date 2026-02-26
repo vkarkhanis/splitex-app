@@ -37,6 +37,7 @@ import type {
   Group,
   Invitation,
   Settlement,
+  SettlementApproval,
 } from '@traxettle/shared';
 
 const USE_REAL_PAYMENT_GATEWAY = process.env.NEXT_PUBLIC_USE_REAL_PAYMENTS === 'true';
@@ -266,6 +267,83 @@ const MemberCheckItem = styled.label`
   }
 `;
 
+/* ── Expense Split Detail (Expandable) ── */
+
+const ExpenseRowWrapper = styled.div`
+  border-bottom: 1px solid ${(p) => p.theme.colors.border};
+  &:last-child { border-bottom: none; }
+`;
+
+const ExpenseRowClickable = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  gap: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-radius: ${(p) => p.theme.radii.sm};
+
+  &:hover {
+    background: ${(p) => p.theme.colors.infoBg};
+    margin: 0 -8px;
+    padding: 12px 8px;
+  }
+`;
+
+const SplitDetailPanel = styled.div`
+  padding: 0 0 16px;
+  animation: fadeIn 0.25s ease;
+`;
+
+const SplitDetailGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 6px 16px;
+  font-size: 13px;
+  padding: 8px 12px;
+  background: ${(p) => p.theme.colors.surfaceHover || p.theme.colors.surface};
+  border-radius: ${(p) => p.theme.radii.md};
+  border: 1px solid ${(p) => p.theme.colors.border};
+`;
+
+const SplitDetailHeader = styled.div`
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: ${(p) => p.theme.colors.muted};
+  padding-bottom: 4px;
+  border-bottom: 1px solid ${(p) => p.theme.colors.border};
+`;
+
+const SplitDetailCell = styled.div<{ $bold?: boolean }>`
+  font-weight: ${(p) => p.$bold ? 700 : 400};
+  color: ${(p) => p.theme.colors.text};
+  padding: 4px 0;
+`;
+
+const SplitDetailMuted = styled.span`
+  font-size: 11px;
+  color: ${(p) => p.theme.colors.muted};
+  margin-left: 4px;
+`;
+
+const SplitMetaRow = styled.div`
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: ${(p) => p.theme.colors.muted};
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+`;
+
+const SplitMetaItem = styled.span`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+`;
+
 /* ── Settlement Summary Styled Components ── */
 
 const SettlementSection = styled.div`
@@ -420,6 +498,7 @@ function formatDate(d: any): string {
 
 function statusBadgeVariant(status: string) {
   if (status === 'active' || status === 'accepted') return 'success';
+  if (status === 'review') return 'warning';
   if (status === 'payment') return 'info';
   if (status === 'settled' || status === 'pending') return 'warning';
   if (status === 'declined' || status === 'expired' || status === 'closed') return 'error';
@@ -466,9 +545,13 @@ export default function EventDetailPage() {
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [expandedExpenseId, setExpandedExpenseId] = useState<string | null>(null);
   const [pendingSettlementTotal, setPendingSettlementTotal] = useState<number | null>(null);
   const [settleLoading, setSettleLoading] = useState(false);
   const [settlementPlan, setSettlementPlan] = useState<any>(null);
+  const [showSettlementModal, setShowSettlementModal] = useState(false);
+  const [approveLoading, setApproveLoading] = useState(false);
+  const [regenerateLoading, setRegenerateLoading] = useState(false);
 
   // Generic confirmation modal
   const [confirmModal, setConfirmModal] = useState<{ open: boolean; title: string; message: string; variant: 'danger' | 'warning' | 'primary'; confirmLabel: string; onConfirm: () => void }>({
@@ -548,7 +631,7 @@ export default function EventDetailPage() {
   }, [router]));
 
   // Edit event form
-  const [editForm, setEditForm] = useState({ name: '', description: '', type: 'event' as string, currency: '', status: 'active' as string });
+  const [editForm, setEditForm] = useState({ name: '', description: '', type: 'event' as string, currency: '', settlementCurrency: '', status: 'active' as string });
   const [editLoading, setEditLoading] = useState(false);
 
   // Invite form
@@ -590,6 +673,7 @@ export default function EventDetailPage() {
           description: eventRes.data.description || '',
           type: eventRes.data.type,
           currency: eventRes.data.currency,
+          settlementCurrency: (eventRes.data as any).settlementCurrency || '',
           status: eventRes.data.status,
         });
       }
@@ -661,11 +745,43 @@ export default function EventDetailPage() {
     setConfirmModal({
       open: true,
       title: 'Generate Settlement Plan',
-      message: 'This will lock the event for further edits while payments are processed. Are you sure?',
+      message: 'This will calculate how much each participant owes. Everyone will need to approve the settlement before payments begin. You can still edit expenses until all approvals are in.',
       variant: 'warning',
-      confirmLabel: 'Generate',
+      confirmLabel: 'Settle Now',
       onConfirm: doSettle,
     });
+  };
+
+  const handleApproveSettlement = async () => {
+    setApproveLoading(true);
+    try {
+      const res = await api.post<{ approvals: Record<string, SettlementApproval>; allApproved: boolean }>(
+        `/api/settlements/event/${eventId}/approve-settlement`, {}
+      );
+      if (res.data?.allApproved) {
+        pushToast({ type: 'success', title: 'All Approved', message: 'All participants have approved. Payments can now proceed.' });
+      } else {
+        pushToast({ type: 'success', title: 'Settlement Approved', message: 'Your approval has been recorded.' });
+      }
+      fetchAll();
+    } catch (err: any) {
+      pushToast({ type: 'error', title: 'Error', message: err.message });
+    } finally {
+      setApproveLoading(false);
+    }
+  };
+
+  const handleRegenerateSettlement = async () => {
+    setRegenerateLoading(true);
+    try {
+      await api.post(`/api/settlements/event/${eventId}/regenerate`, {});
+      pushToast({ type: 'success', title: 'Settlement Regenerated', message: 'Settlement plan has been recalculated.' });
+      fetchAll();
+    } catch (err: any) {
+      pushToast({ type: 'error', title: 'Error', message: err.message });
+    } finally {
+      setRegenerateLoading(false);
+    }
   };
 
   const handlePay = async (settlementId: string, status: string) => {
@@ -863,6 +979,16 @@ export default function EventDetailPage() {
     });
   };
 
+  const handleChangeParticipantRole = async (userId: string, newRole: 'admin' | 'member') => {
+    try {
+      await api.put(`/api/events/${eventId}/participants/${userId}/role`, { role: newRole });
+      pushToast({ type: 'success', title: 'Role Updated', message: `Participant ${newRole === 'admin' ? 'promoted to admin' : 'demoted to member'}.` });
+      fetchAll();
+    } catch (err: any) {
+      pushToast({ type: 'error', title: 'Error', message: err.message });
+    }
+  };
+
   const handleDeleteExpense = (expenseId: string) => {
     setConfirmModal({
       open: true,
@@ -889,6 +1015,15 @@ export default function EventDetailPage() {
   const getUserName = (userId: string) => {
     const p = participants.find(pt => pt.userId === userId);
     return p?.displayName || p?.email || userId;
+  };
+
+  // Helper to resolve entity (user or group) to display name
+  const getEntityName = (entityId: string, entityType: string) => {
+    if (entityType === 'group') {
+      const g = groups.find(gr => gr.id === entityId);
+      return g ? g.name : entityId;
+    }
+    return getUserName(entityId);
   };
 
   // Is the current user an admin of this event?
@@ -966,7 +1101,7 @@ export default function EventDetailPage() {
           {event.description && <MetaItem>{event.description}</MetaItem>}
         </div>
         <TopActions>
-          {event.status === 'active' && isAdmin && (
+          {(event.status === 'active' || event.status === 'review') && isAdmin && (
             <>
               <Button $variant="outline" onClick={() => setShowEditEvent(true)} data-testid="edit-event-btn">Edit</Button>
               <Button $variant="outline" onClick={openDeleteConfirm} data-testid="delete-event-btn">Delete</Button>
@@ -975,8 +1110,14 @@ export default function EventDetailPage() {
           {event.status === 'settled' && isAdmin && (
             <Button $variant="primary" onClick={handleCloseEvent} data-testid="close-event-btn">Close Event</Button>
           )}
+          {event.status === 'review' && (
+            <Badge $variant="warning">Settlement Review</Badge>
+          )}
           {event.status === 'payment' && (
             <Badge $variant="info">Payments in Progress</Badge>
+          )}
+          {(event.status === 'review' || event.status === 'payment' || event.status === 'settled' || event.status === 'closed') && settlements.length > 0 && (
+            <Button $variant="outline" onClick={() => setShowSettlementModal(true)} data-testid="settlement-details-btn">Settlement Details</Button>
           )}
         </TopActions>
       </TopBar>
@@ -1007,6 +1148,127 @@ export default function EventDetailPage() {
         </SummaryCard>
       </SummaryGrid>
 
+      {/* Settlement Review — approval status shown during review phase */}
+      {event.status === 'review' && settlements.length > 0 && (() => {
+        const approvals = (event as any).settlementApprovals as Record<string, SettlementApproval> | undefined;
+        const isStale = (event as any).settlementStale === true;
+        const approvalEntries = approvals ? Object.entries(approvals) : [];
+        const approvedCount = approvalEntries.filter(([, a]) => a.approved).length;
+        const totalEntities = approvalEntries.length;
+        const approvalPct = totalEntities > 0 ? Math.round((approvedCount / totalEntities) * 100) : 0;
+        const totalSettlementAmount = settlements.reduce((sum, s) => sum + s.amount, 0);
+        const hasFx = settlements.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
+        const totalSettlementConverted = hasFx ? settlements.reduce((sum, s) => sum + (s.settlementAmount || s.amount), 0) : 0;
+        const fxCurrSym = hasFx ? (CURRENCY_SYMBOLS[(settlements[0] as any).settlementCurrency] || (settlements[0] as any).settlementCurrency || '') : '';
+
+        return (
+          <SettlementSection data-testid="settlement-review-section">
+            <SettlementHeader>
+              <SettlementTitle>Settlement Review</SettlementTitle>
+              <SettlementProgress>
+                <span>{approvedCount}/{totalEntities} approved</span>
+                <ProgressBar>
+                  <ProgressFill $pct={approvalPct} />
+                </ProgressBar>
+              </SettlementProgress>
+            </SettlementHeader>
+
+            {isStale && (
+              <div style={{ padding: '12px 16px', background: 'var(--color-warning-bg, #fff3cd)', borderRadius: 8, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontWeight: 600 }}>⚠ Expenses have changed.</span>
+                <span>Settlement needs to be regenerated before approvals can continue.</span>
+                {isAdmin && (
+                  <Button $variant="primary" $size="sm" onClick={handleRegenerateSettlement} disabled={regenerateLoading} data-testid="regenerate-btn">
+                    {regenerateLoading ? 'Regenerating...' : 'Regenerate Settlement'}
+                  </Button>
+                )}
+              </div>
+            )}
+
+            <SummaryGrid>
+              <SummaryCard>
+                <SummaryLabel>Total Settlement</SummaryLabel>
+                <SummaryValue>
+                  {currSym}{totalSettlementAmount.toFixed(2)}
+                  {hasFx && <span style={{ fontSize: 12, opacity: 0.7, display: 'block' }}>≈ {fxCurrSym}{totalSettlementConverted.toFixed(2)}</span>}
+                </SummaryValue>
+              </SummaryCard>
+              <SummaryCard>
+                <SummaryLabel>Transactions</SummaryLabel>
+                <SummaryValue>{settlements.length}</SummaryValue>
+              </SummaryCard>
+              <SummaryCard>
+                <SummaryLabel>Approvals</SummaryLabel>
+                <SummaryValue>{approvedCount} / {totalEntities}</SummaryValue>
+              </SummaryCard>
+            </SummaryGrid>
+
+            {/* Approval status list */}
+            <div style={{ marginBottom: 16 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Approval Status</h3>
+              {approvalEntries.map(([entityId, approval]) => (
+                <div key={entityId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--color-border, #eee)' }}>
+                  <StatusDot $status={approval.approved ? 'completed' : 'pending'} />
+                  <span style={{ flex: 1 }}>{approval.displayName || entityId}</span>
+                  <Badge $variant={approval.approved ? 'success' : 'warning'}>
+                    {approval.approved ? 'Approved' : 'Pending'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+
+            {/* Settlement transactions preview */}
+            {settlements.filter(s => s.amount > 0.01).map((s) => (
+              <TransactionCard key={s.id} $status={s.status} data-testid={`settlement-review-txn-${s.id}`}>
+                <TransactionFlow>
+                  <TransactionNames>
+                    <span>{getEntityName(s.fromEntityId, s.fromEntityType)}</span>
+                    <ArrowIcon>→</ArrowIcon>
+                    <span>{getEntityName(s.toEntityId, s.toEntityType)}</span>
+                  </TransactionNames>
+                </TransactionFlow>
+                <TransactionAmount>
+                  {currSym}{s.amount.toFixed(2)}
+                  {s.settlementAmount && s.settlementCurrency && s.settlementCurrency !== s.currency && (
+                    <span style={{ fontSize: 11, opacity: 0.7, display: 'block' }}>
+                      ≈ {CURRENCY_SYMBOLS[s.settlementCurrency] || s.settlementCurrency}{s.settlementAmount.toFixed(2)}
+                    </span>
+                  )}
+                </TransactionAmount>
+                <TransactionActions>
+                  <Badge $variant="default">Review</Badge>
+                </TransactionActions>
+              </TransactionCard>
+            ))}
+
+            {/* Action buttons */}
+            {(() => {
+              // Determine if the current user's entity has already approved
+              const myApproval = myEntityId && approvals ? approvals[myEntityId] : undefined;
+              const myEntityApproved = myApproval?.approved === true;
+              // Can this user approve? Individual users approve for themselves;
+              // group rep/payer approves for the group. Regular group members cannot.
+              const canApprove = myEntityId && approvals && approvals[myEntityId] !== undefined && (
+                !myGroup || (myGroup.representative === currentUserId || myGroup.payerUserId === currentUserId)
+              );
+
+              return (
+                <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                  {!isStale && canApprove && !myEntityApproved && (
+                    <Button $variant="primary" onClick={handleApproveSettlement} disabled={approveLoading} data-testid="approve-settlement-btn">
+                      {approveLoading ? 'Approving...' : 'Approve Settlement'}
+                    </Button>
+                  )}
+                  {myEntityApproved && (
+                    <Badge $variant="success">✓ You have approved</Badge>
+                  )}
+                </div>
+              );
+            })()}
+          </SettlementSection>
+        );
+      })()}
+
       {/* Settlement Summary — shown when event is in payment/settled/closed and has settlements */}
       {(event.status === 'payment' || event.status === 'settled' || event.status === 'closed') && settlements.length > 0 && (() => {
         const completedCount = settlements.filter(s => s.status === 'completed').length;
@@ -1015,15 +1277,6 @@ export default function EventDetailPage() {
         const hasFx = settlements.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
         const totalSettlementConverted = hasFx ? settlements.reduce((sum, s) => sum + (s.settlementAmount || s.amount), 0) : 0;
         const fxCurrSym = hasFx ? (CURRENCY_SYMBOLS[(settlements[0] as any).settlementCurrency] || (settlements[0] as any).settlementCurrency || '') : '';
-
-        // Helper to resolve entity display name
-        const getEntityName = (entityId: string, entityType: string) => {
-          if (entityType === 'group') {
-            const g = groups.find(gr => gr.id === entityId);
-            return g ? g.name : entityId;
-          }
-          return getUserName(entityId);
-        };
 
         return (
           <SettlementSection data-testid="settlement-section">
@@ -1149,11 +1402,16 @@ export default function EventDetailPage() {
       {/* Expenses Tab */}
       {activeTab === 'expenses' && (
         <TabPanel data-testid="expenses-panel">
-          {event.status === 'active' && (
+          {(event.status === 'active' || event.status === 'review') && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12, gap: 8 }}>
-              {isAdmin && (
+              {isAdmin && event.status === 'active' && (
                 <Button $variant="outline" onClick={handleSettle} disabled={settleLoading} data-testid="settle-btn">
-                  {settleLoading ? 'Calculating...' : 'Settle'}
+                  {settleLoading ? 'Calculating...' : 'Settle Now'}
+                </Button>
+              )}
+              {isAdmin && event.status === 'review' && (event as any).settlementStale && (
+                <Button $variant="outline" onClick={handleRegenerateSettlement} disabled={regenerateLoading} data-testid="regenerate-btn-expenses">
+                  {regenerateLoading ? 'Regenerating...' : 'Regenerate Settlement'}
                 </Button>
               )}
               <Link href={`/events/${eventId}/expenses/create`}>
@@ -1166,7 +1424,7 @@ export default function EventDetailPage() {
               title="No expenses yet"
               description="Add your first expense to start tracking."
               dataTestId="empty-expenses"
-              action={event.status === 'active' ? (
+              action={(event.status === 'active' || event.status === 'review') ? (
                 <Link href={`/events/${eventId}/expenses/create`}>
                   <Button $variant="primary">Add Expense</Button>
                 </Link>
@@ -1175,32 +1433,70 @@ export default function EventDetailPage() {
           ) : (
             <Card>
               <CardBody>
-                {visibleExpenses.map((expense) => (
-                  <ListItem key={expense.id} data-testid={`expense-item-${expense.id}`}>
-                    <ListItemInfo>
-                      <ListItemTitle>
-                        {expense.title}
-                        {expense.isPrivate && <Badge $variant="warning" style={{ marginLeft: 8, fontSize: 10 }}>Private</Badge>}
-                      </ListItemTitle>
-                      <ListItemSub>
-                        Paid by: {getUserName(expense.paidBy)} · {expense.splitType} split{!expense.isPrivate && ` · ${expense.splits.length} split(s)`}
-                      </ListItemSub>
-                    </ListItemInfo>
-                    <Amount>{CURRENCY_SYMBOLS[expense.currency] || expense.currency}{expense.amount.toFixed(2)}</Amount>
-                    {event.status === 'active' && (currentUserId === expense.paidBy || isAdmin) && (
-                      <>
-                        <Link href={`/events/${eventId}/expenses/${expense.id}/edit`}>
-                          <Button $variant="outline" $size="sm" data-testid={`edit-expense-${expense.id}`}>
-                            Edit
-                          </Button>
-                        </Link>
-                        <Button $variant="ghost" onClick={() => handleDeleteExpense(expense.id)} data-testid={`delete-expense-${expense.id}`}>
-                          ✕
-                        </Button>
-                      </>
-                    )}
-                  </ListItem>
-                ))}
+                {visibleExpenses.map((expense) => {
+                  const isExpanded = expandedExpenseId === expense.id;
+                  const sym = CURRENCY_SYMBOLS[expense.currency] || expense.currency;
+                  return (
+                    <ExpenseRowWrapper key={expense.id} data-testid={`expense-item-${expense.id}`}>
+                      <ExpenseRowClickable onClick={() => setExpandedExpenseId(isExpanded ? null : expense.id)}>
+                        <ListItemInfo>
+                          <ListItemTitle>
+                            {expense.title}
+                            {expense.isPrivate && <Badge $variant="warning" style={{ marginLeft: 8, fontSize: 10 }}>Private</Badge>}
+                            <span style={{ fontSize: 11, marginLeft: 6, opacity: 0.5 }}>{isExpanded ? '▲' : '▼'}</span>
+                          </ListItemTitle>
+                          <ListItemSub>
+                            Paid by: {getUserName(expense.paidBy)} · {expense.splitType} split{!expense.isPrivate && ` · ${expense.splits.length} split(s)`}
+                          </ListItemSub>
+                        </ListItemInfo>
+                        <Amount>{sym}{expense.amount.toFixed(2)}</Amount>
+                        {(event.status === 'active' || event.status === 'review') && (currentUserId === expense.paidBy || isAdmin) && (
+                          <>
+                            <Link href={`/events/${eventId}/expenses/${expense.id}/edit`} onClick={(e) => e.stopPropagation()}>
+                              <Button $variant="outline" $size="sm" data-testid={`edit-expense-${expense.id}`}>
+                                Edit
+                              </Button>
+                            </Link>
+                            <Button $variant="ghost" onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleDeleteExpense(expense.id); }} data-testid={`delete-expense-${expense.id}`}>
+                              ✕
+                            </Button>
+                          </>
+                        )}
+                      </ExpenseRowClickable>
+                      {isExpanded && expense.splits && expense.splits.length > 0 && (
+                        <SplitDetailPanel>
+                          <SplitMetaRow>
+                            <SplitMetaItem><strong>Split type:</strong> {expense.splitType.charAt(0).toUpperCase() + expense.splitType.slice(1)}</SplitMetaItem>
+                            {expense.description && <SplitMetaItem><strong>Note:</strong> {expense.description}</SplitMetaItem>}
+                            {expense.paidOnBehalfOf && expense.paidOnBehalfOf.length > 0 && (
+                              <SplitMetaItem><strong>On behalf of:</strong> {expense.paidOnBehalfOf.map((e: any) => getEntityName(e.entityId, e.entityType)).join(', ')}</SplitMetaItem>
+                            )}
+                          </SplitMetaRow>
+                          <SplitDetailGrid>
+                            <SplitDetailHeader>Entity</SplitDetailHeader>
+                            <SplitDetailHeader>{expense.splitType === 'ratio' ? 'Ratio' : '%'}</SplitDetailHeader>
+                            <SplitDetailHeader>Amount</SplitDetailHeader>
+                            {expense.splits.map((split: any, idx: number) => {
+                              const pct = expense.amount > 0 ? ((split.amount / expense.amount) * 100).toFixed(1) : '0.0';
+                              return (
+                                <React.Fragment key={`${split.entityId}-${idx}`}>
+                                  <SplitDetailCell>
+                                    {getEntityName(split.entityId, split.entityType)}
+                                    <SplitDetailMuted>{split.entityType === 'group' ? '(group)' : ''}</SplitDetailMuted>
+                                  </SplitDetailCell>
+                                  <SplitDetailCell>
+                                    {expense.splitType === 'ratio' && split.ratio != null ? split.ratio : `${pct}%`}
+                                  </SplitDetailCell>
+                                  <SplitDetailCell $bold>{sym}{split.amount.toFixed(2)}</SplitDetailCell>
+                                </React.Fragment>
+                              );
+                            })}
+                          </SplitDetailGrid>
+                        </SplitDetailPanel>
+                      )}
+                    </ExpenseRowWrapper>
+                  );
+                })}
               </CardBody>
             </Card>
           )}
@@ -1235,10 +1531,21 @@ export default function EventDetailPage() {
                       </ListItemSub>
                     </ListItemInfo>
                     <Badge $variant={statusBadgeVariant(p.status)}>{p.status}</Badge>
-                    {event.status === 'active' && p.role !== 'admin' && p.userId !== currentUserId && isAdmin && (
-                      <Button $variant="ghost" onClick={() => handleRemoveParticipant(p.userId)} data-testid={`remove-participant-${p.userId}`}>
-                        ✕
-                      </Button>
+                    {(event.status === 'active' || event.status === 'review') && isAdmin && p.userId !== currentUserId && p.userId !== event.createdBy && (
+                      <>
+                        {p.role === 'member' ? (
+                          <Button $variant="outline" $size="sm" onClick={() => handleChangeParticipantRole(p.userId, 'admin')} data-testid={`promote-${p.userId}`}>
+                            Promote
+                          </Button>
+                        ) : (
+                          <Button $variant="outline" $size="sm" onClick={() => handleChangeParticipantRole(p.userId, 'member')} data-testid={`demote-${p.userId}`}>
+                            Demote
+                          </Button>
+                        )}
+                        <Button $variant="ghost" onClick={() => handleRemoveParticipant(p.userId)} data-testid={`remove-participant-${p.userId}`}>
+                          ✕
+                        </Button>
+                      </>
                     )}
                   </HighlightedListItem>
                 ))}
@@ -1276,7 +1583,7 @@ export default function EventDetailPage() {
                         {group.description ? ` · ${group.description}` : ''}
                       </ListItemSub>
                     </ListItemInfo>
-                    {event.status === 'active' && currentUserId && (currentUserId === group.createdBy || currentUserId === group.representative) && (
+                    {(event.status === 'active' || event.status === 'review') && currentUserId && (currentUserId === group.createdBy || currentUserId === group.representative || isAdmin) && (
                       <>
                         <Button $variant="outline" onClick={() => openEditGroup(group)} data-testid={`edit-group-${group.id}`}>
                           Edit
@@ -1365,6 +1672,25 @@ export default function EventDetailPage() {
                   <option value="active">Active</option>
                   <option value="settled">Settled</option>
                   <option value="closed">Closed</option>
+                </Select>
+              </Field>
+            </Row>
+            <Row>
+              <Field>
+                <Label htmlFor="edit-currency">Expense Currency</Label>
+                <Select id="edit-currency" data-testid="edit-event-currency" value={editForm.currency} onChange={(e) => setEditForm(f => ({ ...f, currency: e.target.value }))} disabled={editLoading}>
+                  {Object.keys(CURRENCY_SYMBOLS).map(c => (
+                    <option key={c} value={c}>{CURRENCY_SYMBOLS[c]} {c}</option>
+                  ))}
+                </Select>
+              </Field>
+              <Field>
+                <Label htmlFor="edit-settlement-currency">Settlement Currency <span style={{ fontSize: 10, opacity: 0.6 }}>(Pro)</span></Label>
+                <Select id="edit-settlement-currency" data-testid="edit-event-settlement-currency" value={editForm.settlementCurrency} onChange={(e) => setEditForm(f => ({ ...f, settlementCurrency: e.target.value }))} disabled={editLoading}>
+                  <option value="">Same as expense currency</option>
+                  {Object.keys(CURRENCY_SYMBOLS).map(c => (
+                    <option key={c} value={c}>{CURRENCY_SYMBOLS[c]} {c}</option>
+                  ))}
                 </Select>
               </Field>
             </Row>
@@ -1608,6 +1934,76 @@ export default function EventDetailPage() {
             <Button type="button" $variant={confirmModal.variant === 'warning' ? 'primary' : 'danger'} onClick={confirmModal.onConfirm}>
               {confirmModal.confirmLabel}
             </Button>
+          </ModalFooter>
+        </ModalBody>
+      </Modal>
+
+      {/* Settlement Details Modal */}
+      <Modal open={showSettlementModal} onClose={() => setShowSettlementModal(false)}>
+        <ModalHeader>
+          <ModalTitle>Settlement Details</ModalTitle>
+        </ModalHeader>
+        <ModalBody>
+          {(() => {
+            const nonZeroSettlements = settlements.filter(s => s.amount > 0.01);
+            if (nonZeroSettlements.length === 0) {
+              return <p style={{ textAlign: 'center', padding: 20, opacity: 0.6 }}>No settlements — everyone is even.</p>;
+            }
+            const totalAmt = nonZeroSettlements.reduce((sum, s) => sum + s.amount, 0);
+            const hasFx = nonZeroSettlements.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
+            const settlCurrSym = hasFx ? (CURRENCY_SYMBOLS[(nonZeroSettlements[0] as any).settlementCurrency] || (nonZeroSettlements[0] as any).settlementCurrency || '') : '';
+            const approvals = (event as any)?.settlementApprovals as Record<string, SettlementApproval> | undefined;
+            const approvalEntries = approvals ? Object.entries(approvals) : [];
+
+            return (
+              <div>
+                <div style={{ marginBottom: 16 }}>
+                  <strong>Status:</strong> <Badge $variant={statusBadgeVariant(event.status)}>{event.status}</Badge>
+                  <span style={{ marginLeft: 12 }}><strong>Total:</strong> {currSym}{totalAmt.toFixed(2)}</span>
+                  {hasFx && <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.7 }}>≈ {settlCurrSym}{nonZeroSettlements.reduce((s, t) => s + (t.settlementAmount || t.amount), 0).toFixed(2)}</span>}
+                </div>
+
+                {approvalEntries.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <strong style={{ fontSize: 13 }}>Approvals:</strong>
+                    {approvalEntries.map(([entityId, approval]) => (
+                      <div key={entityId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                        <StatusDot $status={approval.approved ? 'completed' : 'pending'} />
+                        <span style={{ flex: 1, fontSize: 13 }}>{approval.displayName || entityId}</span>
+                        <Badge $variant={approval.approved ? 'success' : 'warning'} style={{ fontSize: 10 }}>
+                          {approval.approved ? 'Approved' : 'Pending'}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ borderTop: '1px solid var(--color-border, #eee)', paddingTop: 12 }}>
+                  <strong style={{ fontSize: 13, marginBottom: 8, display: 'block' }}>Transactions:</strong>
+                  {nonZeroSettlements.map((s) => {
+                    const displayAmt = s.settlementAmount && s.settlementCurrency && s.settlementCurrency !== s.currency
+                      ? `${CURRENCY_SYMBOLS[s.settlementCurrency] || s.settlementCurrency}${s.settlementAmount.toFixed(2)}`
+                      : `${currSym}${s.amount.toFixed(2)}`;
+                    return (
+                      <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--color-border, #f0f0f0)' }}>
+                        <span style={{ flex: 1 }}>
+                          <strong>{getEntityName(s.fromEntityId, s.fromEntityType)}</strong>
+                          <span style={{ margin: '0 6px', opacity: 0.5 }}>→</span>
+                          <strong>{getEntityName(s.toEntityId, s.toEntityType)}</strong>
+                        </span>
+                        <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{displayAmt}</span>
+                        <Badge $variant={s.status === 'completed' ? 'success' : s.status === 'initiated' ? 'warning' : 'default'} style={{ fontSize: 10 }}>
+                          {s.status}
+                        </Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+          <ModalFooter>
+            <Button type="button" $variant="outline" onClick={() => setShowSettlementModal(false)}>Close</Button>
           </ModalFooter>
         </ModalBody>
       </Modal>

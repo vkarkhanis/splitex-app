@@ -67,6 +67,8 @@ export class EventService {
       fxRateMode: data.fxRateMode || undefined,
       predefinedFxRates: data.predefinedFxRates || undefined,
       status: data.status,
+      settlementApprovals: data.settlementApprovals || undefined,
+      settlementStale: data.settlementStale || false,
       createdBy: data.createdBy,
       admins: data.admins || [],
       participantIds: data.participantIds || [],
@@ -189,6 +191,24 @@ export class EventService {
     if (dto.status !== undefined) updates.status = dto.status;
 
     await db.collection(this.collection).doc(eventId).set(updates, { merge: true });
+
+    // Cascade currency change to all existing expenses
+    if (dto.currency !== undefined && dto.currency !== event.currency) {
+      try {
+        const expSnap = await db.collection('expenses')
+          .where('eventId', '==', eventId)
+          .get();
+        if (!expSnap.empty) {
+          const batch = db.batch();
+          for (const doc of expSnap.docs) {
+            batch.update(doc.ref, { currency: dto.currency, updatedAt: now });
+          }
+          await batch.commit();
+        }
+      } catch (err) {
+        console.warn('Could not cascade currency change to expenses:', err);
+      }
+    }
 
     return this.getEvent(eventId);
   }
@@ -364,6 +384,47 @@ export class EventService {
     }
 
     return true;
+  }
+
+  async updateParticipantRole(eventId: string, targetUserId: string, requesterId: string, newRole: 'admin' | 'member'): Promise<void> {
+    const event = await this.getEvent(eventId);
+    if (!event) throw new Error('Event not found');
+
+    // Only admins or the event creator can change roles
+    if (!event.admins.includes(requesterId) && event.createdBy !== requesterId) {
+      throw new Error('Forbidden: Only admins or the event creator can change participant roles');
+    }
+
+    // Cannot change the creator's role
+    if (targetUserId === event.createdBy) {
+      throw new Error('Forbidden: Cannot change the event creator\'s role');
+    }
+
+    // Check that the target is actually a participant
+    const participantDoc = await db.collection(this.collection).doc(eventId).collection('participants').doc(targetUserId).get();
+    if (!participantDoc.exists) {
+      throw new Error('Participant not found');
+    }
+
+    // Update the participant's role in the subcollection
+    await db.collection(this.collection).doc(eventId).collection('participants').doc(targetUserId).set(
+      { role: newRole },
+      { merge: true }
+    );
+
+    // Update the admins array on the event document
+    const currentAdmins = event.admins || [];
+    if (newRole === 'admin' && !currentAdmins.includes(targetUserId)) {
+      await db.collection(this.collection).doc(eventId).set(
+        { admins: [...currentAdmins, targetUserId] },
+        { merge: true }
+      );
+    } else if (newRole === 'member' && currentAdmins.includes(targetUserId)) {
+      await db.collection(this.collection).doc(eventId).set(
+        { admins: currentAdmins.filter(id => id !== targetUserId) },
+        { merge: true }
+      );
+    }
   }
 
   async isParticipant(eventId: string, userId: string): Promise<boolean> {

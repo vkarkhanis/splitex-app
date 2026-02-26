@@ -54,21 +54,51 @@ export const ENV = {
     ((process.env as any).EXPO_PUBLIC_LOCAL_DEV_OPTIONS_ENABLED || 'true') === 'true',
 
   /**
-   * Google OAuth Client IDs for Google Sign-In via expo-auth-session.
-   * Get these from: Google Cloud Console → APIs & Services → Credentials
-   * The Expo/Web client ID is used for the OAuth redirect.
-   * The Android client ID must match the SHA-1 of your signing key.
-   * The iOS client ID must match your iOS bundle identifier.
+   * RevenueCat API Keys for in-app purchases.
+   * Get these from: RevenueCat Dashboard → Project → API Keys
+   * - Apple API Key: Used for iOS App Store purchases
+   * - Google API Key: Used for Google Play Store purchases
    *
-   * You can also set these via EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, etc.
+   * You can also set via EXPO_PUBLIC_REVENUECAT_APPLE_KEY / EXPO_PUBLIC_REVENUECAT_GOOGLE_KEY
+   */
+  REVENUECAT_APPLE_API_KEY:
+    (process.env as any).EXPO_PUBLIC_REVENUECAT_APPLE_KEY || '',
+  REVENUECAT_GOOGLE_API_KEY:
+    (process.env as any).EXPO_PUBLIC_REVENUECAT_GOOGLE_KEY || '',
+
+  /**
+   * RevenueCat entitlement identifier — must match the entitlement ID
+   * configured in RevenueCat Dashboard → Entitlements.
+   */
+  REVENUECAT_PRO_ENTITLEMENT_ID:
+    (process.env as any).EXPO_PUBLIC_REVENUECAT_PRO_ENTITLEMENT || 'pro',
+
+  /**
+   * RevenueCat offering identifier — must match the offering ID
+   * configured in RevenueCat Dashboard → Offerings.
+   */
+  REVENUECAT_OFFERING_ID:
+    (process.env as any).EXPO_PUBLIC_REVENUECAT_OFFERING || 'default',
+
+  /**
+   * Google OAuth Client IDs for Google Sign-In.
+   * Get these from: Google Cloud Console → APIs & Services → Credentials
    */
   GOOGLE_WEB_CLIENT_ID:
     (process.env as any).EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
-    '603084161476-igddelh46pe5l2t0hajsl52da0rici6o.apps.googleusercontent.com',
+    (__DEV__
+      ? '603084161476-igddelh46pe5l2t0hajsl52da0rici6o.apps.googleusercontent.com'
+      : '943648574702-n7h4msh3iho1187po0dnc8tja7insc89.apps.googleusercontent.com'),
   GOOGLE_ANDROID_CLIENT_ID:
-    (process.env as any).EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '603084161476-kjd3eaclr341ce4hmvvjqojp0i91dlua.apps.googleusercontent.com',
+    (process.env as any).EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
+    (__DEV__
+      ? '603084161476-ii602klf0go223a0ve690kopl7u5e7a0.apps.googleusercontent.com'
+      : '943648574702-0qk99r3oql0sv3k4h6cgluffdqs7letj.apps.googleusercontent.com'),
   GOOGLE_IOS_CLIENT_ID:
-    (process.env as any).EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '603084161476-j4ht8hs7kk6tqqh273q2ks89udmdc3pe.apps.googleusercontent.com',
+    (process.env as any).EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ||
+    (__DEV__
+      ? '603084161476-j4ht8hs7kk6tqqh273q2ks89udmdc3pe.apps.googleusercontent.com'
+      : '943648574702-cvgj086ppdcbqgcagrekjs4pekn0q1ok.apps.googleusercontent.com'),
 };
 
 export function isLocalLikeEnv(): boolean {

@@ -55,7 +55,11 @@ export interface Event {
   fxRateMode?: 'predefined' | 'eod';
   /** Predefined FX rates: key = "FROM_TO" (e.g. "USD_INR"), value = rate */
   predefinedFxRates?: Record<string, number>;
-  status: 'active' | 'payment' | 'settled' | 'closed';
+  status: 'active' | 'review' | 'payment' | 'settled' | 'closed';
+  /** Per-entity approval status for settlement review phase */
+  settlementApprovals?: Record<string, SettlementApproval>;
+  /** True when expenses have been modified after settlement generation but before all approvals */
+  settlementStale?: boolean;
   createdBy: string;
   admins: string[];
   createdAt: Date;
@@ -71,6 +75,13 @@ export interface EventParticipant {
   joinedAt: Date;
   invitedBy: string;
   status: 'pending' | 'accepted' | 'declined';
+}
+
+export interface SettlementApproval {
+  approved: boolean;
+  approvedAt?: string;
+  entityType: 'user' | 'group';
+  displayName?: string;
 }
 
 export interface CreateEventDto {
@@ -316,7 +327,9 @@ export interface UpdateEventDto {
   settlementCurrency?: string;
   fxRateMode?: 'predefined' | 'eod';
   predefinedFxRates?: Record<string, number>;
-  status?: 'active' | 'payment' | 'settled' | 'closed';
+  status?: 'active' | 'review' | 'payment' | 'settled' | 'closed';
+  settlementApprovals?: Record<string, SettlementApproval>;
+  settlementStale?: boolean;
 }
 
 export interface UpdateGroupDto {
@@ -360,6 +373,7 @@ export enum EventType {
 
 export enum EventStatus {
   ACTIVE = 'active',
+  REVIEW = 'review',
   PAYMENT = 'payment',
   SETTLED = 'settled',
   CLOSED = 'closed'

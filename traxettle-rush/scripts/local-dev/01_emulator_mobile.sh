@@ -13,6 +13,15 @@ fi
 
 echo "[local-dev] mode=emulator+mobile tier=$DEV_TIER real_payments=$DEV_REAL_PAYMENTS"
 
+# ── Bootstrap: validate & copy Firebase config files ──
+sh "$ROOT_DIR/scripts/local-dev/bootstrap.sh" local
+
+# Source extracted Google client IDs
+BOOTSTRAP_ENV="$ROOT_DIR/scripts/local-dev/.bootstrap.env"
+if [[ -f "$BOOTSTRAP_ENV" ]]; then
+  source "$BOOTSTRAP_ENV"
+fi
+
 if ! command -v java >/dev/null 2>&1; then
   echo "[local-dev] Java is required for Firebase emulators (JDK 21+)."
   exit 1
@@ -61,6 +70,8 @@ trap cleanup EXIT INT TERM
   EXPO_PUBLIC_DEFAULT_TIER="$DEV_TIER" \
   EXPO_PUBLIC_USE_REAL_PAYMENTS="$DEV_REAL_PAYMENTS" \
   EXPO_PUBLIC_LOCAL_DEV_OPTIONS_ENABLED=true \
+  EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID="${BOOTSTRAP_GOOGLE_IOS_CLIENT_ID:-}" \
+  EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID="${BOOTSTRAP_GOOGLE_WEB_CLIENT_ID:-}" \
   run_rushx "$ROOT_DIR/apps/mobile" start
 ) &
 

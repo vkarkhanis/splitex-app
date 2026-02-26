@@ -6,6 +6,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { PurchaseProvider } from './context/PurchaseContext';
 import { ENV } from './config/env';
 
 // Configure Google Sign-In once at app startup
@@ -13,7 +14,9 @@ const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.i
 if (GOOGLE_ENABLED) {
   GoogleSignin.configure({
     webClientId: ENV.GOOGLE_WEB_CLIENT_ID,
-    iosClientId: ENV.GOOGLE_IOS_CLIENT_ID || undefined,
+    // iosClientId is intentionally omitted — the SDK reads CLIENT_ID
+    // directly from GoogleService-Info.plist, which bootstrap.sh sets
+    // per-environment (local/staging). This avoids mismatches.
     offlineAccess: false,
   });
 }
@@ -28,6 +31,7 @@ import EditExpenseScreen from './screens/EditExpenseScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import InvitationsScreen from './screens/InvitationsScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
+import ProUpgradeScreen from './screens/ProUpgradeScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -88,6 +92,11 @@ function AppStack() {
         component={InvitationsScreen}
         options={{ title: 'Invitations' }}
       />
+      <Stack.Screen
+        name="ProUpgrade"
+        component={ProUpgradeScreen}
+        options={{ title: 'Upgrade to Pro', presentation: 'modal' }}
+      />
     </Stack.Navigator>
   );
 }
@@ -121,7 +130,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <AppInner />
+        <PurchaseProvider>
+          <AppInner />
+        </PurchaseProvider>
       </AuthProvider>
     </ThemeProvider>
   );

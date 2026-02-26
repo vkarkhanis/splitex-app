@@ -136,6 +136,17 @@ router.put('/:eventId', requireAuth, async (req: AuthenticatedRequest, res) => {
       }
     }
 
+    // During review, block currency/FX changes (would invalidate settlements)
+    const currentEvent = await eventService.getEvent(req.params.eventId);
+    if (currentEvent?.status === 'review') {
+      if (dto.currency || dto.settlementCurrency || dto.fxRateMode || dto.predefinedFxRates) {
+        return res.status(403).json({
+          success: false,
+          error: 'Cannot change currency or FX settings while settlement is under review. Regenerate settlement first.',
+        } as ApiResponse);
+      }
+    }
+
     if (requiresProForFx(dto)) {
       try {
         await entitlementService.assertCapability(uid, 'multiCurrencySettlement');
@@ -271,6 +282,33 @@ router.delete('/:eventId/participants/:userId', requireAuth, async (req: Authent
       return res.status(403).json({ success: false, error: err.message } as ApiResponse);
     }
     return res.status(500).json({ success: false, error: 'Failed to remove participant' } as ApiResponse);
+  }
+});
+
+// Update a participant's role (promote to admin / demote to member)
+router.put('/:eventId/participants/:userId/role', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const requesterId = req.user!.uid;
+    const { role } = req.body;
+
+    if (!role || !['admin', 'member'].includes(role)) {
+      return res.status(400).json({ success: false, error: 'role must be "admin" or "member"' } as ApiResponse);
+    }
+
+    await eventService.updateParticipantRole(req.params.eventId, req.params.userId, requesterId, role);
+    const participants = await eventService.getParticipants(req.params.eventId);
+
+    emitToEvent(req.params.eventId, 'participants:updated', { participants });
+    return res.json({ success: true, data: { message: `Role updated to ${role}` } } as ApiResponse);
+  } catch (err: any) {
+    console.error('PUT /events/:id/participants/:userId/role error:', err);
+    if (err.message?.includes('Forbidden') || err.message?.includes('Cannot change')) {
+      return res.status(403).json({ success: false, error: err.message } as ApiResponse);
+    }
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ success: false, error: err.message } as ApiResponse);
+    }
+    return res.status(500).json({ success: false, error: 'Failed to update participant role' } as ApiResponse);
   }
 });
 

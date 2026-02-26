@@ -2,14 +2,6 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
-// Load local signing credentials from gradle.properties.local (gitignored)
-def localProps = new File(rootProject.projectDir, "gradle.properties.local")
-if (localProps.exists()) {
-    def props = new Properties()
-    props.load(new FileInputStream(localProps))
-    props.each { key, value -> project.ext.set(key.toString(), value.toString()) }
-}
-
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
 /**
@@ -100,8 +92,8 @@ android {
         applicationId 'com.traxettle.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "1.0.1"
+        versionCode 6
+        versionName "1.0.5"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -113,15 +105,15 @@ android {
             keyPassword 'android'
         }
         release {
-            def hasLocalProps = project.ext.has('TRAXETTLE_UPLOAD_STORE_FILE')
-            def hasGradleProps = project.hasProperty('TRAXETTLE_UPLOAD_STORE_FILE')
-            if (hasLocalProps || hasGradleProps) {
-                def get = { String key -> hasLocalProps ? project.ext.get(key) : project.property(key) }
-                storeFile file(get('TRAXETTLE_UPLOAD_STORE_FILE'))
-                storePassword get('TRAXETTLE_UPLOAD_STORE_PASSWORD')
-                keyAlias get('TRAXETTLE_UPLOAD_KEY_ALIAS')
-                keyPassword get('TRAXETTLE_UPLOAD_KEY_PASSWORD')
+            def localProps = new Properties()
+            def localPropsFile = rootProject.file('gradle.properties.local')
+            if (localPropsFile.exists()) {
+                localProps.load(new FileInputStream(localPropsFile))
             }
+            storeFile file(localProps.getProperty('RELEASE_STORE_FILE', 'traxettle-release-key.keystore'))
+            storePassword localProps.getProperty('RELEASE_STORE_PASSWORD', '')
+            keyAlias localProps.getProperty('RELEASE_KEY_ALIAS', 'traxettle-key')
+            keyPassword localProps.getProperty('RELEASE_KEY_PASSWORD', '')
         }
     }
     buildTypes {
@@ -129,8 +121,6 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.release
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()

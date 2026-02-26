@@ -1,9 +1,10 @@
-import { Balance, Settlement, SettlementPlan, ExpenseSplit, Group } from '@traxettle/shared';
+import { Balance, Settlement, SettlementPlan, ExpenseSplit, Group, SettlementApproval } from '@traxettle/shared';
 import { db } from '../config/firebase';
 import { ExpenseService } from './expense.service';
 import { GroupService } from './group.service';
 import { FxRateService } from './fx-rate.service';
 import { PaymentService } from './payment.service';
+import { EventService } from './event.service';
 
 export class SettlementService {
   private collection = 'settlements';
@@ -11,6 +12,7 @@ export class SettlementService {
   private groupService = new GroupService();
   private fxRateService = new FxRateService();
   private paymentService = new PaymentService();
+  private eventService = new EventService();
 
   /**
    * Calculate entity-level balances for an event.
@@ -259,14 +261,312 @@ export class SettlementService {
     }
 
     // If no payments needed (everyone is even), go directly to 'settled'
-    // Otherwise, enter 'payment' mode
-    const newStatus = plan.settlements.length === 0 ? 'settled' : 'payment';
-    await db.collection('events').doc(eventId).set(
-      { status: newStatus, updatedAt: now },
-      { merge: true }
-    );
+    // Otherwise, enter 'review' mode with approvals
+    if (plan.settlements.length === 0) {
+      await db.collection('events').doc(eventId).set(
+        { status: 'settled', updatedAt: now, settlementApprovals: {}, settlementStale: false },
+        { merge: true }
+      );
+    } else {
+      // Build approvals map: every participant entity needs to approve
+      const approvals = await this.buildApprovalsMap(eventId, groups);
+      await db.collection('events').doc(eventId).set(
+        { status: 'review', updatedAt: now, settlementApprovals: approvals, settlementStale: false },
+        { merge: true }
+      );
+    }
 
     return plan;
+  }
+
+  /**
+   * Build the initial approvals map for all participant entities.
+   * Individual users (not in any group) get their own entry.
+   * Groups get an entry keyed by groupId.
+   */
+  private async buildApprovalsMap(
+    eventId: string,
+    groups: Group[],
+  ): Promise<Record<string, SettlementApproval>> {
+    const participants = await this.eventService.getParticipants(eventId);
+    const approvals: Record<string, SettlementApproval> = {};
+
+    // Set of userIds that belong to a group
+    const usersInGroups = new Set<string>();
+    for (const group of groups) {
+      for (const memberId of group.members) {
+        usersInGroups.add(memberId);
+      }
+      approvals[group.id] = {
+        approved: false,
+        entityType: 'group',
+        displayName: group.name,
+      };
+    }
+
+    // Individual users not in any group
+    for (const p of participants) {
+      if (!usersInGroups.has(p.userId) && p.status === 'accepted') {
+        approvals[p.userId] = {
+          approved: false,
+          entityType: 'user',
+          displayName: p.displayName || p.email || p.userId,
+        };
+      }
+    }
+
+    return approvals;
+  }
+
+  /**
+   * Approve the settlement review for a specific entity.
+   * For groups: only the representative (main member), payerUserId, or event admin can approve.
+   * When all entities have approved, transition event to 'payment' status.
+   */
+  async approveSettlementReview(
+    eventId: string,
+    userId: string,
+  ): Promise<{ approvals: Record<string, SettlementApproval>; allApproved: boolean }> {
+    const eventDoc = await db.collection('events').doc(eventId).get();
+    if (!eventDoc.exists) throw new Error('Event not found');
+
+    const eventData = eventDoc.data()!;
+    if (eventData.status !== 'review') {
+      throw new Error('Event is not in review status');
+    }
+    if (eventData.settlementStale) {
+      throw new Error('Settlement is stale. Please regenerate before approving.');
+    }
+
+    const approvals: Record<string, SettlementApproval> = eventData.settlementApprovals || {};
+    const groups = await this.groupService.getEventGroups(eventId);
+    const isEventAdmin = eventData.createdBy === userId || (eventData.admins || []).includes(userId);
+
+    // Determine which entity this user can approve for
+    const entityId = this.resolveApprovalEntity(userId, groups, approvals, isEventAdmin);
+    if (!entityId) {
+      throw new Error('Forbidden: You are not authorized to approve for any pending entity');
+    }
+
+    if (approvals[entityId]?.approved) {
+      throw new Error('This entity has already approved the settlement');
+    }
+
+    approvals[entityId] = {
+      ...approvals[entityId],
+      approved: true,
+      approvedAt: new Date().toISOString(),
+    };
+
+    const allApproved = Object.values(approvals).every(a => a.approved);
+    const now = new Date().toISOString();
+
+    if (allApproved) {
+      // Transition to payment
+      await db.collection('events').doc(eventId).set(
+        { status: 'payment', settlementApprovals: approvals, updatedAt: now },
+        { merge: true }
+      );
+    } else {
+      await db.collection('events').doc(eventId).set(
+        { settlementApprovals: approvals, updatedAt: now },
+        { merge: true }
+      );
+    }
+
+    return { approvals, allApproved };
+  }
+
+  /**
+   * Resolve which approval entity a user can approve for.
+   * Returns the entityId (userId or groupId) or null if not authorized.
+   *
+   * Rules:
+   * - Individual users can only approve for themselves.
+   * - Group members who are the representative or payerUserId can approve for their group.
+   * - No one can approve on behalf of another individual user or an unrelated group.
+   */
+  private resolveApprovalEntity(
+    userId: string,
+    groups: Group[],
+    approvals: Record<string, SettlementApproval>,
+    _isEventAdmin: boolean,
+  ): string | null {
+    // Check if user has their own individual approval pending
+    if (approvals[userId] && !approvals[userId].approved) {
+      return userId;
+    }
+
+    // Check if user can approve for a group they belong to (representative or payerUserId only)
+    for (const group of groups) {
+      if (approvals[group.id] && !approvals[group.id].approved) {
+        const isRepOrPayer = group.representative === userId || group.payerUserId === userId;
+        if (isRepOrPayer) {
+          return group.id;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Regenerate settlement after expense edits during review.
+   * Recalculates the plan and resets approvals ONLY for affected entities
+   * (amount changed, new payee/payer added or removed).
+   * Only admins or group representatives can trigger this.
+   */
+  async regenerateSettlement(
+    eventId: string,
+    userId: string,
+  ): Promise<SettlementPlan> {
+    const eventDoc = await db.collection('events').doc(eventId).get();
+    if (!eventDoc.exists) throw new Error('Event not found');
+
+    const eventData = eventDoc.data()!;
+    if (eventData.status !== 'review') {
+      throw new Error('Can only regenerate settlement during review phase');
+    }
+
+    // Verify authorization: admin or group representative
+    const isAdmin = eventData.createdBy === userId || (eventData.admins || []).includes(userId);
+    const groups = await this.groupService.getEventGroups(eventId);
+    const isGroupRep = groups.some(g => g.representative === userId || g.payerUserId === userId);
+    if (!isAdmin && !isGroupRep) {
+      throw new Error('Forbidden: Only admins or group representatives can regenerate settlements');
+    }
+
+    // Snapshot old settlements for comparison
+    const oldSettlements = await this.getEventSettlements(eventId);
+    const oldSettlementMap = new Map<string, number>(); // entityId -> net amount
+    for (const s of oldSettlements) {
+      // Track net amounts per entity
+      oldSettlementMap.set(s.fromEntityId, (oldSettlementMap.get(s.fromEntityId) || 0) - s.amount);
+      oldSettlementMap.set(s.toEntityId, (oldSettlementMap.get(s.toEntityId) || 0) + s.amount);
+    }
+    const oldEntityIds = new Set([...oldSettlementMap.keys()]);
+
+    // Clear existing settlements
+    const existingSnap = await db.collection(this.collection).where('eventId', '==', eventId).get();
+    if (!existingSnap.empty) {
+      const batch = db.batch();
+      existingSnap.docs.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+    }
+
+    // Recalculate
+    const balances = await this.calculateEntityBalances(eventId);
+    const plan = this.calculateSettlementPlan(balances, eventId, eventData.currency, groups);
+
+    // FX conversion
+    const expenseCurrency = eventData.currency as string;
+    const settlementCurrency = (eventData.settlementCurrency || eventData.currency) as string;
+    const fxRateMode = (eventData.fxRateMode || 'eod') as 'predefined' | 'eod';
+    const predefinedFxRates = eventData.predefinedFxRates as Record<string, number> | undefined;
+
+    if (settlementCurrency !== expenseCurrency) {
+      const rateInfo = await this.fxRateService.getRate(
+        expenseCurrency, settlementCurrency, predefinedFxRates, fxRateMode
+      );
+      for (const settlement of plan.settlements) {
+        settlement.settlementAmount = this.fxRateService.convert(settlement.amount, rateInfo.rate);
+        settlement.settlementCurrency = settlementCurrency;
+        settlement.fxRate = rateInfo.rate;
+      }
+    }
+
+    const now = new Date().toISOString();
+
+    // Persist new settlements
+    for (const settlement of plan.settlements) {
+      const docData: Record<string, any> = {
+        eventId: settlement.eventId,
+        fromEntityId: settlement.fromEntityId,
+        fromEntityType: settlement.fromEntityType,
+        toEntityId: settlement.toEntityId,
+        toEntityType: settlement.toEntityType,
+        fromUserId: settlement.fromUserId,
+        toUserId: settlement.toUserId,
+        amount: settlement.amount,
+        currency: settlement.currency,
+        status: 'pending',
+        createdAt: now,
+      };
+      if (settlement.settlementAmount !== undefined) {
+        docData.settlementAmount = settlement.settlementAmount;
+        docData.settlementCurrency = settlement.settlementCurrency;
+        docData.fxRate = settlement.fxRate;
+      }
+      const docRef = await db.collection(this.collection).add(docData);
+      settlement.id = docRef.id;
+    }
+
+    // Determine affected entities: amount changed, added, or removed
+    const newSettlementMap = new Map<string, number>();
+    for (const s of plan.settlements) {
+      newSettlementMap.set(s.fromEntityId, (newSettlementMap.get(s.fromEntityId) || 0) - s.amount);
+      newSettlementMap.set(s.toEntityId, (newSettlementMap.get(s.toEntityId) || 0) + s.amount);
+    }
+    const newEntityIds = new Set([...newSettlementMap.keys()]);
+
+    const affectedEntities = new Set<string>();
+    // New entities or amount changed
+    for (const [entityId, newAmt] of newSettlementMap) {
+      const oldAmt = oldSettlementMap.get(entityId) || 0;
+      if (Math.abs(newAmt - oldAmt) > 0.01) {
+        affectedEntities.add(entityId);
+      }
+    }
+    // Removed entities
+    for (const entityId of oldEntityIds) {
+      if (!newEntityIds.has(entityId)) {
+        affectedEntities.add(entityId);
+      }
+    }
+
+    // Update approvals: reset only affected entities, keep existing approvals for unaffected
+    const oldApprovals: Record<string, SettlementApproval> = eventData.settlementApprovals || {};
+    const newApprovals = await this.buildApprovalsMap(eventId, groups);
+
+    for (const [entityId, approval] of Object.entries(newApprovals)) {
+      if (!affectedEntities.has(entityId) && oldApprovals[entityId]?.approved) {
+        // Preserve the old approval for unaffected entities
+        newApprovals[entityId] = oldApprovals[entityId];
+      }
+    }
+
+    if (plan.settlements.length === 0) {
+      await db.collection('events').doc(eventId).set(
+        { status: 'settled', updatedAt: now, settlementApprovals: {}, settlementStale: false },
+        { merge: true }
+      );
+    } else {
+      // Check if all still approved after reset
+      const allApproved = Object.values(newApprovals).every(a => a.approved);
+      const newStatus = allApproved ? 'payment' : 'review';
+      await db.collection('events').doc(eventId).set(
+        { status: newStatus, updatedAt: now, settlementApprovals: newApprovals, settlementStale: false },
+        { merge: true }
+      );
+    }
+
+    return plan;
+  }
+
+  /**
+   * Mark settlement as stale when expenses are modified during review phase.
+   * This signals that the settlement needs regeneration before approvals can continue.
+   */
+  async markSettlementStale(eventId: string): Promise<void> {
+    const eventDoc = await db.collection('events').doc(eventId).get();
+    if (!eventDoc.exists) return;
+    const eventData = eventDoc.data()!;
+    if (eventData.status !== 'review') return;
+
+    await db.collection('events').doc(eventId).set(
+      { settlementStale: true, updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
   }
 
   /**
