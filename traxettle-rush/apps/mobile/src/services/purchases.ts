@@ -15,6 +15,19 @@ const OFFERING_ID = ENV.REVENUECAT_OFFERING_ID;
 
 let _initialised = false;
 
+export interface PurchasesConfigDebug {
+  platform: 'ios' | 'android';
+  keyPresent: boolean;
+  keyPrefix: string;
+}
+
+export function getPurchasesConfigDebug(): PurchasesConfigDebug {
+  const platform: 'ios' | 'android' = Platform.OS === 'ios' ? 'ios' : 'android';
+  const apiKey = platform === 'ios' ? ENV.REVENUECAT_APPLE_API_KEY : ENV.REVENUECAT_GOOGLE_API_KEY;
+  const keyPrefix = apiKey ? apiKey.slice(0, 10) : '';
+  return { platform, keyPresent: Boolean(apiKey), keyPrefix };
+}
+
 /**
  * Configure RevenueCat SDK.  Call once at app startup (after user is known).
  * Pass the authenticated user's ID so purchases are attributed correctly.
@@ -40,7 +53,16 @@ export async function initPurchases(appUserId?: string): Promise<void> {
     Purchases.setLogLevel(LOG_LEVEL.DEBUG);
   }
 
-  await Purchases.configure({ apiKey, appUserID: appUserId || undefined });
+  try {
+    await Purchases.configure({ apiKey, appUserID: appUserId || undefined });
+  } catch (err: any) {
+    const debug = getPurchasesConfigDebug();
+    throw new Error(
+      `RevenueCat configure failed (platform=${debug.platform}, keyPrefix=${
+        debug.keyPrefix || 'none'
+      }): ${err?.message || 'unknown error'}`,
+    );
+  }
   _initialised = true;
 }
 
@@ -113,6 +135,34 @@ export interface PurchaseResult {
   userCancelled?: boolean;
 }
 
+function normalizePurchaseError(err: any): string {
+  const rawCode = `${err?.code || ''}`.toUpperCase();
+  const rawMessage = `${err?.message || ''}`;
+
+  if (
+    rawCode.includes('ITEM_UNAVAILABLE') ||
+    /item.*(could not be found|not found|unavailable)/i.test(rawMessage)
+  ) {
+    return 'This product is not available on this device/account yet. On Android, install from Play Internal Testing with a licensed tester account.';
+  }
+
+  if (
+    rawCode.includes('DEVELOPER_ERROR') ||
+    /developer[_\s]?error/i.test(rawMessage)
+  ) {
+    return 'Billing configuration mismatch. Verify app signing, Play Console product setup, and that this build is installed from Play testing.';
+  }
+
+  if (
+    rawCode.includes('BILLING_UNAVAILABLE') ||
+    /billing.*(unavailable|not available|not supported)/i.test(rawMessage)
+  ) {
+    return 'In-app billing is unavailable on this device. Emulators and sideloaded APKs often cannot complete real Play purchases.';
+  }
+
+  return rawMessage || 'Purchase failed. Please try again.';
+}
+
 /**
  * Purchase the Pro upgrade package.
  */
@@ -137,7 +187,7 @@ export async function purchasePro(): Promise<PurchaseResult> {
     return {
       success: false,
       customerInfo: null,
-      error: err.message || 'Purchase failed. Please try again.',
+      error: normalizePurchaseError(err),
     };
   }
 }

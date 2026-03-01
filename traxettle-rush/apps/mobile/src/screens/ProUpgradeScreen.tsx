@@ -14,18 +14,23 @@ import { usePurchase } from '../context/PurchaseContext';
 const PRO_FEATURES = [
   {
     icon: '�',
+    title: 'No Ads — Even in Free',
+    desc: 'Traxettle is completely ad-free. No banners, no pop-ups, no interruptions — ever.',
+  },
+  {
+    icon: '�📅',
     title: 'Unlimited Events',
     desc: 'Free plan is limited to 3 events. Go Pro for unlimited events.',
   },
   {
-    icon: '�💱',
+    icon: '💱',
     title: 'Multi-Currency Settlement',
     desc: 'Split expenses across currencies with automatic FX conversion at EOD rates.',
   },
   {
     icon: '📊',
     title: 'Advanced Analytics',
-    desc: 'Detailed spending breakdowns, category insights, and export to CSV.',
+    desc: 'Detailed spending breakdowns, category insights, and export to Excel, PDF & CSV.',
   },
   {
     icon: '⚡',
@@ -34,10 +39,21 @@ const PRO_FEATURES = [
   },
 ];
 
+function isIndiaLocale(): boolean {
+  try {
+    const locale = Intl.DateTimeFormat().resolvedOptions().locale || '';
+    const normalized = locale.replace('_', '-').toUpperCase();
+    return normalized.endsWith('-IN');
+  } catch {
+    return false;
+  }
+}
+
 export default function ProUpgradeScreen({ navigation }: any) {
   const { theme } = useTheme();
   const c = theme.colors;
   const { isPro, purchasing, priceString, handlePurchase, handleRestore } = usePurchase();
+  const renewalPrice = isIndiaLocale() ? '₹299' : '$5.99';
 
   if (isPro) {
     return (
@@ -53,7 +69,9 @@ export default function ProUpgradeScreen({ navigation }: any) {
         <View style={styles.featureList}>
           {PRO_FEATURES.map((f, i) => (
             <View key={i} style={[styles.featureRow, { backgroundColor: c.surface }]}>
-              <Text style={styles.featureIcon}>{f.icon}</Text>
+              <View style={styles.featureIconWrap}>
+                <Text style={styles.featureIcon}>{f.icon}</Text>
+              </View>
               <View style={styles.featureText}>
                 <Text style={[styles.featureTitle, { color: c.text }]}>{f.title}</Text>
                 <Text style={[styles.featureDesc, { color: c.muted }]}>{f.desc}</Text>
@@ -97,7 +115,7 @@ export default function ProUpgradeScreen({ navigation }: any) {
         </Text>
         <View style={[styles.offerBanner, { backgroundColor: c.warning + '15' }]}>
           <Text style={[styles.offerText, { color: c.warning }]}>
-            🔥 Limited-time launch price — will increase with adoption
+            10% off for your first year. Then renews at {renewalPrice}/year.
           </Text>
         </View>
       </View>
@@ -107,7 +125,9 @@ export default function ProUpgradeScreen({ navigation }: any) {
       <View style={styles.featureList}>
         {PRO_FEATURES.map((f, i) => (
           <View key={i} style={[styles.featureRow, { backgroundColor: c.surface }]}>
-            <Text style={styles.featureIcon}>{f.icon}</Text>
+            <View style={styles.featureIconWrap}>
+              <Text style={styles.featureIcon}>{f.icon}</Text>
+            </View>
             <View style={styles.featureText}>
               <Text style={[styles.featureTitle, { color: c.text }]}>{f.title}</Text>
               <Text style={[styles.featureDesc, { color: c.muted }]}>{f.desc}</Text>
@@ -198,7 +218,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     gap: spacing.md,
   },
-  featureIcon: { fontSize: 24 },
+  featureIconWrap: { width: 28, alignItems: 'center', justifyContent: 'center' },
+  featureIcon: { fontSize: 22, lineHeight: 24, textAlign: 'center' },
   featureText: { flex: 1 },
   featureTitle: { fontSize: fontSizes.md, fontWeight: '600', marginBottom: 2 },
   featureDesc: { fontSize: fontSizes.xs, lineHeight: 16 },

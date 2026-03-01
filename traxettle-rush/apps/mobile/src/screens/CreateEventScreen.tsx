@@ -45,6 +45,14 @@ export default function CreateEventScreen({ navigation }: any) {
       return;
     }
 
+    if (needsFx && fxRateMode === 'predefined') {
+      const parsed = Number(predefinedFxRate);
+      if (!predefinedFxRate || !Number.isFinite(parsed) || parsed <= 0) {
+        Alert.alert('Error', `Enter a valid predefined FX rate for ${currency} → ${settlementCurrency}.`);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       if (tier === 'free') {
@@ -75,13 +83,17 @@ export default function CreateEventScreen({ navigation }: any) {
         payload.fxRateMode = fxRateMode;
         if (fxRateMode === 'predefined' && predefinedFxRate) {
           const key = `${currency}_${settlementCurrency}`;
-          payload.predefinedFxRates = { [key]: parseFloat(predefinedFxRate) };
+          payload.predefinedFxRates = { [key]: Number(predefinedFxRate) };
         }
       }
 
       const { data } = await api.post('/api/events', payload);
+      const createdEventId = (data as any)?.id || (data as any)?.eventId || (data as any)?.event?.id;
+      if (!createdEventId) {
+        throw new Error('Event creation response was incomplete. Please refresh and check your events list.');
+      }
       Alert.alert('Success', `"${name}" created.`);
-      navigation.replace('EventDetail', { eventId: data.id, eventName: name });
+      navigation.replace('EventDetail', { eventId: createdEventId, eventName: name });
     } catch (err: any) {
       if (err instanceof ApiRequestError && err.code === 'FEATURE_REQUIRES_PRO') {
         Alert.alert('Pro Feature', 'Multi-currency settlement requires a Pro subscription. Upgrade to unlock this feature.');

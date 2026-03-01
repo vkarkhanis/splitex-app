@@ -1,6 +1,7 @@
 # Traxettle Deployment Runbook (First-Time Friendly)
 
-Deployment scripts: `docs/deployment/scripts/`
+Deployment scripts: `scripts/api-deployment/`
+WEB Deployment scripts: `scripts/web-deployment/`
 
 Source repo: `traxettle-rush/`
 
@@ -208,12 +209,14 @@ Note: Firestore rules and Storage rules are edited in separate screens:
 ## 5) API deployment (Cloud Run)
 
 Scripts:
-- `docs/deployment/scripts/deploy-staging.sh`
-- `docs/deployment/scripts/deploy-prod.sh`
+- `scripts/api-deployment/deploy-staging.sh`
+- `scripts/api-deployment/deploy-prod.sh`
+- `scripts/api-deployment/deploy-staging-gmail.sh`
+- `scripts/api-deployment/deploy-prod-gmail.sh`
 
 ### 5.1 Fill staging script placeholders
 
-Edit `docs/deployment/scripts/deploy-staging.sh` and set:
+Edit `scripts/api-deployment/deploy-staging.sh` and set:
 - `GCP_PROJECT_ID=traxettle-staging`
 - `FIREBASE_PROJECT_ID=traxettle-staging`
 - `FIREBASE_CLIENT_EMAIL`
@@ -242,7 +245,7 @@ Optional SMTP (Gmail example):
 ### 5.2 Deploy staging API
 
 ```bash
-bash docs/deployment/scripts/deploy-staging.sh
+bash scripts/api-deployment/deploy-staging.sh
 ```
 
 ### 5.3 Verify staging API
@@ -253,10 +256,10 @@ curl https://traxettle-api-staging-862789756309.us-central1.run.app/health
 
 ### 5.4 Deploy production API
 
-Edit placeholders in `docs/deployment/scripts/deploy-prod.sh` then run:
+Edit placeholders in `scripts/api-deployment/deploy-prod.sh` then run:
 
 ```bash
-bash docs/deployment/scripts/deploy-prod.sh
+bash scripts/api-deployment/deploy-prod.sh
 ```
 
 ## 6) Local app vs staging vs production mapping
@@ -401,13 +404,13 @@ Firebase App Hosting buildpack often installs with `npm` from `apps/web` root an
 ### 11.2 Files used
 
 - `traxettle-rush/Dockerfile.web`
-- `docs/deployment/scripts/deploy-web-staging.sh`
-- `docs/deployment/scripts/deploy-web-prod.sh`
+- `scripts/web-deployment/deploy-web-staging.sh`
+- `scripts/web-deployment/deploy-web-prod.sh`
 
 ### 11.3 Staging web deploy (one command)
 
 1. Edit placeholders in:
-   - `docs/deployment/scripts/deploy-web-staging.sh`
+   - `scripts/web-deployment/deploy-web-staging.sh`
 2. Ensure web source files are tracked in git (important):
 
 ```bash
@@ -423,13 +426,13 @@ firebase hosting:sites:create <HOSTING_SITE_ID> --project traxettle-staging
 4. Run:
 
 ```bash
-bash docs/deployment/scripts/deploy-web-staging.sh
+bash scripts/web-deployment/deploy-web-staging.sh
 ```
 
 ### 11.4 Production web deploy (one command)
 
 1. Edit placeholders in:
-   - `docs/deployment/scripts/deploy-web-prod.sh`
+   - `scripts/web-deployment/deploy-web-prod.sh`
 2. Ensure Hosting site exists:
 
 ```bash
@@ -438,7 +441,7 @@ firebase hosting:sites:create <HOSTING_SITE_ID> --project traxettle-prod
 3. Run:
 
 ```bash
-bash docs/deployment/scripts/deploy-web-prod.sh
+bash scripts/web-deployment/deploy-web-prod.sh
 ```
 
 ### 11.5 Web deployment troubleshooting

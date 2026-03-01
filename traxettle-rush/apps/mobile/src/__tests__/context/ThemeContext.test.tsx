@@ -82,4 +82,62 @@ describe('ThemeContext', () => {
     expect(captured?.themeName).toBe('midnight');
     expect(AsyncStorage.setItem).toHaveBeenCalledWith('@traxettle_theme', 'midnight');
   });
+
+  it('default context setThemeName is a no-op', () => {
+    const DefaultProbe = () => {
+      captured = useTheme();
+      return null;
+    };
+
+    let defaultRenderer: ReactTestRenderer;
+    act(() => {
+      defaultRenderer = create(<DefaultProbe />);
+    });
+
+    // Should not throw; it's the default no-op
+    expect(() => captured?.setThemeName('dark')).not.toThrow();
+    expect(captured?.themeName).toBe('light');
+
+    act(() => {
+      defaultRenderer.unmount();
+    });
+  });
+
+  it('handles AsyncStorage.getItem error gracefully in useEffect', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockRejectedValueOnce(new Error('Storage read fail'));
+
+    await act(async () => {
+      renderer = create(
+        <ThemeProvider>
+          <Probe />
+        </ThemeProvider>
+      );
+    });
+
+    await flush();
+
+    // Should fall back to default light theme
+    expect(captured?.themeName).toBe('light');
+  });
+
+  it('handles AsyncStorage.setItem error gracefully in setThemeName', async () => {
+    (AsyncStorage.setItem as jest.Mock).mockRejectedValueOnce(new Error('Storage write fail'));
+
+    await act(async () => {
+      renderer = create(
+        <ThemeProvider>
+          <Probe />
+        </ThemeProvider>
+      );
+    });
+
+    await flush();
+
+    // Should not throw, just swallow the error
+    await act(async () => {
+      captured?.setThemeName('ocean');
+    });
+
+    expect(captured?.themeName).toBe('ocean');
+  });
 });

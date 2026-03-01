@@ -11,16 +11,15 @@ import {
   Alert,
   Modal,
   ScrollView,
-  Linking,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { File } from 'expo-file-system';
 import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
-import { ENV } from '../config/env';
 import type {
   Event as TraxettleEvent,
   Expense,
@@ -30,12 +29,13 @@ import type {
   Invitation,
   SettlementApproval,
 } from '@traxettle/shared';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEventSocket } from '../hooks/useSocket';
 
 // ── Helpers ──
 
 type ActiveTab = 'expenses' | 'participants' | 'groups' | 'invitations';
-type SettlementPayResponse = Settlement & { checkoutUrl?: string };
+type SettlementPayResponse = Settlement;
 
 // STATUS_DOT and STATUS_BADGE_COLOR are now derived inside the component from theme colors
 
@@ -50,6 +50,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
   const { eventId } = route.params;
   const { theme } = useTheme();
   const colors = theme.colors;
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const currentUserId = user?.userId || '';
 
@@ -107,6 +108,13 @@ export default function EventDetailScreen({ route, navigation }: any) {
   const [editGroupLoading, setEditGroupLoading] = useState(false);
 
   const [settlementDetailsModal, setSettlementDetailsModal] = useState(false);
+  const [markPaidModal, setMarkPaidModal] = useState(false);
+  const [markPaidTarget, setMarkPaidTarget] = useState<Settlement | null>(null);
+  const [markPaidReferenceId, setMarkPaidReferenceId] = useState('');
+  const [markPaidProofUrl, setMarkPaidProofUrl] = useState('');
+  const [markPaidNote, setMarkPaidNote] = useState('');
+  const [markPaidLoading, setMarkPaidLoading] = useState(false);
+  const [proofUploading, setProofUploading] = useState(false);
   const [approveSettlementLoading, setApproveSettlementLoading] = useState(false);
   const [regenerateLoading, setRegenerateLoading] = useState(false);
 
@@ -298,25 +306,87 @@ export default function EventDetailScreen({ route, navigation }: any) {
   };
 
   // ── Settlement Actions ──
-  const handlePay = async (settlementId: string, status: string) => {
+  const handlePay = async (settlement: Settlement) => {
+    setMarkPaidTarget(settlement);
+    setMarkPaidReferenceId('');
+    setMarkPaidProofUrl('');
+    setMarkPaidNote('');
+    setMarkPaidModal(true);
+  };
+
+  const handleSubmitMarkPaid = async () => {
+    if (!markPaidTarget) return;
+    const referenceId = markPaidReferenceId.trim();
+    const proofUrl = markPaidProofUrl.trim();
+    if (!referenceId) {
+      Alert.alert('Reference ID required', 'Enter transaction/UTR/reference ID before marking paid.');
+      return;
+    }
+    setMarkPaidLoading(true);
     try {
-      const endpoint = status === 'pending'
-        ? `/api/settlements/${settlementId}/pay`
-        : `/api/settlements/${settlementId}/retry`;
-      const res = await api.post<SettlementPayResponse>(endpoint, {
-        useRealGateway: ENV.USE_REAL_PAYMENTS,
-      });
-      const checkoutUrl = res.data?.checkoutUrl;
-      if (checkoutUrl) {
-        const canOpen = await Linking.canOpenURL(checkoutUrl);
-        if (canOpen) {
-          await Linking.openURL(checkoutUrl);
-          return;
-        }
-      }
-      setSettlements(prev => prev.map(s => s.id === settlementId ? { ...s, ...res.data } : s));
+      const settlementCurrency = markPaidTarget.settlementCurrency || markPaidTarget.currency;
+      const isINR = settlementCurrency === 'INR';
+      const paymentMode = isINR ? 'upi_or_netbanking' : 'international_transfer';
+      const payload: Record<string, any> = {
+        paymentMode,
+        referenceId,
+        note: markPaidNote.trim() || undefined,
+      };
+      if (proofUrl) payload.proofUrl = proofUrl;
+      const res = await api.post<SettlementPayResponse>(`/api/settlements/${markPaidTarget.id}/pay`, payload);
+      setSettlements(prev => prev.map(s => s.id === markPaidTarget.id ? { ...s, ...res.data } : s));
+      setMarkPaidModal(false);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to initiate payment');
+      Alert.alert('Error', err.message || 'Failed to mark payment');
+    } finally {
+      setMarkPaidLoading(false);
+    }
+  };
+
+  const handlePickAndUploadProof = async () => {
+    if (!markPaidTarget) return;
+    try {
+      setProofUploading(true);
+      let ImagePicker: any;
+      try {
+        ImagePicker = require('expo-image-picker');
+      } catch {
+        Alert.alert('Missing dependency', 'Install expo-image-picker to enable proof upload from gallery.');
+        return;
+      }
+
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Please allow photo library access to upload proof.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+
+      const asset = result.assets[0];
+      const file = new File(asset.uri);
+      const base64 = await file.base64();
+
+      const upload = await api.post<{ proofUrl: string }>(`/api/settlements/${markPaidTarget.id}/upload-proof`, {
+        filename: asset.fileName || `proof-${Date.now()}.jpg`,
+        contentType: asset.mimeType || 'image/jpeg',
+        base64,
+      });
+      const proofUrl = upload.data?.proofUrl;
+      if (!proofUrl) {
+        Alert.alert('Upload failed', 'Could not get proof URL after upload.');
+        return;
+      }
+      setMarkPaidProofUrl(proofUrl);
+      Alert.alert('Proof uploaded', 'Proof attached successfully.');
+    } catch (err: any) {
+      Alert.alert('Upload failed', err.message || 'Unable to upload proof right now.');
+    } finally {
+      setProofUploading(false);
     }
   };
 
@@ -327,6 +397,47 @@ export default function EventDetailScreen({ route, navigation }: any) {
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to approve payment');
     }
+  };
+
+  const handlePayeeMarkPaid = async (settlementId: string) => {
+    Alert.alert(
+      'Mark As Paid?',
+      'This will directly complete this settlement as if payment is already received.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark as Paid',
+          onPress: async () => {
+            try {
+              await api.post(`/api/settlements/${settlementId}/mark-paid-by-payee`, {});
+              fetchAll();
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'Failed to mark settlement as paid');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleReject = async (settlementId: string) => {
+    Alert.alert('Reject Payment?', 'This will move the transaction back to Pending so the payer can re-submit.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Reject',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.post(`/api/settlements/${settlementId}/reject`, {
+              reason: 'Payment not received',
+            });
+            fetchAll();
+          } catch (err: any) {
+            Alert.alert('Error', err.message || 'Failed to reject payment');
+          }
+        },
+      },
+    ]);
   };
 
   // ── Expense Actions ──
@@ -683,9 +794,6 @@ export default function EventDetailScreen({ route, navigation }: any) {
                 const settlementSym = s.settlementCurrency
                   ? (CURRENCY_SYMBOLS[s.settlementCurrency] || s.settlementCurrency)
                   : '';
-                const payLabel = hasFx
-                  ? `Pay ${settlementSym}${s.settlementAmount!.toFixed(2)}`
-                  : 'Pay';
                 const confirmLabel = hasFx
                   ? `Confirm ${settlementSym}${s.settlementAmount!.toFixed(2)}`
                   : 'Confirm';
@@ -705,15 +813,37 @@ export default function EventDetailScreen({ route, navigation }: any) {
                       </Text>
                     )}
                     <View style={styles.settlementActions}>
-                      {(settlementStatus === 'pending' || settlementStatus === 'initiated' || settlementStatus === 'failed') && isPayer && (
-                        <TouchableOpacity testID={`event-detail-settlement-pay-${s.id}`} style={[styles.smallBtn, { backgroundColor: colors.primary }]} onPress={() => handlePay(s.id, settlementStatus)}>
-                          <Text style={styles.smallBtnText}>{settlementStatus === 'pending' ? payLabel : 'Retry Payment'}</Text>
+                      {(settlementStatus === 'pending' || settlementStatus === 'failed') && isPayer && (
+                        <TouchableOpacity
+                          testID={`event-detail-settlement-pay-${s.id}`}
+                          style={[styles.smallBtn, { backgroundColor: colors.primary }]}
+                          onPress={() => handlePay(s)}
+                        >
+                          <Text style={styles.smallBtnText}>{settlementStatus === 'pending' ? 'I\'ve Paid' : 'Mark Paid Again'}</Text>
+                        </TouchableOpacity>
+                      )}
+                      {(settlementStatus === 'pending' || settlementStatus === 'failed') && isPayee && (
+                        <TouchableOpacity
+                          testID={`event-detail-settlement-payee-mark-paid-${s.id}`}
+                          style={[styles.smallBtn, { backgroundColor: colors.success }]}
+                          onPress={() => handlePayeeMarkPaid(s.id)}
+                        >
+                          <Text style={styles.smallBtnText}>Mark as Paid</Text>
                         </TouchableOpacity>
                       )}
                       {settlementStatus === 'initiated' && isPayee && (
-                        <TouchableOpacity testID={`event-detail-settlement-confirm-${s.id}`} style={[styles.smallBtn, { backgroundColor: colors.primary }]} onPress={() => handleApprove(s.id)}>
-                          <Text style={styles.smallBtnText}>{confirmLabel}</Text>
-                        </TouchableOpacity>
+                        <View style={styles.inlineBtnRow}>
+                          <TouchableOpacity testID={`event-detail-settlement-confirm-${s.id}`} style={[styles.smallBtn, { backgroundColor: colors.primary }]} onPress={() => handleApprove(s.id)}>
+                            <Text style={styles.smallBtnText}>{confirmLabel}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            testID={`event-detail-settlement-reject-${s.id}`}
+                            style={[styles.smallBtnOutline, { borderColor: colors.error }]}
+                            onPress={() => handleReject(s.id)}
+                          >
+                            <Text style={[styles.smallBtnOutlineText, { color: colors.error }]}>Reject</Text>
+                          </TouchableOpacity>
+                        </View>
                       )}
                       {settlementStatus === 'completed' && <Text style={[styles.doneText, { color: colors.success }]}>✓ Done</Text>}
                       {settlementStatus === 'failed' && !isPayer && renderBadge('failed')}
@@ -798,8 +928,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                         {exp.isPrivate && renderBadge('private')}
                       </View>
                       <Text style={[styles.listCardSub, { color: colors.muted }]}>
-                        Paid by {getUserName(exp.paidBy)} · {exp.splitType}
-                        {exp.paidOnBehalfOf && Array.isArray(exp.paidOnBehalfOf) && exp.paidOnBehalfOf.length > 0 ? ' · On behalf of' : ''}
+                        Paid by {getUserName(exp.paidBy)} · {exp.paidOnBehalfOf && Array.isArray(exp.paidOnBehalfOf) && exp.paidOnBehalfOf.length > 0 ? 'On Behalf' : exp.splitType.charAt(0).toUpperCase() + exp.splitType.slice(1)}
                       </Text>
                     </View>
                     <Text style={[styles.amountText, { color: colors.text }]}>{CURRENCY_SYMBOLS[exp.currency] || exp.currency}{exp.amount.toFixed(2)}</Text>
@@ -947,7 +1076,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
     {/* ── Edit Event Modal ── */}
     <Modal visible={editEventModal} animationType="slide" transparent onRequestClose={() => setEditEventModal(false)}>
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+        <View style={[styles.modalContent, { backgroundColor: colors.surface, paddingBottom: insets.bottom + spacing.xl }]}>
           <ScrollView>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Edit Event</Text>
             <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Name</Text>
@@ -1005,7 +1134,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
     {/* ── Invite Modal ── */}
     <Modal visible={inviteModal} animationType="slide" transparent onRequestClose={() => setInviteModal(false)}>
       <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+        <View style={[styles.modalContent, { backgroundColor: colors.surface, paddingBottom: insets.bottom + spacing.xl }]}>
           <ScrollView keyboardShouldPersistTaps="handled">
             <Text style={[styles.modalTitle, { color: colors.text }]}>Invite to Event</Text>
             <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Email Address</Text>
@@ -1036,7 +1165,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
     {/* ── Create Group Modal ── */}
     <Modal visible={createGroupModal} animationType="slide" transparent onRequestClose={() => setCreateGroupModal(false)}>
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+        <View style={[styles.modalContent, { backgroundColor: colors.surface, paddingBottom: insets.bottom + spacing.xl }]}>
           <ScrollView>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Create Group</Text>
             <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Group Name</Text>
@@ -1090,7 +1219,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
     {/* ── Edit Group Modal ── */}
     <Modal visible={editGroupModal} animationType="slide" transparent onRequestClose={() => setEditGroupModal(false)}>
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+        <View style={[styles.modalContent, { backgroundColor: colors.surface, paddingBottom: insets.bottom + spacing.xl }]}>
           <ScrollView>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Edit Group</Text>
             <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Group Name</Text>
@@ -1141,10 +1270,87 @@ export default function EventDetailScreen({ route, navigation }: any) {
       </View>
     </Modal>
 
+    {/* ── Mark Paid Modal ── */}
+    <Modal visible={markPaidModal} animationType="slide" transparent onRequestClose={() => setMarkPaidModal(false)}>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContent, { backgroundColor: colors.surface, paddingBottom: insets.bottom + spacing.xl }]}>
+          <ScrollView>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Mark Payment as Done</Text>
+            {!!markPaidTarget && (
+              <>
+                <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Payee Methods</Text>
+                {((markPaidTarget as any).payeePaymentMethods || []).length > 0 ? (
+                  ((markPaidTarget as any).payeePaymentMethods || []).map((m: any, idx: number) => (
+                    <View key={`${m.id || idx}`} style={[styles.pmCard, { borderColor: colors.border }]}>
+                      <Text style={[styles.pmCardTitle, { color: colors.text }]}>{m.label} · {m.currency}</Text>
+                      <Text style={[styles.pmCardMeta, { color: colors.muted }]}>{String(m.type || '').toUpperCase()}</Text>
+                      <Text style={[styles.pmCardDetails, { color: colors.textSecondary }]}>{m.details}</Text>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={[styles.emptyText, { color: colors.warning }]}>
+                    Payee has not configured a method for this currency yet.
+                  </Text>
+                )}
+
+                <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Reference ID (required)</Text>
+                <TextInput
+                  style={[styles.modalInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surfaceAlt }]}
+                  value={markPaidReferenceId}
+                  onChangeText={setMarkPaidReferenceId}
+                  placeholder="UTR / txn ID / bank ref"
+                  placeholderTextColor={colors.muted}
+                />
+                <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Proof URL (optional)</Text>
+                <TextInput
+                  style={[styles.modalInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surfaceAlt }]}
+                  value={markPaidProofUrl}
+                  onChangeText={setMarkPaidProofUrl}
+                  placeholder="https://... proof screenshot link"
+                  placeholderTextColor={colors.muted}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity
+                  style={[styles.uploadProofBtn, { borderColor: colors.border }]}
+                  onPress={handlePickAndUploadProof}
+                  disabled={proofUploading}
+                >
+                  <Text style={[styles.uploadProofBtnText, { color: colors.primary }]}>
+                    {proofUploading ? 'Uploading Proof...' : 'Upload Proof Screenshot'}
+                  </Text>
+                </TouchableOpacity>
+                <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Note (optional)</Text>
+                <TextInput
+                  style={[styles.modalInput, styles.modalTextArea, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surfaceAlt }]}
+                  value={markPaidNote}
+                  onChangeText={setMarkPaidNote}
+                  placeholder="Any extra details for payee"
+                  placeholderTextColor={colors.muted}
+                  multiline
+                />
+              </>
+            )}
+            <View style={styles.modalFooter}>
+              <TouchableOpacity style={[styles.modalCancelBtn, { borderColor: colors.border }]} onPress={() => setMarkPaidModal(false)} disabled={markPaidLoading}>
+                <Text style={[styles.modalCancelText, { color: colors.text }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSubmitBtn, { backgroundColor: colors.primary }, markPaidLoading && styles.modalSubmitDisabled]}
+                onPress={handleSubmitMarkPaid}
+                disabled={markPaidLoading}
+              >
+                <Text style={styles.modalSubmitText}>{markPaidLoading ? 'Submitting...' : 'I\'ve Paid'}</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+
     {/* ── Settlement Details Modal ── */}
     <Modal visible={settlementDetailsModal} animationType="slide" transparent onRequestClose={() => setSettlementDetailsModal(false)}>
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+        <View style={[styles.modalContent, { backgroundColor: colors.surface, paddingBottom: insets.bottom + spacing.xl }]}>
           <ScrollView>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Settlement Details</Text>
 
@@ -1195,14 +1401,45 @@ export default function EventDetailScreen({ route, navigation }: any) {
                   ? `${CURRENCY_SYMBOLS[s.settlementCurrency] || s.settlementCurrency}${s.settlementAmount.toFixed(2)}`
                   : `${currSym}${s.amount.toFixed(2)}`;
                 return (
-                  <View key={s.id} style={[styles.expDetailSplitRow, { borderColor: colors.border }]}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.expDetailSplitName, { color: colors.text }]}>
-                        {getEntityName(s.fromEntityId, s.fromEntityType)} → {getEntityName(s.toEntityId, s.toEntityType)}
-                      </Text>
-                      <Text style={[{ fontSize: fontSizes.xs, color: colors.muted }]}>{s.status}</Text>
+                  <View key={s.id} style={[styles.txHistoryCard, { borderColor: colors.border }]}>
+                    <View style={[styles.expDetailSplitRow, { borderColor: colors.border }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.expDetailSplitName, { color: colors.text }]}>
+                          {getEntityName(s.fromEntityId, s.fromEntityType)} → {getEntityName(s.toEntityId, s.toEntityType)}
+                        </Text>
+                        <Text style={[{ fontSize: fontSizes.xs, color: colors.muted }]}>{s.status}</Text>
+                      </View>
+                      <Text style={[styles.expDetailSplitAmount, { color: colors.text }]}>{displayAmt}</Text>
                     </View>
-                    <Text style={[styles.expDetailSplitAmount, { color: colors.text }]}>{displayAmt}</Text>
+                    <View style={styles.timelineWrap}>
+                      <Text style={[styles.timelineTitle, { color: colors.textSecondary }]}>Timeline</Text>
+                      {((s as any).auditTrail || []).length === 0 ? (
+                        <Text style={[styles.timelineEmpty, { color: colors.muted }]}>No activity yet.</Text>
+                      ) : (
+                        ((s as any).auditTrail || []).map((entry: any, idx: number) => (
+                          <View key={`${entry.id || idx}`} style={styles.timelineRow}>
+                            <View style={[styles.timelineDot, { backgroundColor: colors.primary }]} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.timelineAction, { color: colors.text }]}>
+                                {entry.action?.replace(/_/g, ' ') || 'update'}
+                              </Text>
+                              <Text style={[styles.timelineMeta, { color: colors.muted }]}>
+                                by {getUserName(entry.actorUserId || '')} · {formatDate(entry.createdAt)}
+                              </Text>
+                              {entry.referenceId && (
+                                <Text style={[styles.timelineMeta, { color: colors.textSecondary }]}>Ref: {entry.referenceId}</Text>
+                              )}
+                              {entry.proofUrl && (
+                                <Text style={[styles.timelineMeta, { color: colors.primary }]}>Proof: {entry.proofUrl}</Text>
+                              )}
+                              {entry.note && (
+                                <Text style={[styles.timelineMeta, { color: colors.textSecondary }]}>{entry.note}</Text>
+                              )}
+                            </View>
+                          </View>
+                        ))
+                      )}
+                    </View>
                   </View>
                 );
               })
@@ -1224,7 +1461,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
     {/* ── Expense Detail / Split Breakdown Modal ── */}
     <Modal visible={expenseDetailModal} animationType="slide" transparent onRequestClose={() => setExpenseDetailModal(false)}>
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+        <View style={[styles.modalContent, { backgroundColor: colors.surface, paddingBottom: insets.bottom + spacing.xl }]}>
           <ScrollView>
             {selectedExpense && (
               <>
@@ -1248,7 +1485,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                   <View style={styles.expDetailMetaRow}>
                     <Text style={[styles.expDetailLabel, { color: colors.muted }]}>Split type</Text>
                     <Text style={[styles.expDetailValue, { color: colors.primary }]}>
-                      {selectedExpense.splitType.charAt(0).toUpperCase() + selectedExpense.splitType.slice(1)}
+                      {selectedExpense.paidOnBehalfOf && Array.isArray(selectedExpense.paidOnBehalfOf) && selectedExpense.paidOnBehalfOf.length > 0 ? 'On Behalf' : selectedExpense.splitType.charAt(0).toUpperCase() + selectedExpense.splitType.slice(1)}
                     </Text>
                   </View>
                   {selectedExpense.isPrivate && (
@@ -1379,8 +1616,11 @@ const styles = StyleSheet.create({
   settlementAmount: { fontSize: fontSizes.md, fontWeight: '700' },
   fxAmount: { fontSize: fontSizes.xs, marginTop: 2, marginLeft: spacing.lg },
   settlementActions: { flexDirection: 'row', marginTop: spacing.sm, gap: spacing.sm, alignItems: 'center' },
+  inlineBtnRow: { flexDirection: 'row', gap: spacing.xs, alignItems: 'center' },
   smallBtn: { borderRadius: radii.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
   smallBtnText: { color: '#ffffff', fontSize: fontSizes.xs, fontWeight: '600' },
+  smallBtnOutline: { borderRadius: radii.sm, borderWidth: 1, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
+  smallBtnOutlineText: { fontSize: fontSizes.xs, fontWeight: '600' },
   doneText: { fontSize: fontSizes.xs, fontWeight: '600' },
   balancedCard: { borderRadius: radii.md, padding: spacing.lg, alignItems: 'center' },
   balancedTitle: { fontSize: fontSizes.lg, fontWeight: '700', marginBottom: spacing.xs },
@@ -1426,6 +1666,20 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm, borderWidth: 1,
     padding: spacing.md, fontSize: fontSizes.md,
   },
+  modalTextArea: { minHeight: 72, textAlignVertical: 'top' as const },
+  pmCard: { borderWidth: 1, borderRadius: radii.sm, padding: spacing.sm, marginBottom: spacing.sm },
+  pmCardTitle: { fontSize: fontSizes.sm, fontWeight: '700' },
+  pmCardMeta: { fontSize: fontSizes.xs, marginTop: 2 },
+  pmCardDetails: { fontSize: fontSizes.xs, marginTop: 2 },
+  uploadProofBtn: {
+    borderWidth: 1,
+    borderRadius: radii.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  uploadProofBtnText: { fontSize: fontSizes.sm, fontWeight: '600' },
   modalChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   modalChip: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radii.full, borderWidth: 1.5 },
   modalChipText: { fontSize: fontSizes.sm },
@@ -1456,4 +1710,12 @@ const styles = StyleSheet.create({
   },
   expDetailSplitName: { fontSize: fontSizes.sm, fontWeight: '600' },
   expDetailSplitAmount: { fontSize: fontSizes.md, fontWeight: '700' },
+  txHistoryCard: { borderWidth: 1, borderRadius: radii.sm, marginBottom: spacing.sm, paddingHorizontal: spacing.sm },
+  timelineWrap: { paddingVertical: spacing.xs, paddingBottom: spacing.sm },
+  timelineTitle: { fontSize: fontSizes.xs, fontWeight: '700', marginBottom: spacing.xs },
+  timelineRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs, marginBottom: spacing.xs },
+  timelineDot: { width: 7, height: 7, borderRadius: 3.5, marginTop: 5 },
+  timelineAction: { fontSize: fontSizes.xs, fontWeight: '600', textTransform: 'capitalize' },
+  timelineMeta: { fontSize: fontSizes.xs, marginTop: 1 },
+  timelineEmpty: { fontSize: fontSizes.xs },
 });

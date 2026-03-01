@@ -155,6 +155,15 @@ export default function CreateEventPage() {
       setError('Multi-currency settlement requires Pro.');
       return;
     }
+    if (needsFx && form.fxRateMode === 'predefined') {
+      const parsed = Number(form.predefinedFxRate);
+      if (!form.predefinedFxRate || !Number.isFinite(parsed) || parsed <= 0) {
+        const msg = `Enter a valid predefined FX rate for ${form.currency} → ${form.settlementCurrency}.`;
+        setError(msg);
+        pushToast({ type: 'error', title: 'Invalid FX Rate', message: msg });
+        return;
+      }
+    }
 
     setLoading(true);
     setError('');

@@ -1,12 +1,15 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, Platform } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { PurchaseProvider } from './context/PurchaseContext';
+import { FeedbackProvider } from './context/FeedbackContext';
 import { ENV } from './config/env';
 
 // Configure Google Sign-In once at app startup
@@ -32,8 +35,13 @@ import ProfileScreen from './screens/ProfileScreen';
 import InvitationsScreen from './screens/InvitationsScreen';
 import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import ProUpgradeScreen from './screens/ProUpgradeScreen';
+import AllEventsScreen from './screens/AllEventsScreen';
+import ClosedEventsScreen from './screens/ClosedEventsScreen';
+import HelpScreen from './screens/HelpScreen';
+import AnalyticsScreen from './screens/AnalyticsScreen';
 
 const Stack = createNativeStackNavigator();
+const CAMERA_PERMISSION_BOOTSTRAP_KEY = '@traxettle_camera_permission_prompted';
 
 function AuthStack() {
   const { theme } = useTheme();
@@ -70,17 +78,17 @@ function AppStack() {
       <Stack.Screen
         name="CreateEvent"
         component={CreateEventScreen}
-        options={{ title: 'New Event', presentation: 'modal' }}
+        options={{ title: 'New Event', presentation: Platform.OS === 'ios' ? 'card' : 'modal' }}
       />
       <Stack.Screen
         name="CreateExpense"
         component={CreateExpenseScreen}
-        options={{ title: 'Add Expense', presentation: 'modal' }}
+        options={{ title: 'Add Expense', presentation: Platform.OS === 'ios' ? 'card' : 'modal' }}
       />
       <Stack.Screen
         name="EditExpense"
         component={EditExpenseScreen}
-        options={{ title: 'Edit Expense', presentation: 'modal' }}
+        options={{ title: 'Edit Expense', presentation: Platform.OS === 'ios' ? 'card' : 'modal' }}
       />
       <Stack.Screen
         name="Profile"
@@ -95,7 +103,27 @@ function AppStack() {
       <Stack.Screen
         name="ProUpgrade"
         component={ProUpgradeScreen}
-        options={{ title: 'Upgrade to Pro', presentation: 'modal' }}
+        options={{ title: 'Upgrade to Pro', presentation: Platform.OS === 'ios' ? 'card' : 'modal' }}
+      />
+      <Stack.Screen
+        name="AllEvents"
+        component={AllEventsScreen}
+        options={{ title: 'All Events' }}
+      />
+      <Stack.Screen
+        name="ClosedEvents"
+        component={ClosedEventsScreen}
+        options={{ title: 'Closed Events' }}
+      />
+      <Stack.Screen
+        name="Help"
+        component={HelpScreen}
+        options={{ title: 'Help & Features' }}
+      />
+      <Stack.Screen
+        name="Analytics"
+        component={AnalyticsScreen}
+        options={{ title: 'Analytics' }}
       />
     </Stack.Navigator>
   );
@@ -127,13 +155,38 @@ function AppInner() {
 }
 
 export default function App() {
+  useEffect(() => {
+    let mounted = true;
+    async function requestCameraOnFirstLaunch() {
+      try {
+        const alreadyPrompted = await AsyncStorage.getItem(CAMERA_PERMISSION_BOOTSTRAP_KEY);
+        if (alreadyPrompted || !mounted) return;
+        const ImagePicker = require('expo-image-picker');
+        await ImagePicker.requestCameraPermissionsAsync();
+        if (mounted) {
+          await AsyncStorage.setItem(CAMERA_PERMISSION_BOOTSTRAP_KEY, 'true');
+        }
+      } catch {
+        // Best-effort prompt only. Permission is requested again in feature flows.
+      }
+    }
+    requestCameraOnFirstLaunch();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <PurchaseProvider>
-          <AppInner />
-        </PurchaseProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <FeedbackProvider>
+          <AuthProvider>
+            <PurchaseProvider>
+              <AppInner />
+            </PurchaseProvider>
+          </AuthProvider>
+        </FeedbackProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }

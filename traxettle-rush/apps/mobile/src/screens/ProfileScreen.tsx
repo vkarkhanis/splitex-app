@@ -18,6 +18,17 @@ import { api, getResolvedApiBaseUrl, isFirebaseEmulatorEnabled, setFirebaseEmula
 import { ENV, isLocalLikeEnv } from '../config/env';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
+const PAYMENT_METHOD_TYPES = ['upi', 'bank', 'paypal', 'wise', 'swift', 'other'] as const;
+type PaymentMethodType = typeof PAYMENT_METHOD_TYPES[number];
+
+interface UserPaymentMethod {
+  id: string;
+  label: string;
+  currency: string;
+  type: PaymentMethodType;
+  details: string;
+  isActive: boolean;
+}
 
 interface UserProfile {
   userId: string;
@@ -38,7 +49,7 @@ interface UserProfile {
 }
 
 export default function ProfileScreen({ navigation }: any) {
-  const { user, logout, tier, switchTier, internalTester } = useAuth();
+  const { user, logout, tier, switchTier, internalTester, refreshProfile } = useAuth();
   const { theme, themeName, setThemeName } = useTheme();
   const c = theme.colors;
   const { isPro, priceString } = usePurchase();
@@ -57,6 +68,12 @@ export default function ProfileScreen({ navigation }: any) {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [currency, setCurrency] = useState('USD');
   const [notifications, setNotifications] = useState(true);
+  const [paymentMethods, setPaymentMethods] = useState<UserPaymentMethod[]>([]);
+  const [methodLabel, setMethodLabel] = useState('');
+  const [methodCurrency, setMethodCurrency] = useState('USD');
+  const [methodType, setMethodType] = useState<PaymentMethodType>('bank');
+  const [methodDetails, setMethodDetails] = useState('');
+  const [methodsLoading, setMethodsLoading] = useState(false);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -68,6 +85,8 @@ export default function ProfileScreen({ navigation }: any) {
         setCurrency(data.preferences?.currency || 'USD');
         setNotifications(data.preferences?.notifications ?? true);
       }
+      const methodsRes = await api.get<UserPaymentMethod[]>('/api/users/payment-methods');
+      setPaymentMethods(methodsRes.data || []);
     } catch {
       Alert.alert('Error', 'Failed to load profile');
     } finally {
@@ -106,12 +125,68 @@ export default function ProfileScreen({ navigation }: any) {
           timezone: profile?.preferences?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
         },
       });
+      await refreshProfile();
       Alert.alert('Success', 'Profile updated.');
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to update profile');
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleAddPaymentMethod = async () => {
+    const label = methodLabel.trim();
+    const details = methodDetails.trim();
+    if (!label || !details) {
+      Alert.alert('Missing fields', 'Please enter method label and payment details.');
+      return;
+    }
+    setMethodsLoading(true);
+    try {
+      const { data } = await api.post<UserPaymentMethod>('/api/users/payment-methods', {
+        label,
+        currency: methodCurrency,
+        type: methodType,
+        details,
+        isActive: true,
+      });
+      if (data) setPaymentMethods((prev) => [data, ...prev]);
+      setMethodLabel('');
+      setMethodDetails('');
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to add payment method');
+    } finally {
+      setMethodsLoading(false);
+    }
+  };
+
+  const handleTogglePaymentMethod = async (method: UserPaymentMethod) => {
+    try {
+      const { data } = await api.put<UserPaymentMethod>(`/api/users/payment-methods/${method.id}`, {
+        isActive: !method.isActive,
+      });
+      if (data) setPaymentMethods((prev) => prev.map((m) => (m.id === data.id ? data : m)));
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to update payment method');
+    }
+  };
+
+  const handleDeletePaymentMethod = async (methodId: string) => {
+    Alert.alert('Delete payment method?', 'This method will no longer be shown to payers.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.delete(`/api/users/payment-methods/${methodId}`);
+            setPaymentMethods((prev) => prev.filter((m) => m.id !== methodId));
+          } catch (err: any) {
+            Alert.alert('Error', err.message || 'Failed to delete payment method');
+          }
+        },
+      },
+    ]);
   };
 
   const handleSignOut = () => {
@@ -231,6 +306,129 @@ export default function ProfileScreen({ navigation }: any) {
           <Text style={[styles.toggleLabel, { color: c.text }]}>Notifications</Text>
           <Switch value={notifications} onValueChange={setNotifications} trackColor={{ true: c.primary }} />
         </View>
+      </View>
+
+      <View style={[styles.card, { backgroundColor: c.surface }]}>
+        <Text style={[styles.cardTitle, { color: c.text }]}>Payment Methods</Text>
+        <Text style={[styles.cardSub, { color: c.muted }]}>
+          Payers will see matching-currency methods during settlement.
+        </Text>
+
+        {paymentMethods.length === 0 ? (
+          <View style={[styles.pmEmptyWrap, { borderColor: c.border }]}>
+            <Text style={styles.pmEmptyIcon}>💳</Text>
+            <Text style={[styles.pmEmptyText, { color: c.muted }]}>No payment methods added yet</Text>
+            <Text style={[styles.pmEmptyHint, { color: c.muted }]}>Add methods below so payers can settle with you</Text>
+          </View>
+        ) : (
+          paymentMethods.map((method) => (
+            <View key={method.id} style={[styles.pmCard, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
+              <View style={styles.pmCardHeader}>
+                <View style={[styles.pmStatusDot, { backgroundColor: method.isActive ? c.success : c.muted + '60' }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.pmCardLabel, { color: c.text }]}>{method.label}</Text>
+                  <Text style={[styles.pmCardType, { color: c.muted }]}>{method.type.toUpperCase()}</Text>
+                </View>
+                <View style={[styles.pmCurrencyBadge, { backgroundColor: c.primary + '14' }]}>
+                  <Text style={[styles.pmCurrencyBadgeText, { color: c.primary }]}>{method.currency}</Text>
+                </View>
+              </View>
+              <Text style={[styles.pmCardDetails, { color: c.textSecondary }]}>{method.details}</Text>
+              <View style={styles.pmCardFooter}>
+                <TouchableOpacity
+                  style={[styles.pmActionBtn, { backgroundColor: method.isActive ? c.warning + '12' : c.success + '12' }]}
+                  onPress={() => handleTogglePaymentMethod(method)}
+                >
+                  <Text style={[styles.pmActionBtnText, { color: method.isActive ? c.warning : c.success }]}>
+                    {method.isActive ? 'Disable' : 'Enable'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.pmActionBtn, { backgroundColor: c.error + '10' }]}
+                  onPress={() => handleDeletePaymentMethod(method.id)}
+                >
+                  <Text style={[styles.pmActionBtnText, { color: c.error }]}>Delete</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))
+        )}
+
+        {/* ── Add New Method Form ── */}
+        <View style={[styles.pmFormDivider, { borderColor: c.border }]} />
+        <Text style={[styles.pmFormTitle, { color: c.text }]}>Add New Method</Text>
+
+        <Text style={[styles.pmFieldLabel, { color: c.textSecondary }]}>Label</Text>
+        <TextInput
+          style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+          value={methodLabel}
+          onChangeText={setMethodLabel}
+          placeholder="e.g. Personal UPI, HDFC Savings, Wise"
+          placeholderTextColor={c.muted}
+        />
+
+        <Text style={[styles.pmFieldLabel, { color: c.textSecondary }]}>Currency</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pmChipScroll}>
+          <View style={styles.chipRow}>
+            {CURRENCIES.map((cur) => (
+              <TouchableOpacity
+                key={`pm-cur-${cur}`}
+                style={[
+                  styles.chip,
+                  { borderColor: c.border, backgroundColor: c.surface },
+                  methodCurrency === cur && { borderColor: c.primary, backgroundColor: c.primary + '15' },
+                ]}
+                onPress={() => setMethodCurrency(cur)}
+              >
+                <Text style={[
+                  styles.chipText,
+                  { color: c.text },
+                  methodCurrency === cur && { color: c.primary, fontWeight: '600' },
+                ]}>{cur}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+
+        <Text style={[styles.pmFieldLabel, { color: c.textSecondary }]}>Type</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pmChipScroll}>
+          <View style={styles.chipRow}>
+            {PAYMENT_METHOD_TYPES.map((typ) => (
+              <TouchableOpacity
+                key={`pm-type-${typ}`}
+                style={[
+                  styles.chip,
+                  { borderColor: c.border, backgroundColor: c.surface },
+                  methodType === typ && { borderColor: c.primary, backgroundColor: c.primary + '15' },
+                ]}
+                onPress={() => setMethodType(typ)}
+              >
+                <Text style={[
+                  styles.chipText,
+                  { color: c.text },
+                  methodType === typ && { color: c.primary, fontWeight: '600' },
+                ]}>{typ.toUpperCase()}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+
+        <Text style={[styles.pmFieldLabel, { color: c.textSecondary }]}>Payment Details</Text>
+        <TextInput
+          style={[styles.input, styles.pmDetailsInput, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+          value={methodDetails}
+          onChangeText={setMethodDetails}
+          placeholder="UPI ID / Account+IFSC / PayPal email / Wise tag..."
+          placeholderTextColor={c.muted}
+          multiline
+        />
+        <TouchableOpacity
+          style={[styles.pmAddBtn, { backgroundColor: c.primary }, methodsLoading && styles.saveBtnDisabled]}
+          onPress={handleAddPaymentMethod}
+          disabled={methodsLoading}
+        >
+          <Text style={styles.pmAddBtnText}>{methodsLoading ? 'Adding...' : '+ Add Payment Method'}</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Pro Upgrade */}
@@ -396,6 +594,63 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md, marginTop: spacing.sm,
   },
   toggleLabel: { fontSize: fontSizes.sm },
+  emptySmall: { fontSize: fontSizes.xs, marginBottom: spacing.sm },
+  // Payment Methods — empty state
+  pmEmptyWrap: {
+    borderWidth: 1, borderStyle: 'dashed', borderRadius: radii.md,
+    paddingVertical: spacing.xl, paddingHorizontal: spacing.lg,
+    alignItems: 'center', marginBottom: spacing.md,
+  },
+  pmEmptyIcon: { fontSize: 32, marginBottom: spacing.sm },
+  pmEmptyText: { fontSize: fontSizes.sm, fontWeight: '600', marginBottom: 4 },
+  pmEmptyHint: { fontSize: fontSizes.xs, textAlign: 'center' },
+  // Payment Methods — card
+  pmCard: {
+    borderWidth: 1, borderRadius: radii.md,
+    padding: spacing.md, marginBottom: spacing.sm,
+  },
+  pmCardHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  pmStatusDot: { width: 8, height: 8, borderRadius: 4 },
+  pmCardLabel: { fontSize: fontSizes.sm, fontWeight: '700' },
+  pmCardType: { fontSize: fontSizes.xs, marginTop: 1 },
+  pmCurrencyBadge: {
+    paddingHorizontal: spacing.sm, paddingVertical: 3,
+    borderRadius: radii.full,
+  },
+  pmCurrencyBadgeText: { fontSize: fontSizes.xs, fontWeight: '700' },
+  pmCardDetails: {
+    fontSize: fontSizes.sm, lineHeight: 20,
+    paddingLeft: spacing.sm + 8 + spacing.sm, // align with label after dot
+    marginBottom: spacing.sm,
+  },
+  pmCardFooter: {
+    flexDirection: 'row', gap: spacing.sm,
+    paddingLeft: spacing.sm + 8 + spacing.sm,
+  },
+  pmActionBtn: {
+    paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2,
+    borderRadius: radii.full,
+  },
+  pmActionBtnText: { fontSize: fontSizes.xs, fontWeight: '700' },
+  // Payment Methods — add form
+  pmFormDivider: {
+    borderTopWidth: 1, marginTop: spacing.md, marginBottom: spacing.lg,
+  },
+  pmFormTitle: { fontSize: fontSizes.md, fontWeight: '700', marginBottom: spacing.sm },
+  pmFieldLabel: {
+    fontSize: fontSizes.xs, fontWeight: '600', textTransform: 'uppercase' as const,
+    letterSpacing: 0.5, marginBottom: spacing.xs, marginTop: spacing.md,
+  },
+  pmChipScroll: { marginBottom: spacing.xs },
+  pmDetailsInput: { minHeight: 72, textAlignVertical: 'top' as const },
+  pmAddBtn: {
+    borderRadius: radii.md, paddingVertical: spacing.md, alignItems: 'center',
+    marginTop: spacing.lg,
+  },
+  pmAddBtnText: { color: '#ffffff', fontSize: fontSizes.sm, fontWeight: '700' },
   saveBtn: {
     borderRadius: radii.md, padding: spacing.lg, alignItems: 'center',
     marginBottom: spacing.md,

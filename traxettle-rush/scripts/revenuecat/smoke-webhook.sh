@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env.local"
 API_BASE="${API_BASE:-http://localhost:3001}"
+RC_LOADER="${ROOT_DIR}/scripts/revenuecat/load-rc-config.sh"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "Missing ${ENV_FILE}. Run scripts/revenuecat/bootstrap.sh first."
@@ -14,6 +15,11 @@ fi
 set -a
 source "${ENV_FILE}"
 set +a
+
+if [[ -f "$RC_LOADER" ]]; then
+  # shellcheck disable=SC1090
+  source "$RC_LOADER" local
+fi
 
 if [[ -z "${REVENUECAT_WEBHOOK_SECRET:-}" ]]; then
   echo "REVENUECAT_WEBHOOK_SECRET is empty in ${ENV_FILE}"

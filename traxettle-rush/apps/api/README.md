@@ -86,6 +86,21 @@ Refer `../../README.md` for full catalog. API-critical keys:
 - `PAYMENT_SUCCESS_URL`
 - `PAYMENT_CANCEL_URL`
 
+### Email (SMTP)
+- Generic SMTP:
+  - `SMTP_HOST`
+  - `SMTP_PORT`
+  - `SMTP_SECURE=true|false`
+  - `SMTP_USER`
+  - `SMTP_PASS` (or `SMTP_PASSWORD`)
+  - `SMTP_FROM` (optional; defaults to `SMTP_USER`)
+- Gmail SMTP:
+  - `SMTP_SERVICE=gmail`
+  - `SMTP_USER=your-gmail-address@gmail.com`
+  - `SMTP_PASS=<gmail-app-password>`
+  - `SMTP_FROM=Traxettle <your-gmail-address@gmail.com>` (optional)
+  - Note: use a Google **App Password** (2FA-enabled account), not your regular Gmail password.
+
 ## Tiering and Capability Enforcement
 - Source of truth: server-side entitlement state.
 - Free/Pro gates are enforced in API even if client tries bypass.

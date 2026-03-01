@@ -14,11 +14,14 @@ const firebaseConfig = {
   projectId: process.env.FIREBASE_PROJECT_ID,
   clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
   privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+  storageBucket:
+    process.env.FIREBASE_STORAGE_BUCKET ||
+    (process.env.FIREBASE_PROJECT_ID ? `${process.env.FIREBASE_PROJECT_ID}.appspot.com` : undefined),
 };
 
 const useFirebaseEmulator = process.env.FIREBASE_USE_EMULATOR === 'true';
 const emulatorProjectId = process.env.FIREBASE_PROJECT_ID || 'traxettle-local';
+const emulatorBucket = process.env.FIREBASE_STORAGE_BUCKET || `${emulatorProjectId}.appspot.com`;
 
 function configureFirebaseEmulatorEnvironment() {
   const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || `127.0.0.1:${process.env.FIRESTORE_EMULATOR_PORT || '8080'}`;
@@ -48,7 +51,7 @@ if (useFirebaseEmulator) {
   try {
     firebaseApp = admin.initializeApp({
       projectId: emulatorProjectId,
-      storageBucket: firebaseConfig.storageBucket,
+      storageBucket: firebaseConfig.storageBucket || emulatorBucket,
     });
     db = getFirestore(firebaseApp);
     db.settings({ ignoreUndefinedProperties: true });

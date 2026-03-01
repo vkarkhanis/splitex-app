@@ -3,13 +3,14 @@
     "name": "Traxettle",
     "slug": "traxettle",
     "scheme": "com.traxettle.app",
-    "version": "1.0.5",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "backgroundColor": "#6366f1",
-      "image": "./assets/splash.png"
+      "image": "./assets/splash.png",
+      "resizeMode": "cover"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -17,7 +18,12 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.traxettle.app",
-      "icon": "./assets/icon.png"
+      "icon": "./assets/icon.png",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Traxettle uses your photo library so you can upload payment proof images for settlements.",
+        "NSPhotoLibraryAddUsageDescription": "Traxettle may save generated proof or receipt images to your photo library when requested.",
+        "NSCameraUsageDescription": "Traxettle uses your camera so you can capture payment proof images."
+      }
     },
     "android": {
       "adaptiveIcon": {

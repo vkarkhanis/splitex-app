@@ -25,6 +25,19 @@ export interface UserCapabilities {
   multiCurrencySettlement: boolean;
 }
 
+export type PaymentMethodType = 'upi' | 'bank' | 'paypal' | 'wise' | 'swift' | 'other';
+
+export interface UserPaymentMethod {
+  id: string;
+  label: string;
+  currency: string;
+  type: PaymentMethodType;
+  details: string;
+  isActive: boolean;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+}
+
 export interface UserProfile {
   userId: string;
   displayName: string;
@@ -38,6 +51,7 @@ export interface UserProfile {
   internalTester?: boolean;
   capabilities: UserCapabilities;
   preferences: UserPreferences;
+  paymentMethods?: UserPaymentMethod[];
 }
 
 // Event Types
@@ -208,13 +222,34 @@ export interface Settlement {
   status: 'pending' | 'initiated' | 'failed' | 'completed';
   paymentMethod?: string;
   paymentId?: string;
+  paymentReference?: string;
+  payerNote?: string;
+  proofUrl?: string;
   checkoutUrl?: string;
   failureReason?: string;
+  rejectionReason?: string;
   retryCount?: number;
+  payerMarkedAt?: Date;
+  payeeConfirmedAt?: Date;
+  rejectedAt?: Date;
+  payeePaymentMethods?: UserPaymentMethod[];
+  auditTrail?: SettlementAuditEntry[];
   initiatedAt?: Date;
   createdAt: Date;
   failedAt?: Date;
   completedAt?: Date;
+}
+
+export interface SettlementAuditEntry {
+  id: string;
+  action: 'created' | 'marked_paid' | 'confirmed' | 'rejected' | 'retry_requested';
+  actorUserId: string;
+  note?: string;
+  referenceId?: string;
+  proofUrl?: string;
+  statusFrom?: string;
+  statusTo?: string;
+  createdAt: string;
 }
 
 export interface SettlementPlan {

@@ -58,6 +58,36 @@ cd traxettle-rush
 - `PAYMENT_GATEWAY_MODE=auto|mock|live`
 - `PAYMENT_ALLOW_REAL_IN_NON_PROD=true|false`
 
+## Per-Environment Properties (Recommended)
+
+Use gitignored properties files in `traxettle-rush`:
+- `rc_local.properties`
+- `rc_staging.properties`
+- `rc_prod.properties`
+
+Template to commit and share with developers:
+- `traxettle-rush/rc_env.properties.example`
+
+Required keys inside each file:
+- `RC_REVENUECAT_APPLE_PUBLIC_KEY`
+- `RC_REVENUECAT_GOOGLE_PUBLIC_KEY`
+- `RC_REVENUECAT_PRO_ENTITLEMENT_ID` (typically `pro`)
+- `RC_REVENUECAT_OFFERING_ID` (typically `default`)
+- `RC_REVENUECAT_WEBHOOK_SECRET`
+- `RC_REVENUECAT_SECRET_API_KEY` (optional; server REST usage only)
+
+These are auto-loaded by:
+- `apps/mobile/scripts/build-android.sh`
+- `apps/mobile/scripts/build-ios.sh`
+- `scripts/web-deployment/deploy-web-staging.sh`
+- `scripts/web-deployment/deploy-web-prod.sh`
+- `scripts/api-deployment/deploy-staging.sh`
+- `scripts/api-deployment/deploy-prod.sh`
+- `scripts/local-dev/01_emulator_mobile.sh`
+- `scripts/local-dev/02_emulator_web.sh`
+- `scripts/local-dev/03_real_mobile.sh`
+- `scripts/local-dev/04_real_web.sh`
+
 ## Validation Checklist
 1. Webhook request accepted with `200`.
 2. User profile reflects updated `tier`, `entitlementStatus`, and `capabilities`.

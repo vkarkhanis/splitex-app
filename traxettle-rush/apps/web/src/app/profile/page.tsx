@@ -21,6 +21,16 @@ type UserPreferences = {
   timezone: string;
 };
 
+type PaymentMethodType = 'upi' | 'bank' | 'paypal' | 'wise' | 'swift' | 'other';
+type UserPaymentMethod = {
+  id: string;
+  label: string;
+  currency: string;
+  type: PaymentMethodType;
+  details: string;
+  isActive: boolean;
+};
+
 type UserProfile = {
   userId: string;
   displayName: string;
@@ -87,6 +97,13 @@ const Helper = styled.div`
   color: ${(p) => p.theme.colors.muted};
 `;
 
+const MethodBox = styled.div`
+  border: 1px solid ${(p) => p.theme.colors.border};
+  border-radius: ${(p) => p.theme.radii.md};
+  padding: 10px 12px;
+  margin-bottom: 8px;
+`;
+
 const ErrorText = styled.div`
   font-size: 12px;
   color: ${(p) => p.theme.colors.error};
@@ -111,6 +128,14 @@ export default function ProfilePage() {
   const [devUnlockTaps, setDevUnlockTaps] = useState(0);
   const [developerOptionsVisible, setDeveloperOptionsVisible] = useState(false);
   const [useFirebaseEmulator, setUseFirebaseEmulator] = useState(false);
+  const [paymentMethods, setPaymentMethods] = useState<UserPaymentMethod[]>([]);
+  const [newMethod, setNewMethod] = useState<{ label: string; currency: string; type: PaymentMethodType; details: string }>({
+    label: '',
+    currency: 'USD',
+    type: 'bank',
+    details: '',
+  });
+  const [methodsLoading, setMethodsLoading] = useState(false);
 
   // Get a fresh Firebase ID token from the current user
   const getFreshToken = useCallback(async (): Promise<string | null> => {
@@ -159,9 +184,14 @@ export default function ProfilePage() {
           if (!resp.ok || !json.success || !json.data) {
             throw new Error(json.error || 'Failed to load profile');
           }
+          const pmResp = await fetch(`${apiBaseUrl}/api/users/payment-methods`, {
+            headers: { Authorization: `Bearer ${idToken}` }
+          });
+          const pmJson = (await pmResp.json()) as ApiResponse<UserPaymentMethod[]>;
 
           if (!cancelled) {
             setProfile(json.data);
+            setPaymentMethods(pmJson.success && pmJson.data ? pmJson.data : []);
           }
         } catch (e: unknown) {
           if (!cancelled) {
@@ -323,6 +353,70 @@ export default function ProfilePage() {
       push({ type: 'error', title: 'Switch failed', message: friendly });
     } finally {
       setTierSwitching(false);
+    }
+  };
+
+  const handleAddPaymentMethod = async () => {
+    if (!newMethod.label.trim() || !newMethod.details.trim()) {
+      push({ type: 'error', title: 'Missing fields', message: 'Label and details are required.' });
+      return;
+    }
+    try {
+      setMethodsLoading(true);
+      const freshToken = await getFreshToken();
+      if (!freshToken) throw new Error('Not authenticated');
+      const resp = await fetch(`${apiBaseUrl}/api/users/payment-methods`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${freshToken}`,
+        },
+        body: JSON.stringify(newMethod),
+      });
+      const json = (await resp.json()) as ApiResponse<UserPaymentMethod>;
+      if (!resp.ok || !json.success || !json.data) throw new Error(json.error || 'Failed to add payment method');
+      setPaymentMethods((prev) => [json.data!, ...prev]);
+      setNewMethod({ label: '', currency: newMethod.currency, type: newMethod.type, details: '' });
+    } catch (e: unknown) {
+      push({ type: 'error', title: 'Add failed', message: toUserFriendlyError(e) });
+    } finally {
+      setMethodsLoading(false);
+    }
+  };
+
+  const handleTogglePaymentMethod = async (method: UserPaymentMethod) => {
+    try {
+      const freshToken = await getFreshToken();
+      if (!freshToken) throw new Error('Not authenticated');
+      const resp = await fetch(`${apiBaseUrl}/api/users/payment-methods/${method.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${freshToken}`,
+        },
+        body: JSON.stringify({ isActive: !method.isActive }),
+      });
+      const json = (await resp.json()) as ApiResponse<UserPaymentMethod>;
+      if (!resp.ok || !json.success || !json.data) throw new Error(json.error || 'Failed to update payment method');
+      setPaymentMethods((prev) => prev.map((m) => (m.id === json.data!.id ? json.data! : m)));
+    } catch (e: unknown) {
+      push({ type: 'error', title: 'Update failed', message: toUserFriendlyError(e) });
+    }
+  };
+
+  const handleDeletePaymentMethod = async (methodId: string) => {
+    try {
+      const freshToken = await getFreshToken();
+      if (!freshToken) throw new Error('Not authenticated');
+      const resp = await fetch(`${apiBaseUrl}/api/users/payment-methods/${methodId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${freshToken}` },
+      });
+      const json = await resp.json();
+      if (!resp.ok || !json.success) throw new Error(json.error || 'Failed to delete payment method');
+      setPaymentMethods((prev) => prev.filter((m) => m.id !== methodId));
+    } catch (e: unknown) {
+      push({ type: 'error', title: 'Delete failed', message: toUserFriendlyError(e) });
     }
   };
 
@@ -539,6 +633,76 @@ export default function ProfilePage() {
                     </Field>
                   </Row>
                 )}
+
+                <Field>
+                  <Label>Payment Methods</Label>
+                  <Helper>Shown to payers during settlement when currency matches.</Helper>
+                  {paymentMethods.length === 0 ? (
+                    <Helper>No payment methods added yet.</Helper>
+                  ) : (
+                    paymentMethods.map((method) => (
+                      <MethodBox key={method.id}>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>{method.label} · {method.currency}</div>
+                        <div style={{ fontSize: 12, opacity: 0.75 }}>{method.type.toUpperCase()}</div>
+                        <div style={{ fontSize: 12, marginTop: 4 }}>{method.details}</div>
+                        <InlineActions>
+                          <Button type="button" $variant="outline" onClick={() => handleTogglePaymentMethod(method)}>
+                            {method.isActive ? 'Disable' : 'Enable'}
+                          </Button>
+                          <Button type="button" $variant="outline" onClick={() => handleDeletePaymentMethod(method.id)}>
+                            Delete
+                          </Button>
+                        </InlineActions>
+                      </MethodBox>
+                    ))
+                  )}
+                </Field>
+
+                <Row>
+                  <Field>
+                    <Label htmlFor="pm-label">New Method Label</Label>
+                    <Input
+                      id="pm-label"
+                      value={newMethod.label}
+                      onChange={(e) => setNewMethod((prev) => ({ ...prev, label: e.target.value }))}
+                      disabled={methodsLoading}
+                    />
+                  </Field>
+                  <Field>
+                    <Label htmlFor="pm-currency">Currency</Label>
+                    <Input
+                      id="pm-currency"
+                      value={newMethod.currency}
+                      onChange={(e) => setNewMethod((prev) => ({ ...prev, currency: e.target.value.toUpperCase() }))}
+                      disabled={methodsLoading}
+                    />
+                  </Field>
+                </Row>
+                <Row>
+                  <Field>
+                    <Label htmlFor="pm-type">Method Type</Label>
+                    <Input
+                      id="pm-type"
+                      value={newMethod.type}
+                      onChange={(e) => setNewMethod((prev) => ({ ...prev, type: (e.target.value || 'other') as PaymentMethodType }))}
+                      disabled={methodsLoading}
+                    />
+                  </Field>
+                  <Field>
+                    <Label htmlFor="pm-details">Method Details</Label>
+                    <Input
+                      id="pm-details"
+                      value={newMethod.details}
+                      onChange={(e) => setNewMethod((prev) => ({ ...prev, details: e.target.value }))}
+                      disabled={methodsLoading}
+                    />
+                  </Field>
+                </Row>
+                <InlineActions>
+                  <Button type="button" $variant="primary" onClick={handleAddPaymentMethod} disabled={methodsLoading}>
+                    {methodsLoading ? 'Adding…' : 'Add Payment Method'}
+                  </Button>
+                </InlineActions>
 
                 {error ? <ErrorText>{error}</ErrorText> : null}
 

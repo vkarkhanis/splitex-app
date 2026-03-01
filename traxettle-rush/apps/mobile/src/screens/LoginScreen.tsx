@@ -38,6 +38,8 @@ export default function LoginScreen({ navigation }: any) {
       if (Platform.OS === 'android') {
         await GoogleSignin.hasPlayServices();
       }
+      // Clear any cached Google session so the account picker always appears
+      await GoogleSignin.signOut().catch(() => {});
       console.log('[GoogleSignIn] Calling signIn()... webClientId=', ENV.GOOGLE_WEB_CLIENT_ID);
       const result: any = await GoogleSignin.signIn();
       console.log('[GoogleSignIn] signIn() resolved:', JSON.stringify(result, null, 2));
@@ -57,6 +59,11 @@ export default function LoginScreen({ navigation }: any) {
         // already in progress
       } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
         Alert.alert('Error', 'Google Play Services not available.');
+      } else if (`${error?.code}` === '10' || `${error?.code}`.toUpperCase() === 'DEVELOPER_ERROR') {
+        Alert.alert(
+          'Google Sign-In Setup Required',
+          'Android Developer Error (10): this build signature/SHA is not configured in Firebase Google Sign-In OAuth for this app. Add SHA-1/SHA-256 for the keystore used to sign this APK and download updated google-services.json.',
+        );
       } else {
         Alert.alert('Google Sign-In Failed', `${error?.code ?? 'UNKNOWN'}: ${error?.message ?? 'Unexpected error'}`);
       }

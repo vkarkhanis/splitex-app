@@ -1,0 +1,7 @@
+# Copy to one or both files:
+# - scripts/api-deployment/smtp_staging.local.properties
+# - scripts/api-deployment/smtp_prod.local.properties
+#
+# Keep quotes because app passwords can contain spaces.
+
+SMTP_PASS="REPLACE_WITH_GMAIL_APP_PASSWORD"

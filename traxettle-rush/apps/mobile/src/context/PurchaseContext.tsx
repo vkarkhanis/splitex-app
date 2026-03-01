@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Alert, Platform } from 'react-native';
+import { Alert } from 'react-native';
 import { useAuth } from './AuthContext';
 import {
   initPurchases,
@@ -11,8 +11,10 @@ import {
   purchasePro,
   restorePurchases,
   isPurchasesConfigured,
+  getPurchasesConfigDebug,
 } from '../services/purchases';
 import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
+import { ENV } from '../config/env';
 
 interface PurchaseContextType {
   /** Whether the user has an active Pro entitlement via RevenueCat */
@@ -35,13 +37,32 @@ interface PurchaseContextType {
   refreshStatus: () => Promise<void>;
 }
 
+function isIndiaLocale(): boolean {
+  try {
+    const locale = Intl.DateTimeFormat().resolvedOptions().locale || '';
+    const normalized = locale.replace('_', '-').toUpperCase();
+    return normalized.endsWith('-IN');
+  } catch {
+    return false;
+  }
+}
+
+function fallbackPrice(): string {
+  return isIndiaLocale() ? '₹299' : '$5.99';
+}
+
+function resolveRevenueCatAppUserId(userId: string): string {
+  const envTag = (ENV.APP_ENV || 'local').toLowerCase();
+  return `${envTag}::${userId}`;
+}
+
 const PurchaseContext = createContext<PurchaseContextType>({
   isPro: false,
   isReady: false,
   purchasing: false,
   offering: null,
   proPackage: null,
-  priceString: Platform.OS === 'ios' ? '$4.99' : '₹149',
+  priceString: '$5.99',
   handlePurchase: async () => {},
   handleRestore: async () => {},
   refreshStatus: async () => {},
@@ -56,7 +77,9 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [purchasing, setPurchasing] = useState(false);
   const [offering, setOffering] = useState<PurchasesOffering | null>(null);
   const [proPackage, setProPackage] = useState<PurchasesPackage | null>(null);
-  const [priceString, setPriceString] = useState(Platform.OS === 'ios' ? '$4.99' : '₹149');
+  const [storePriceString, setStorePriceString] = useState<string | null>(null);
+  const [initError, setInitError] = useState<string | null>(null);
+  const priceString = storePriceString ?? fallbackPrice();
 
   // Keep in sync with AuthContext tier (server-side or local override)
   useEffect(() => {
@@ -69,14 +92,16 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     async function init() {
       if (!user?.userId) return;
       try {
-        await initPurchases(user.userId);
+        const rcAppUserId = resolveRevenueCatAppUserId(user.userId);
+        await initPurchases(rcAppUserId);
         if (!isPurchasesConfigured()) {
           // SDK not configured (missing API key) — fall back to tier from server
           if (mounted) setIsReady(false);
           return;
         }
+        setInitError(null);
 
-        await loginPurchaseUser(user.userId);
+        await loginPurchaseUser(rcAppUserId);
         const pro = await hasProEntitlement();
         if (mounted) setIsPro(pro);
 
@@ -84,16 +109,20 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const off = await getProOffering();
         if (mounted && off) {
           setOffering(off);
-          const pkg = off.lifetime ?? off.availablePackages[0] ?? null;
+          const pkg = await getProPackage();
           setProPackage(pkg);
           if (pkg?.product?.priceString) {
-            setPriceString(pkg.product.priceString);
+            setStorePriceString(pkg.product.priceString);
           }
         }
 
         if (mounted) setIsReady(true);
       } catch (err) {
         console.warn('[PurchaseProvider] init error:', err);
+        if (mounted) {
+          const msg = err instanceof Error ? err.message : 'Unknown initialization error';
+          setInitError(msg);
+        }
       }
     }
     init();
@@ -117,9 +146,26 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const handlePurchase = useCallback(async () => {
     if (!isPurchasesConfigured()) {
+      if (user?.userId) {
+        const rcAppUserId = resolveRevenueCatAppUserId(user.userId);
+        try {
+          await initPurchases(rcAppUserId);
+          if (isPurchasesConfigured()) {
+            await loginPurchaseUser(rcAppUserId);
+            setInitError(null);
+          }
+        } catch (err: any) {
+          setInitError(err?.message || 'RevenueCat initialization failed');
+        }
+      }
+    }
+
+    if (!isPurchasesConfigured()) {
+      const debug = getPurchasesConfigDebug();
       Alert.alert(
         'Not Available',
-        'In-app purchases are not configured yet. Please check back later.',
+        initError ||
+          `In-app purchases are not configured (platform=${debug.platform}, keyPresent=${debug.keyPresent}, keyPrefix=${debug.keyPrefix || 'none'}).`,
       );
       return;
     }

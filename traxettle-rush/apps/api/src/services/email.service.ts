@@ -33,9 +33,20 @@ export class EmailService {
     // Support both SMTP_PASS and SMTP_PASSWORD env var names
     const smtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '';
     const smtpHost = process.env.SMTP_HOST || '';
+    const smtpService = (process.env.SMTP_SERVICE || process.env.SMTP_PROVIDER || '').trim().toLowerCase();
+    const isGmailService = smtpService === 'gmail' || smtpService === 'google';
     this.isEtherealHost = smtpHost.includes('ethereal.email');
 
-    if (smtpHost) {
+    if (isGmailService) {
+      this.transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: process.env.SMTP_USER || '',
+          pass: smtpPass,
+        },
+      });
+      console.log('📧 EmailService connected to Gmail SMTP service');
+    } else if (smtpHost) {
       this.transporter = nodemailer.createTransport({
         host: smtpHost,
         port: parseInt(process.env.SMTP_PORT || '587', 10),
@@ -49,7 +60,7 @@ export class EmailService {
     } else {
       // No SMTP configured — log emails to console only
       this.transporter = nodemailer.createTransport({ jsonTransport: true });
-      console.log('📧 EmailService running in MOCK mode (no SMTP_HOST configured). Emails will be logged to console.');
+      console.log('📧 EmailService running in MOCK mode (no SMTP_HOST/SMTP_SERVICE configured). Emails will be logged to console.');
     }
   }
 

@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { BUILD_ENV } from './buildEnv';
 
 /**
  * Mobile app environment configuration.
@@ -62,23 +63,31 @@ export const ENV = {
    * You can also set via EXPO_PUBLIC_REVENUECAT_APPLE_KEY / EXPO_PUBLIC_REVENUECAT_GOOGLE_KEY
    */
   REVENUECAT_APPLE_API_KEY:
-    (process.env as any).EXPO_PUBLIC_REVENUECAT_APPLE_KEY || '',
+    (process.env as any).EXPO_PUBLIC_REVENUECAT_APPLE_KEY ||
+    BUILD_ENV.REVENUECAT_APPLE_API_KEY ||
+    '',
   REVENUECAT_GOOGLE_API_KEY:
-    (process.env as any).EXPO_PUBLIC_REVENUECAT_GOOGLE_KEY || '',
+    (process.env as any).EXPO_PUBLIC_REVENUECAT_GOOGLE_KEY ||
+    BUILD_ENV.REVENUECAT_GOOGLE_API_KEY ||
+    '',
 
   /**
    * RevenueCat entitlement identifier — must match the entitlement ID
    * configured in RevenueCat Dashboard → Entitlements.
    */
   REVENUECAT_PRO_ENTITLEMENT_ID:
-    (process.env as any).EXPO_PUBLIC_REVENUECAT_PRO_ENTITLEMENT || 'pro',
+    (process.env as any).EXPO_PUBLIC_REVENUECAT_PRO_ENTITLEMENT ||
+    BUILD_ENV.REVENUECAT_PRO_ENTITLEMENT_ID ||
+    'pro',
 
   /**
    * RevenueCat offering identifier — must match the offering ID
    * configured in RevenueCat Dashboard → Offerings.
    */
   REVENUECAT_OFFERING_ID:
-    (process.env as any).EXPO_PUBLIC_REVENUECAT_OFFERING || 'default',
+    (process.env as any).EXPO_PUBLIC_REVENUECAT_OFFERING ||
+    BUILD_ENV.REVENUECAT_OFFERING_ID ||
+    'default',
 
   /**
    * Google OAuth Client IDs for Google Sign-In.

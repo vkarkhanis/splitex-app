@@ -12,11 +12,26 @@ type RevenueCatEvent = {
 
 export class RevenueCatService {
   private readonly webhookSecret = process.env.REVENUECAT_WEBHOOK_SECRET || '';
-  private readonly proEntitlementId = process.env.REVENUECAT_PRO_ENTITLEMENT_ID || 'pro';
+  private readonly proEntitlementIds = (process.env.REVENUECAT_PRO_ENTITLEMENT_ID || 'pro,traxettle-pro')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  private normaliseSecret(value: string | undefined): string {
+    if (!value) return '';
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    if (/^Bearer\s+/i.test(trimmed)) {
+      return trimmed.replace(/^Bearer\s+/i, '').trim();
+    }
+    return trimmed;
+  }
 
   validateWebhookSecret(headerSecret: string | undefined): boolean {
     if (!this.webhookSecret) return true; // local fallback
-    return headerSecret === this.webhookSecret;
+    const incoming = this.normaliseSecret(headerSecret);
+    const expected = this.normaliseSecret(this.webhookSecret);
+    return incoming === expected;
   }
 
   parseEvent(payload: any): RevenueCatEvent {
@@ -33,12 +48,19 @@ export class RevenueCatService {
   }
 
   resolveUserId(event: RevenueCatEvent): string | null {
-    return event.app_user_id || event.aliases?.[0] || null;
+    const candidate = event.app_user_id || event.aliases?.[0] || null;
+    if (!candidate) return null;
+
+    // Mobile client tags RevenueCat app_user_id as "<env>::<userId>" to avoid
+    // cross-environment customer collisions (local/staging/prod).
+    const match = candidate.match(/^(local|staging|production|internal)::(.+)$/i);
+    if (match?.[2]) return match[2];
+    return candidate;
   }
 
   mapTier(event: RevenueCatEvent): PlanTier {
     const entitlements = event.entitlement_ids || [];
-    if (entitlements.includes(this.proEntitlementId)) return 'pro';
+    if (entitlements.some((id) => this.proEntitlementIds.includes(id))) return 'pro';
 
     const t = (event.type || '').toUpperCase();
     if (['INITIAL_PURCHASE', 'RENEWAL', 'PRODUCT_CHANGE', 'NON_RENEWING_PURCHASE'].includes(t)) {

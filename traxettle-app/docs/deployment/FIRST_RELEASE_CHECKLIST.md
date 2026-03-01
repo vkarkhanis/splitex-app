@@ -39,7 +39,7 @@ Use this in order. Do not skip sections.
 
 ## C) Staging API Deployment
 
-- [ ] Edit `docs/deployment/scripts/deploy-staging.sh`
+- [ ] Edit `scripts/api-deployment/deploy-staging.sh`
 - [ ] Fill all required placeholders
 - [ ] `FIREBASE_PRIVATE_KEY_FILE` points to staging service-account JSON path
 - [ ] If passwordless enabled, set:
@@ -50,7 +50,7 @@ Use this in order. Do not skip sections.
 - [ ] Run:
 
 ```bash
-bash docs/deployment/scripts/deploy-staging.sh
+bash scripts/api-deployment/deploy-staging.sh
 ```
 
 - [ ] Health check passes:
@@ -104,12 +104,12 @@ eas submit --platform android --latest
 
 ## F) Production Deployment
 
-- [ ] Edit `docs/deployment/scripts/deploy-prod.sh`
+- [ ] Edit `scripts/api-deployment/deploy-prod.sh`
 - [ ] Fill all required placeholders with prod values
 - [ ] Deploy:
 
 ```bash
-bash docs/deployment/scripts/deploy-prod.sh
+bash scripts/api-deployment/deploy-prod.sh
 ```
 
 - [ ] Copy production Firebase mobile files
@@ -121,21 +121,21 @@ bash docs/deployment/scripts/deploy-prod.sh
 - [ ] `Dockerfile.web` exists at `traxettle-rush/Dockerfile.web`
 - [ ] `StyledComponentsRegistry.tsx` is tracked in git:
   - [ ] `git ls-files -- traxettle-rush/apps/web/src/lib/StyledComponentsRegistry.tsx` returns a path
-- [ ] Edit `docs/deployment/scripts/deploy-web-staging.sh`
+- [ ] Edit `scripts/web-deployment/deploy-web-staging.sh`
 - [ ] Hosting site exists for staging (`HOSTING_SITE_ID`)
 - [ ] Run:
 
 ```bash
-bash docs/deployment/scripts/deploy-web-staging.sh
+bash scripts/web-deployment/deploy-web-staging.sh
 ```
 
 - [ ] Staging web URL opens (`https://<HOSTING_SITE_ID>.web.app`)
-- [ ] Edit `docs/deployment/scripts/deploy-web-prod.sh`
+- [ ] Edit `scripts/web-deployment/deploy-web-prod.sh`
 - [ ] Hosting site exists for production (`HOSTING_SITE_ID`)
 - [ ] Run:
 
 ```bash
-bash docs/deployment/scripts/deploy-web-prod.sh
+bash scripts/web-deployment/deploy-web-prod.sh
 ```
 
 - [ ] Production web URL opens (`https://<HOSTING_SITE_ID>.web.app`)

@@ -37,12 +37,27 @@ async function request<T = any>(
   }
 
   const apiBaseUrl = getResolvedApiBaseUrl();
-  const res = await fetch(`${apiBaseUrl}${path}`, {
-    ...options,
-    headers,
-  });
+  const controller = new AbortController();
+  const timeoutMs = 25000;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl}${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    clearTimeout(timeout);
+    if (err?.name === 'AbortError') {
+      throw new Error('Request timed out. Please try again.');
+    }
+    throw new Error('Unable to reach server. Please check your internet connection and try again.');
+  } finally {
+    clearTimeout(timeout);
+  }
 
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
 
   if (!res.ok || !json.success) {
     throw new Error(json.error || json.message || `Request failed with status ${res.status}`);
