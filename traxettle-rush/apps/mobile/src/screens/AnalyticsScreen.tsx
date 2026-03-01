@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { File, Paths } from 'expo-file-system';
@@ -136,17 +137,27 @@ export default function AnalyticsScreen({ navigation }: any) {
     }
     setExporting(format);
     try {
+      const today = new Date();
+      const dateStr = `${today.getDate().toString().padStart(2, '0')}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getFullYear()}`;
+      const eventName = (myExpenses[0] as any)._eventName || 'analytics';
+      const sanitizedName = eventName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 20);
+      const fileName = `${sanitizedName}-${dateStr}`;
+      
       if (format === 'csv') {
         const rows = ['Event,Title,Category,Amount,Currency,Split Type,Date'];
         for (const exp of myExpenses) {
           const cat = categorize(exp.title);
           rows.push(`"${(exp as any)._eventName}","${exp.title}","${cat}","${exp.amount}","${exp.currency}","${exp.splitType}","${new Date(exp.createdAt).toLocaleDateString()}"`);
         }
-        const csvFile = new File(Paths.cache, `analytics_${Date.now()}.csv`);
+        const csvFile = new File(Paths.cache, `${fileName}.csv`);
         csvFile.create();
         await csvFile.write(rows.join('\n'));
+        
+        // Let user open in any app or share
         if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(csvFile.uri, { mimeType: 'text/csv', dialogTitle: 'Export Analytics' });
+          await Sharing.shareAsync(csvFile.uri, { mimeType: 'text/csv', dialogTitle: `Open ${fileName}.csv` });
+        } else {
+          Alert.alert('Export Complete', `CSV saved as ${fileName}.csv`);
         }
       } else {
         let html = `<html><head><style>
@@ -168,8 +179,12 @@ export default function AnalyticsScreen({ navigation }: any) {
         }
         html += `</table></body></html>`;
         const { uri } = await Print.printToFileAsync({ html });
+        
+        // Let user open in any app or share
         if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Export Analytics' });
+          await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: `Open ${fileName}.pdf` });
+        } else {
+          Alert.alert('Export Complete', `PDF saved as ${fileName}.pdf`);
         }
       }
     } catch (err: any) {

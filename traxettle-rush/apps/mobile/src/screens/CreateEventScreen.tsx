@@ -10,6 +10,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Modal,
 } from 'react-native';
 import { spacing, radii, fontSizes } from '../theme';
 import { useTheme } from '../context/ThemeContext';
@@ -25,11 +26,45 @@ export default function CreateEventScreen({ navigation }: any) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'event' | 'trip'>('event');
+  const [startDate, setStartDate] = useState<Date>(new Date());
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [pickerTarget, setPickerTarget] = useState<'start' | 'end' | null>(null);
+  const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
+  const [pickerMonth, setPickerMonth] = useState(new Date().getMonth());
+  const [pickerDay, setPickerDay] = useState(new Date().getDate());
   const [currency, setCurrency] = useState('USD');
   const [settlementCurrency, setSettlementCurrency] = useState('');
   const [fxRateMode, setFxRateMode] = useState<'eod' | 'predefined'>('eod');
   const [predefinedFxRate, setPredefinedFxRate] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  const formatDisplayDate = (d: Date) =>
+    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+  const daysInMonth = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
+
+  const openPicker = (target: 'start' | 'end') => {
+    const d = target === 'start' ? startDate : (endDate || startDate);
+    setPickerYear(d.getFullYear());
+    setPickerMonth(d.getMonth());
+    setPickerDay(d.getDate());
+    setPickerTarget(target);
+  };
+
+  const confirmPicker = () => {
+    const maxDay = daysInMonth(pickerYear, pickerMonth);
+    const safeDay = Math.min(pickerDay, maxDay);
+    const selected = new Date(pickerYear, pickerMonth, safeDay);
+    if (pickerTarget === 'start') {
+      setStartDate(selected);
+      if (endDate && selected > endDate) setEndDate(null);
+    } else {
+      setEndDate(selected);
+    }
+    setPickerTarget(null);
+  };
 
   const needsFx = settlementCurrency && settlementCurrency !== currency;
   const isFxProFeature = needsFx && !capabilities.multiCurrencySettlement;
@@ -74,7 +109,8 @@ export default function CreateEventScreen({ navigation }: any) {
         name: name.trim(),
         description: description.trim(),
         type,
-        startDate: new Date().toISOString(),
+        startDate: startDate.toISOString(),
+        endDate: endDate ? endDate.toISOString() : undefined,
         currency,
       };
 
@@ -119,6 +155,37 @@ export default function CreateEventScreen({ navigation }: any) {
 
       <Text style={[styles.label, { color: colors.textSecondary }]}>Description (optional)</Text>
       <TextInput testID="create-event-description-input" style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]} value={description} onChangeText={setDescription} placeholder="Brief description..." placeholderTextColor={colors.muted} multiline />
+
+      {/* Dates */}
+      <View style={styles.dateRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Start Date</Text>
+          <TouchableOpacity
+            style={[styles.dateBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={() => openPicker('start')}
+          >
+            <Text style={[styles.dateBtnText, { color: colors.text }]}>
+              {formatDisplayDate(startDate)}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>End Date (optional)</Text>
+          <TouchableOpacity
+            style={[styles.dateBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={() => openPicker('end')}
+          >
+            <Text style={[styles.dateBtnText, { color: endDate ? colors.text : colors.muted }]}>
+              {endDate ? formatDisplayDate(endDate) : 'Not set'}
+            </Text>
+          </TouchableOpacity>
+          {endDate && (
+            <TouchableOpacity onPress={() => setEndDate(null)}>
+              <Text style={[styles.clearDateText, { color: colors.error }]}>Clear</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
 
       {/* Type */}
       <Text style={[styles.label, { color: colors.textSecondary }]}>Type</Text>
@@ -233,6 +300,69 @@ export default function CreateEventScreen({ navigation }: any) {
         )}
       </TouchableOpacity>
     </ScrollView>
+
+    {/* Date Picker Modal */}
+    <Modal visible={pickerTarget !== null} transparent animationType="fade" onRequestClose={() => setPickerTarget(null)}>
+      <View style={styles.pickerOverlay}>
+        <View style={[styles.pickerContainer, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.pickerTitle, { color: colors.text }]}>
+            {pickerTarget === 'start' ? 'Start Date' : 'End Date'}
+          </Text>
+
+          {/* Month selector */}
+          <Text style={[styles.pickerSectionLabel, { color: colors.textSecondary }]}>Month</Text>
+          <View style={styles.pickerChipRow}>
+            {MONTHS.map((m, i) => (
+              <TouchableOpacity
+                key={m}
+                style={[styles.pickerChip, { borderColor: colors.border, backgroundColor: colors.background }, pickerMonth === i && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]}
+                onPress={() => setPickerMonth(i)}
+              >
+                <Text style={[styles.pickerChipText, { color: colors.text }, pickerMonth === i && { color: colors.primary, fontWeight: '700' }]}>{m}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Year selector */}
+          <Text style={[styles.pickerSectionLabel, { color: colors.textSecondary }]}>Year</Text>
+          <View style={styles.pickerChipRow}>
+            {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() + i).map(y => (
+              <TouchableOpacity
+                key={y}
+                style={[styles.pickerChip, { borderColor: colors.border, backgroundColor: colors.background }, pickerYear === y && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]}
+                onPress={() => setPickerYear(y)}
+              >
+                <Text style={[styles.pickerChipText, { color: colors.text }, pickerYear === y && { color: colors.primary, fontWeight: '700' }]}>{y}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Day selector */}
+          <Text style={[styles.pickerSectionLabel, { color: colors.textSecondary }]}>Day</Text>
+          <View style={styles.pickerChipRow}>
+            {Array.from({ length: daysInMonth(pickerYear, pickerMonth) }, (_, i) => i + 1).map(d => (
+              <TouchableOpacity
+                key={d}
+                style={[styles.pickerDayChip, { borderColor: colors.border, backgroundColor: colors.background }, pickerDay === d && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]}
+                onPress={() => setPickerDay(d)}
+              >
+                <Text style={[styles.pickerDayText, { color: colors.text }, pickerDay === d && { color: colors.primary, fontWeight: '700' }]}>{d}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Actions */}
+          <View style={styles.pickerActions}>
+            <TouchableOpacity style={[styles.pickerCancelBtn, { borderColor: colors.border }]} onPress={() => setPickerTarget(null)}>
+              <Text style={[styles.pickerBtnText, { color: colors.text }]}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.pickerConfirmBtn, { backgroundColor: colors.primary }]} onPress={confirmPicker}>
+              <Text style={[styles.pickerBtnText, { color: '#fff' }]}>Confirm</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -247,6 +377,13 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm, borderWidth: 1,
     padding: spacing.md, fontSize: fontSizes.md,
   },
+  dateRow: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm },
+  dateBtn: {
+    borderRadius: radii.sm, borderWidth: 1,
+    padding: spacing.md, justifyContent: 'center',
+  },
+  dateBtnText: { fontSize: fontSizes.md },
+  clearDateText: { fontSize: fontSizes.xs, marginTop: spacing.xs, fontWeight: '600' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: {
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
@@ -268,4 +405,37 @@ const styles = StyleSheet.create({
   },
   submitBtnDisabled: { opacity: 0.6 },
   submitBtnText: { color: '#ffffff', fontSize: fontSizes.md, fontWeight: '600' },
+
+  // Date Picker Modal
+  pickerOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center', alignItems: 'center', padding: spacing.lg,
+  },
+  pickerContainer: {
+    width: '100%', maxHeight: '80%',
+    borderRadius: radii.md, padding: spacing.lg,
+  },
+  pickerTitle: { fontSize: fontSizes.lg, fontWeight: '700', marginBottom: spacing.md },
+  pickerSectionLabel: { fontSize: fontSizes.xs, fontWeight: '600', marginTop: spacing.md, marginBottom: spacing.xs },
+  pickerChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  pickerChip: {
+    paddingHorizontal: spacing.sm, paddingVertical: spacing.xs,
+    borderRadius: radii.sm, borderWidth: 1.5,
+  },
+  pickerChipText: { fontSize: fontSizes.xs },
+  pickerDayChip: {
+    width: 38, height: 38, justifyContent: 'center', alignItems: 'center',
+    borderRadius: radii.sm, borderWidth: 1.5,
+  },
+  pickerDayText: { fontSize: fontSizes.sm, textAlign: 'center' },
+  pickerActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm, marginTop: spacing.lg },
+  pickerCancelBtn: {
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
+    borderRadius: radii.sm, borderWidth: 1,
+  },
+  pickerConfirmBtn: {
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
+    borderRadius: radii.sm,
+  },
+  pickerBtnText: { fontSize: fontSizes.sm, fontWeight: '600' },
 });

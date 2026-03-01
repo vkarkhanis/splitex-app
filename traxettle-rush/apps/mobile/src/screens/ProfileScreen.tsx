@@ -9,6 +9,8 @@ import {
   ScrollView,
   Alert,
   Switch,
+  Linking,
+  Platform,
 } from 'react-native';
 import { spacing, radii, fontSizes } from '../theme';
 import { useAuth } from '../context/AuthContext';
@@ -237,6 +239,43 @@ export default function ProfileScreen({ navigation }: any) {
     }
   };
 
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'This will permanently delete your account and all associated data including:\n\n• Profile information\n• All events you created\n• All expenses you added\n• Payment methods\n• Account settings\n\nThis action cannot be undone. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.delete('/api/users/account');
+              await logout();
+              Alert.alert('Account Deleted', 'Your account has been permanently deleted.');
+            } catch (err: any) {
+              Alert.alert('Error', err?.message || 'Failed to delete account. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleManageSubscription = () => {
+    const url = Platform.OS === 'ios' 
+      ? 'https://apps.apple.com/account/subscriptions' 
+      : 'https://play.google.com/store/account/subscriptions';
+    Linking.openURL(url).catch(() => {
+      // Fallback: direct user to platform settings
+      if (Platform.OS === 'ios') {
+        Linking.openURL('https://support.apple.com/en-us/HT202039');
+      } else {
+        Linking.openURL('https://support.google.com/googleplay/answer/7018481');
+      }
+    });
+  };
+
   if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
@@ -458,6 +497,12 @@ export default function ProfileScreen({ navigation }: any) {
               You have access to all Pro features
             </Text>
           </View>
+          <TouchableOpacity
+            style={[styles.manageSubBtn, { borderColor: c.success }]}
+            onPress={handleManageSubscription}
+          >
+            <Text style={[styles.manageSubBtnText, { color: c.success }]}>Manage</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -552,6 +597,10 @@ export default function ProfileScreen({ navigation }: any) {
 
       <TouchableOpacity testID="profile-signout-button" style={[styles.signOutBtn, { borderColor: c.error }]} onPress={handleSignOut}>
         <Text style={[styles.signOutText, { color: c.error }]}>Sign Out</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity testID="profile-delete-account-button" style={[styles.deleteAccountBtn, { borderColor: c.error, backgroundColor: c.error + '10' }]} onPress={handleDeleteAccount}>
+        <Text style={[styles.deleteAccountText, { color: c.error }]}>Delete Account</Text>
       </TouchableOpacity>
 
       <TouchableOpacity onPress={handleVersionTap} activeOpacity={0.9}>
@@ -659,9 +708,14 @@ const styles = StyleSheet.create({
   saveBtnText: { color: '#ffffff', fontSize: fontSizes.md, fontWeight: '600' },
   signOutBtn: {
     borderRadius: radii.md, padding: spacing.lg, alignItems: 'center',
-    borderWidth: 1.5, marginBottom: spacing.lg,
+    borderWidth: 1.5, marginBottom: spacing.md,
   },
   signOutText: { fontSize: fontSizes.md, fontWeight: '600' },
+  deleteAccountBtn: {
+    borderRadius: radii.md, padding: spacing.lg, alignItems: 'center',
+    borderWidth: 1.5, marginBottom: spacing.lg,
+  },
+  deleteAccountText: { fontSize: fontSizes.md, fontWeight: '600' },
   version: { textAlign: 'center', fontSize: fontSizes.xs, marginTop: spacing.md },
 
   // Pro upgrade card
@@ -677,5 +731,10 @@ const styles = StyleSheet.create({
   proEmoji: { fontSize: 28 },
   proTitle: { fontSize: fontSizes.md, fontWeight: '700' },
   proDesc: { fontSize: fontSizes.xs, marginTop: 2, lineHeight: 16 },
-  proArrow: { fontSize: 28, fontWeight: '300' },
+  proArrow: { fontSize: 24, color: '#3b82f6' },
+  manageSubBtn: {
+    paddingHorizontal: spacing.sm, paddingVertical: spacing.xs,
+    borderRadius: radii.full, borderWidth: 1,
+  },
+  manageSubBtnText: { fontSize: fontSizes.xs, fontWeight: '700' },
 });

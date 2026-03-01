@@ -144,10 +144,22 @@ function RootNavigator() {
   return user ? <AppStack /> : <AuthStack />;
 }
 
+const linking = {
+  prefixes: ['com.traxettle.app://'],
+  config: {
+    screens: {
+      EventDetail: {
+        path: 'events/:eventId',
+      },
+      Dashboard: '',
+    },
+  },
+};
+
 function AppInner() {
   const { theme } = useTheme();
   return (
-    <NavigationContainer>
+    <NavigationContainer linking={linking}>
       <StatusBar style={theme.isDark ? 'light' : 'dark'} />
       <RootNavigator />
     </NavigationContainer>

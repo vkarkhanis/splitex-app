@@ -257,7 +257,7 @@ case "$PROFILE" in
     ;;
 esac
 
-./gradlew "$GRADLE_TASK" --no-daemon
+NODE_ENV=production ./gradlew "$GRADLE_TASK" --no-daemon
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"

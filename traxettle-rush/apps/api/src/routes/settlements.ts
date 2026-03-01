@@ -212,9 +212,7 @@ router.post('/:settlementId/pay', requireAuth, async (req: AuthenticatedRequest,
     const uid = req.user!.uid;
     const referenceId = typeof req.body?.referenceId === 'string' ? req.body.referenceId.trim() : '';
     const proofUrl = typeof req.body?.proofUrl === 'string' ? req.body.proofUrl.trim() : '';
-    if (!referenceId) {
-      return res.status(400).json({ success: false, error: 'referenceId is required' } as ApiResponse);
-    }
+    // Reference ID is now optional
     let useRealGateway = req.body?.useRealGateway === true;
     if (!isProdRuntime() && useRealGateway) {
       const allowReal = String(process.env.PAYMENT_ALLOW_REAL_IN_NON_PROD || 'false') === 'true';

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { File, Paths } from 'expo-file-system';
@@ -170,25 +171,32 @@ export default function ClosedEventsScreen({ navigation }: any) {
     setExporting(format);
     try {
       const details = await Promise.all(eventsToExport.map(fetchEventDetails));
+      const today = new Date();
+      const dateStr = `${today.getDate().toString().padStart(2, '0')}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getFullYear()}`;
+      const fileName = `closed-events-${dateStr}`;
 
       if (format === 'csv') {
         const csv = buildCsvContent(details);
-        const csvFile = new File(Paths.cache, `closed_events_${Date.now()}.csv`);
+        const csvFile = new File(Paths.cache, `${fileName}.csv`);
         csvFile.create();
         await csvFile.write(csv);
         const fileUri = csvFile.uri;
+        
+        // Let user open in any app or share
         if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: 'Export Closed Events' });
+          await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: `Open ${fileName}.csv` });
         } else {
-          Alert.alert('Sharing not available', 'Your device does not support file sharing.');
+          Alert.alert('Export Complete', `CSV saved as ${fileName}.csv`);
         }
       } else {
         const html = buildHtmlContent(details);
         const { uri } = await Print.printToFileAsync({ html });
+        
+        // Let user open in any app or share
         if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Export Closed Events' });
+          await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: `Open ${fileName}.pdf` });
         } else {
-          Alert.alert('Sharing not available', 'Your device does not support file sharing.');
+          Alert.alert('Export Complete', `PDF saved as ${fileName}.pdf`);
         }
       }
     } catch (err: any) {

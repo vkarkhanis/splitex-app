@@ -6,6 +6,8 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  Linking,
+  Platform,
 } from 'react-native';
 import { spacing, radii, fontSizes } from '../theme';
 import { useTheme } from '../context/ThemeContext';
@@ -13,12 +15,12 @@ import { usePurchase } from '../context/PurchaseContext';
 
 const PRO_FEATURES = [
   {
-    icon: '�',
-    title: 'No Ads — Even in Free',
+    icon: '✨',
+    title: 'No Ads — Even in Free Version',
     desc: 'Traxettle is completely ad-free. No banners, no pop-ups, no interruptions — ever.',
   },
   {
-    icon: '�📅',
+    icon: '📅',
     title: 'Unlimited Events',
     desc: 'Free plan is limited to 3 events. Go Pro for unlimited events.',
   },
@@ -55,6 +57,20 @@ export default function ProUpgradeScreen({ navigation }: any) {
   const { isPro, purchasing, priceString, handlePurchase, handleRestore } = usePurchase();
   const renewalPrice = isIndiaLocale() ? '₹299' : '$5.99';
 
+  const handleManageSubscription = () => {
+    const url = Platform.OS === 'ios' 
+      ? 'https://apps.apple.com/account/subscriptions' 
+      : 'https://play.google.com/store/account/subscriptions';
+    Linking.openURL(url).catch(() => {
+      // Fallback: direct user to platform settings
+      if (Platform.OS === 'ios') {
+        Linking.openURL('https://support.apple.com/en-us/HT202039');
+      } else {
+        Linking.openURL('https://support.google.com/googleplay/answer/7018481');
+      }
+    });
+  };
+
   if (isPro) {
     return (
       <ScrollView style={[styles.container, { backgroundColor: c.background }]} contentContainerStyle={styles.content}>
@@ -80,6 +96,13 @@ export default function ProUpgradeScreen({ navigation }: any) {
             </View>
           ))}
         </View>
+
+        <TouchableOpacity
+          style={[styles.outlineBtn, { borderColor: c.border }]}
+          onPress={handleManageSubscription}
+        >
+          <Text style={[styles.outlineBtnText, { color: c.text }]}>Manage Subscription</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.outlineBtn, { borderColor: c.border }]}

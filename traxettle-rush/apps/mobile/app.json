@@ -3,7 +3,7 @@
     "name": "Traxettle",
     "slug": "traxettle",
     "scheme": "com.traxettle.app",
-    "version": "1.0.7",
+    "version": "1.0.9",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -30,7 +30,18 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#6366f1"
       },
-      "package": "com.traxettle.app"
+      "package": "com.traxettle.app",
+      "intentFilters": [
+        {
+          "action": "android.intent.action.SEND",
+          "data": {
+            "mimeType": "image/*"
+          },
+          "categories": [
+            "android.intent.category.DEFAULT"
+          ]
+        }
+      ]
     },
     "plugins": [
       "./plugins/copy-google-service-plist"

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { File } from 'expo-file-system';
+import { useSharedContent } from '../hooks/useSharedContent';
 import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -53,6 +54,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const currentUserId = user?.userId || '';
+  const { sharedContent, clearSharedContent } = useSharedContent();
 
   const STATUS_DOT: Record<string, string> = {
     pending: colors.warning,
@@ -114,6 +116,19 @@ export default function EventDetailScreen({ route, navigation }: any) {
   const [markPaidProofUrl, setMarkPaidProofUrl] = useState('');
   const [markPaidNote, setMarkPaidNote] = useState('');
   const [markPaidLoading, setMarkPaidLoading] = useState(false);
+
+  // Auto-attach shared screenshot when "I've Paid" modal opens
+  useEffect(() => {
+    if (markPaidModal && sharedContent && sharedContent.mimeType.startsWith('image/')) {
+      setMarkPaidProofUrl(sharedContent.uri);
+      Alert.alert(
+        'Screenshot Attached',
+        'The payment screenshot you shared has been attached as proof.',
+        [{ text: 'OK' }]
+      );
+      clearSharedContent();
+    }
+  }, [markPaidModal, sharedContent, clearSharedContent]);
   const [proofUploading, setProofUploading] = useState(false);
   const [approveSettlementLoading, setApproveSettlementLoading] = useState(false);
   const [regenerateLoading, setRegenerateLoading] = useState(false);
@@ -318,10 +333,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
     if (!markPaidTarget) return;
     const referenceId = markPaidReferenceId.trim();
     const proofUrl = markPaidProofUrl.trim();
-    if (!referenceId) {
-      Alert.alert('Reference ID required', 'Enter transaction/UTR/reference ID before marking paid.');
-      return;
-    }
+    // Reference ID is now optional
     setMarkPaidLoading(true);
     try {
       const settlementCurrency = markPaidTarget.settlementCurrency || markPaidTarget.currency;
@@ -1293,7 +1305,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                   </Text>
                 )}
 
-                <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Reference ID (required)</Text>
+                <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Reference ID (optional)</Text>
                 <TextInput
                   style={[styles.modalInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surfaceAlt }]}
                   value={markPaidReferenceId}
@@ -1301,24 +1313,27 @@ export default function EventDetailScreen({ route, navigation }: any) {
                   placeholder="UTR / txn ID / bank ref"
                   placeholderTextColor={colors.muted}
                 />
-                <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Proof URL (optional)</Text>
-                <TextInput
-                  style={[styles.modalInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surfaceAlt }]}
-                  value={markPaidProofUrl}
-                  onChangeText={setMarkPaidProofUrl}
-                  placeholder="https://... proof screenshot link"
-                  placeholderTextColor={colors.muted}
-                  autoCapitalize="none"
-                />
-                <TouchableOpacity
-                  style={[styles.uploadProofBtn, { borderColor: colors.border }]}
-                  onPress={handlePickAndUploadProof}
-                  disabled={proofUploading}
-                >
-                  <Text style={[styles.uploadProofBtnText, { color: colors.primary }]}>
-                    {proofUploading ? 'Uploading Proof...' : 'Upload Proof Screenshot'}
-                  </Text>
-                </TouchableOpacity>
+                <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Proof (optional)</Text>
+                {markPaidProofUrl ? (
+                  <View style={[styles.proofAttachedBanner, { backgroundColor: colors.success + '18', borderColor: colors.success + '40' }]}>
+                    <Text style={[styles.proofAttachedText, { color: colors.success }]}>
+                      ✓ Screenshot attached as proof
+                    </Text>
+                    <TouchableOpacity onPress={() => setMarkPaidProofUrl('')}>
+                      <Text style={{ color: colors.error, fontSize: 13 }}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.uploadProofBtn, { borderColor: colors.border }]}
+                    onPress={handlePickAndUploadProof}
+                    disabled={proofUploading}
+                  >
+                    <Text style={[styles.uploadProofBtnText, { color: colors.primary }]}>
+                      {proofUploading ? 'Uploading Proof...' : 'Upload Proof Screenshot'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
                 <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Note (optional)</Text>
                 <TextInput
                   style={[styles.modalInput, styles.modalTextArea, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surfaceAlt }]}
@@ -1718,4 +1733,11 @@ const styles = StyleSheet.create({
   timelineAction: { fontSize: fontSizes.xs, fontWeight: '600', textTransform: 'capitalize' },
   timelineMeta: { fontSize: fontSizes.xs, marginTop: 1 },
   timelineEmpty: { fontSize: fontSizes.xs },
+
+  // Proof attached banner
+  proofAttachedBanner: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    borderWidth: 1, borderRadius: radii.sm, padding: spacing.md, marginBottom: spacing.sm,
+  },
+  proofAttachedText: { fontSize: fontSizes.sm, fontWeight: '600' },
 });
