@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env.local"
+RC_LOADER="${ROOT_DIR}/scripts/revenuecat/load-rc-config.sh"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "Missing ${ENV_FILE}. Run scripts/revenuecat/bootstrap.sh first."
@@ -13,6 +14,11 @@ fi
 set -a
 source "${ENV_FILE}"
 set +a
+
+if [[ -f "$RC_LOADER" ]]; then
+  # shellcheck disable=SC1090
+  source "$RC_LOADER" local
+fi
 
 missing=0
 for key in APP_ENV INTERNAL_TIER_SWITCH_ENABLED REVENUECAT_WEBHOOK_SECRET REVENUECAT_PRO_ENTITLEMENT_ID PAYMENT_GATEWAY_MODE PAYMENT_ALLOW_REAL_IN_NON_PROD; do

@@ -61,18 +61,32 @@ async function request<T = any>(
   console.log(`[api] ${options.method || 'GET'} ${url}`);
 
   let res: Response;
+  const controller = new AbortController();
+  const timeoutMs = 25000;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     res = await fetch(url, {
       ...options,
       headers,
+      signal: controller.signal,
     });
   } catch (networkError: any) {
+    clearTimeout(timeout);
+    if (networkError?.name === 'AbortError') {
+      throw new ApiRequestError(
+        `Request timed out. Please try again.`,
+        0,
+        'TIMEOUT',
+      );
+    }
     console.error(`[api] Network error for ${url}:`, networkError?.message);
     throw new ApiRequestError(
       `Unable to reach server. Please check your internet connection and try again.`,
       0,
       'NETWORK_ERROR',
     );
+  } finally {
+    clearTimeout(timeout);
   }
 
   const json = await res.json().catch(() => ({}));

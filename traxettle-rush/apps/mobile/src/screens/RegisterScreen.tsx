@@ -38,6 +38,8 @@ export default function RegisterScreen({ navigation }: any) {
       if (Platform.OS === 'android') {
         await GoogleSignin.hasPlayServices();
       }
+      // Clear any cached Google session so the account picker always appears
+      await GoogleSignin.signOut().catch(() => {});
       const userInfo: any = await GoogleSignin.signIn();
       console.log('Google Sign-Up result:', JSON.stringify(userInfo, null, 2));
       const idToken = userInfo?.data?.idToken || userInfo?.idToken;
@@ -56,6 +58,11 @@ export default function RegisterScreen({ navigation }: any) {
         // already in progress
       } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
         Alert.alert('Error', 'Google Play Services not available.');
+      } else if (`${error?.code}` === '10' || `${error?.code}`.toUpperCase() === 'DEVELOPER_ERROR') {
+        Alert.alert(
+          'Google Sign-Up Setup Required',
+          'Android Developer Error (10): this build signature/SHA is not configured in Firebase Google Sign-In OAuth for this app. Add SHA-1/SHA-256 for the keystore used to sign this APK and download updated google-services.json.',
+        );
       } else {
         Alert.alert('Google Sign-Up Failed', `${error?.code ?? 'UNKNOWN'}: ${error?.message ?? 'Unexpected error'}`);
       }

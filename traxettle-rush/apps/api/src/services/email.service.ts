@@ -25,17 +25,30 @@ export class EmailService {
   private transporter: nodemailer.Transporter;
   private fromAddress: string;
   private appUrl: string;
+  private mobileScheme: string;
   private isEtherealHost: boolean;
 
   constructor() {
     this.appUrl = process.env.APP_URL || 'http://localhost:3000';
+    this.mobileScheme = process.env.MOBILE_APP_SCHEME || 'com.traxettle.app';
     this.fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@traxettle.app';
     // Support both SMTP_PASS and SMTP_PASSWORD env var names
     const smtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '';
     const smtpHost = process.env.SMTP_HOST || '';
+    const smtpService = (process.env.SMTP_SERVICE || process.env.SMTP_PROVIDER || '').trim().toLowerCase();
+    const isGmailService = smtpService === 'gmail' || smtpService === 'google';
     this.isEtherealHost = smtpHost.includes('ethereal.email');
 
-    if (smtpHost) {
+    if (isGmailService) {
+      this.transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: process.env.SMTP_USER || '',
+          pass: smtpPass,
+        },
+      });
+      console.log('📧 EmailService connected to Gmail SMTP service');
+    } else if (smtpHost) {
       this.transporter = nodemailer.createTransport({
         host: smtpHost,
         port: parseInt(process.env.SMTP_PORT || '587', 10),
@@ -49,7 +62,7 @@ export class EmailService {
     } else {
       // No SMTP configured — log emails to console only
       this.transporter = nodemailer.createTransport({ jsonTransport: true });
-      console.log('📧 EmailService running in MOCK mode (no SMTP_HOST configured). Emails will be logged to console.');
+      console.log('📧 EmailService running in MOCK mode (no SMTP_HOST/SMTP_SERVICE configured). Emails will be logged to console.');
     }
   }
 
@@ -215,6 +228,7 @@ export class EmailService {
 
   async sendNotificationEmail(data: NotificationEmailData): Promise<{ success: boolean; messageId?: string; error?: string }> {
     const eventUrl = `${this.appUrl}/events/${data.eventId}`;
+    const mobileDeepLink = `${this.mobileScheme}://events/${data.eventId}`;
     const subject = this.getNotificationSubject(data);
     const detailsHtml = this.getNotificationBody(data);
 
@@ -233,10 +247,13 @@ export class EmailService {
             ${detailsHtml}
           </div>
           <div style="text-align: center; margin: 24px 0;">
-            <a href="${eventUrl}" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
-              View Event
+            <a href="${mobileDeepLink}" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+              Open in App
             </a>
           </div>
+          <p style="color: #94a3b8; font-size: 13px; text-align: center; margin-bottom: 16px;">
+            Don't have the app? <a href="${eventUrl}" style="color: #3b82f6;">View on web</a>
+          </p>
           <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
           <p style="color: #94a3b8; font-size: 12px; text-align: center;">
             You received this because you are a participant in "${data.eventName}".<br/>

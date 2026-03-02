@@ -20,6 +20,7 @@ interface AuthContextType {
   tier: 'free' | 'pro';
   capabilities: AuthCapabilities;
   internalTester: boolean;
+  preferredCurrency: string;
   login: (email: string, password: string) => Promise<void>;
   sendEmailLinkSignIn: (email: string) => Promise<void>;
   completeEmailLinkSignIn: (url: string, email?: string) => Promise<void>;
@@ -36,6 +37,7 @@ const AuthContext = createContext<AuthContextType>({
   tier: 'free',
   capabilities: { multiCurrencySettlement: false },
   internalTester: false,
+  preferredCurrency: 'USD',
   login: async () => {},
   sendEmailLinkSignIn: async () => {},
   completeEmailLinkSignIn: async () => {},
@@ -63,6 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     multiCurrencySettlement: ENV.DEFAULT_TIER === 'pro',
   });
   const [internalTester, setInternalTester] = useState(false);
+  const [preferredCurrency, setPreferredCurrency] = useState('USD');
 
   const applyProfile = useCallback((data: any) => {
     setUser({ userId: data.userId, email: data.email, displayName: data.displayName });
@@ -73,12 +76,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const serverCapabilities: AuthCapabilities = {
       multiCurrencySettlement: Boolean(data?.capabilities?.multiCurrencySettlement),
     };
+    
+    console.log('[AuthContext] Profile data:', {
+      serverTier: serverTier,
+      nextTier,
+      serverCapabilities,
+      allowLocalTierOverride,
+      dataCapabilities: data?.capabilities,
+    });
+    
     setCapabilities(
       allowLocalTierOverride
         ? { multiCurrencySettlement: nextTier === 'pro' || serverCapabilities.multiCurrencySettlement }
         : serverCapabilities,
     );
     setInternalTester(Boolean(data?.internalTester));
+    setPreferredCurrency(data?.preferences?.currency || 'USD');
   }, []);
 
   const refreshProfile = useCallback(async () => {
@@ -167,6 +180,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setTier('free');
     setCapabilities({ multiCurrencySettlement: false });
     setInternalTester(false);
+    setPreferredCurrency('USD');
   };
 
   const switchTier = async (nextTier: 'free' | 'pro') => {
@@ -205,6 +219,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         tier,
         capabilities,
         internalTester,
+        preferredCurrency,
         login,
         sendEmailLinkSignIn,
         completeEmailLinkSignIn,

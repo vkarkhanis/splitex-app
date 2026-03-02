@@ -14,6 +14,57 @@ export class SettlementService {
   private paymentService = new PaymentService();
   private eventService = new EventService();
 
+  private async getActivePaymentMethodsForUser(userId: string, currency?: string): Promise<any[]> {
+    try {
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (!userDoc.exists) return [];
+      const data = userDoc.data() || {};
+      const methods = Array.isArray((data as any).paymentMethods) ? (data as any).paymentMethods : [];
+      const normalized = methods
+        .map((m: any) => ({
+          id: m?.id,
+          label: m?.label,
+          currency: typeof m?.currency === 'string' ? m.currency.toUpperCase() : m?.currency,
+          type: m?.type,
+          details: m?.details,
+          isActive: m?.isActive !== false,
+        }))
+        .filter((m: any) => m.id && m.label && m.currency && m.type && m.details && m.isActive);
+      if (!currency) return normalized;
+      return normalized.filter((m: any) => m.currency === currency.toUpperCase());
+    } catch {
+      return [];
+    }
+  }
+
+  private buildAuditEntry(params: {
+    action: 'created' | 'marked_paid' | 'confirmed' | 'rejected' | 'retry_requested';
+    actorUserId: string;
+    note?: string | null;
+    referenceId?: string | null;
+    proofUrl?: string | null;
+    statusFrom?: string;
+    statusTo?: string;
+  }): any {
+    return {
+      id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      action: params.action,
+      actorUserId: params.actorUserId,
+      note: params.note || undefined,
+      referenceId: params.referenceId || undefined,
+      proofUrl: params.proofUrl || undefined,
+      statusFrom: params.statusFrom,
+      statusTo: params.statusTo,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  private appendAuditTrail(existing: any, entry: any): any[] {
+    const current = Array.isArray(existing) ? existing : [];
+    const next = [...current, entry];
+    return next.length > 100 ? next.slice(next.length - 100) : next;
+  }
+
   /**
    * Calculate entity-level balances for an event.
    * Groups are treated as single entities. Individual users not in any group
@@ -246,6 +297,14 @@ export class SettlementService {
         currency: settlement.currency,
         status: 'pending',
         createdAt: now,
+        auditTrail: [
+          this.buildAuditEntry({
+            action: 'created',
+            actorUserId: userId,
+            statusFrom: 'none',
+            statusTo: 'pending',
+          }),
+        ],
       };
 
       // Include FX fields if settlement currency differs
@@ -491,6 +550,14 @@ export class SettlementService {
         currency: settlement.currency,
         status: 'pending',
         createdAt: now,
+        auditTrail: [
+          this.buildAuditEntry({
+            action: 'created',
+            actorUserId: userId,
+            statusFrom: 'none',
+            statusTo: 'pending',
+          }),
+        ],
       };
       if (settlement.settlementAmount !== undefined) {
         docData.settlementAmount = settlement.settlementAmount;
@@ -576,7 +643,13 @@ export class SettlementService {
   async initiatePayment(
     settlementId: string,
     userId: string,
-    options: { useRealGateway?: boolean } = {},
+    options: {
+      useRealGateway?: boolean;
+      paymentMode?: string;
+      referenceId?: string;
+      proofUrl?: string;
+      note?: string;
+    } = {},
   ): Promise<Settlement> {
     const doc = await db.collection(this.collection).doc(settlementId).get();
     if (!doc.exists) throw new Error('Settlement not found');
@@ -595,30 +668,62 @@ export class SettlementService {
       typeof data.settlementAmount === 'number'
         ? data.settlementAmount
         : data.amount;
-    const provider = this.fxRateService.getPaymentProvider(settlementCurrency);
-    const payment = await this.paymentService.startPayment(
-      provider,
-      {
-        settlementId,
-        amount: settlementAmount,
-        currency: settlementCurrency,
-        description: `Traxettle settlement ${settlementId}`,
-      },
-      options,
-    );
+    const retryCount = data.status === 'failed'
+      ? ((typeof data.retryCount === 'number' ? data.retryCount : 0) + 1)
+      : (typeof data.retryCount === 'number' ? data.retryCount : 0);
+    const hasManualPaymentInput = Boolean(options.paymentMode || options.referenceId || options.proofUrl || options.note);
+    const defaultManualMode = settlementCurrency === 'INR'
+      ? 'upi_or_netbanking'
+      : 'international_transfer';
+    let paymentMethod = options.paymentMode || defaultManualMode;
+    const paymentReference = options.referenceId || null;
+    const proofUrl = options.proofUrl || null;
+    const payerNote = options.note || null;
+    let checkoutUrl: string | undefined;
+    let paymentId: string | undefined;
 
+    if (!hasManualPaymentInput || options.useRealGateway) {
+      const provider = this.fxRateService.getPaymentProvider(settlementCurrency);
+      const payment = await this.paymentService.startPayment(
+        provider,
+        {
+          settlementId,
+          amount: settlementAmount,
+          currency: settlementCurrency,
+          description: `Traxettle settlement ${settlementId}`,
+        },
+        options,
+      );
+      paymentMethod = payment.provider;
+      checkoutUrl = payment.checkoutUrl;
+      paymentId = payment.providerPaymentId;
+    }
+
+    const markedPaidAudit = this.buildAuditEntry({
+      action: 'marked_paid',
+      actorUserId: userId,
+      note: payerNote,
+      referenceId: paymentReference,
+      proofUrl,
+      statusFrom: data.status,
+      statusTo: 'initiated',
+    });
+    const nextAuditTrail = this.appendAuditTrail(data.auditTrail, markedPaidAudit);
     await db.collection(this.collection).doc(settlementId).set(
       {
         status: 'initiated',
         initiatedAt: now,
+        payerMarkedAt: now,
         failedAt: null,
         failureReason: null,
-        paymentMethod: payment.provider,
-        paymentId: payment.providerPaymentId,
-        retryCount: data.status === 'failed'
-          ? ((typeof data.retryCount === 'number' ? data.retryCount : 0) + 1)
-          : (typeof data.retryCount === 'number' ? data.retryCount : 0),
-        ...(payment.checkoutUrl ? { checkoutUrl: payment.checkoutUrl } : {}),
+        paymentMethod,
+        paymentId: paymentId || null,
+        paymentReference,
+        proofUrl,
+        payerNote,
+        retryCount,
+        auditTrail: nextAuditTrail,
+        ...(checkoutUrl ? { checkoutUrl } : { checkoutUrl: null }),
       },
       { merge: true }
     );
@@ -638,13 +743,16 @@ export class SettlementService {
       id: settlementId,
       ...data,
       status: 'initiated',
-      paymentMethod: payment.provider,
-      paymentId: payment.providerPaymentId,
-      retryCount: data.status === 'failed'
-        ? ((typeof data.retryCount === 'number' ? data.retryCount : 0) + 1)
-        : (typeof data.retryCount === 'number' ? data.retryCount : 0),
-      ...(payment.checkoutUrl ? { checkoutUrl: payment.checkoutUrl } : {}),
+      paymentMethod,
+      paymentId: paymentId || undefined,
+      paymentReference: paymentReference || undefined,
+      proofUrl: proofUrl || undefined,
+      payerNote: payerNote || undefined,
+      retryCount,
+      ...(checkoutUrl ? { checkoutUrl } : {}),
       initiatedAt: new Date(now),
+      payerMarkedAt: new Date(now),
+      auditTrail: nextAuditTrail,
     } as unknown) as Settlement;
   }
 
@@ -675,11 +783,18 @@ export class SettlementService {
     }
 
     const now = new Date().toISOString();
+    const retryAudit = this.buildAuditEntry({
+      action: 'retry_requested',
+      actorUserId: userId,
+      statusFrom: data.status,
+      statusTo: 'failed',
+    });
     await db.collection(this.collection).doc(settlementId).set(
       {
         status: 'failed',
         failedAt: now,
         failureReason: 'retry_requested_by_payer',
+        auditTrail: this.appendAuditTrail(data.auditTrail, retryAudit),
       },
       { merge: true },
     );
@@ -717,8 +832,22 @@ export class SettlementService {
     }
 
     const now = new Date().toISOString();
+    const confirmAudit = this.buildAuditEntry({
+      action: 'confirmed',
+      actorUserId: userId,
+      statusFrom: data.status,
+      statusTo: 'completed',
+    });
+    const nextAuditTrail = this.appendAuditTrail(data.auditTrail, confirmAudit);
     await db.collection(this.collection).doc(settlementId).set(
-      { status: 'completed', completedAt: now },
+      {
+        status: 'completed',
+        completedAt: now,
+        payeeConfirmedAt: now,
+        rejectionReason: null,
+        rejectedAt: null,
+        auditTrail: nextAuditTrail,
+      },
       { merge: true }
     );
 
@@ -742,7 +871,119 @@ export class SettlementService {
         ...data,
         status: 'completed',
         completedAt: new Date(now),
-      } as Settlement,
+        payeeConfirmedAt: new Date(now),
+        auditTrail: nextAuditTrail,
+      } as unknown as Settlement,
+      allComplete,
+    };
+  }
+
+  /**
+   * Reject a payment confirmation request.
+   * Only the payee can reject and return the settlement to pending.
+   */
+  async rejectPayment(settlementId: string, userId: string, reason?: string): Promise<Settlement> {
+    const doc = await db.collection(this.collection).doc(settlementId).get();
+    if (!doc.exists) throw new Error('Settlement not found');
+
+    const data = doc.data()!;
+    if (data.toUserId !== userId) {
+      throw new Error('Forbidden: Only the payee can reject payment');
+    }
+    if (data.status !== 'initiated') {
+      throw new Error(`Cannot reject payment: transaction is ${data.status}, expected initiated`);
+    }
+
+    const now = new Date().toISOString();
+    const rejectionReason = (reason || 'Payment not received').trim();
+    const rejectAudit = this.buildAuditEntry({
+      action: 'rejected',
+      actorUserId: userId,
+      note: rejectionReason,
+      statusFrom: data.status,
+      statusTo: 'pending',
+    });
+    const nextAuditTrail = this.appendAuditTrail(data.auditTrail, rejectAudit);
+    await db.collection(this.collection).doc(settlementId).set(
+      {
+        status: 'pending',
+        failureReason: 'rejected_by_payee',
+        rejectionReason,
+        rejectedAt: now,
+        auditTrail: nextAuditTrail,
+      },
+      { merge: true }
+    );
+
+    return ({
+      id: settlementId,
+      ...data,
+      status: 'pending',
+      failureReason: 'rejected_by_payee',
+      rejectionReason,
+      rejectedAt: new Date(now),
+      auditTrail: nextAuditTrail,
+    } as unknown) as Settlement;
+  }
+
+  /**
+   * Payee can directly mark a settlement as paid (offline confirmation shortcut).
+   * This bypasses payer mark-paid and sets the transaction to completed.
+   */
+  async markPaidByPayee(settlementId: string, userId: string, note?: string): Promise<{ settlement: Settlement; allComplete: boolean }> {
+    const doc = await db.collection(this.collection).doc(settlementId).get();
+    if (!doc.exists) throw new Error('Settlement not found');
+
+    const data = doc.data()!;
+    if (data.toUserId !== userId) {
+      throw new Error('Forbidden: Only the payee can mark this as paid');
+    }
+    if (data.status === 'completed') {
+      throw new Error('Settlement is already completed');
+    }
+
+    const now = new Date().toISOString();
+    const confirmAudit = this.buildAuditEntry({
+      action: 'confirmed',
+      actorUserId: userId,
+      note: note || 'Marked as paid by payee',
+      statusFrom: data.status,
+      statusTo: 'completed',
+    });
+    const nextAuditTrail = this.appendAuditTrail(data.auditTrail, confirmAudit);
+    await db.collection(this.collection).doc(settlementId).set(
+      {
+        status: 'completed',
+        completedAt: now,
+        payeeConfirmedAt: now,
+        rejectionReason: null,
+        rejectedAt: null,
+        failureReason: null,
+        auditTrail: nextAuditTrail,
+      },
+      { merge: true }
+    );
+
+    const allSettlements = await this.getEventSettlements(data.eventId);
+    const allComplete = allSettlements.every(s =>
+      s.id === settlementId ? true : s.status === 'completed'
+    );
+    if (allComplete) {
+      await db.collection('events').doc(data.eventId).set(
+        { status: 'settled', updatedAt: now },
+        { merge: true }
+      );
+    }
+
+    return {
+      settlement: {
+        id: settlementId,
+        ...data,
+        status: 'completed',
+        completedAt: new Date(now),
+        payeeConfirmedAt: new Date(now),
+        auditTrail: nextAuditTrail,
+      } as unknown as Settlement,
       allComplete,
     };
   }
@@ -757,8 +998,12 @@ export class SettlementService {
 
     if (snap.empty) return [];
 
-    return snap.docs.map(doc => {
+    const settlements = await Promise.all(snap.docs.map(async (doc) => {
       const data = doc.data();
+      const targetCurrency = (data.settlementCurrency || data.currency || '').toString().toUpperCase();
+      const payeePaymentMethods = data.toUserId
+        ? await this.getActivePaymentMethodsForUser(String(data.toUserId), targetCurrency)
+        : [];
       return {
         id: doc.id,
         eventId: data.eventId,
@@ -776,15 +1021,26 @@ export class SettlementService {
         status: data.status,
         paymentMethod: data.paymentMethod,
         paymentId: data.paymentId,
+        paymentReference: data.paymentReference,
+        payerNote: data.payerNote,
+        proofUrl: data.proofUrl,
         checkoutUrl: data.checkoutUrl,
         failureReason: data.failureReason,
+        rejectionReason: data.rejectionReason,
         retryCount: data.retryCount,
+        payerMarkedAt: data.payerMarkedAt,
+        payeeConfirmedAt: data.payeeConfirmedAt,
+        rejectedAt: data.rejectedAt,
+        payeePaymentMethods,
+        auditTrail: Array.isArray(data.auditTrail) ? data.auditTrail : [],
         initiatedAt: data.initiatedAt,
         failedAt: data.failedAt,
         createdAt: data.createdAt,
         completedAt: data.completedAt,
       } as Settlement;
-    });
+    }));
+
+    return settlements;
   }
 
   /**

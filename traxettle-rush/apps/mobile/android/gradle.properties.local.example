@@ -1,0 +1,13 @@
+# Android signing credentials for Traxettle release builds
+# Copy this file to gradle.properties.local and fill in your actual values
+# DO NOT commit gradle.properties.local - it contains sensitive credentials!
+
+# Keystore credentials for traxettle-release-key.keystore
+RELEASE_STORE_FILE=traxettle-release-key.keystore
+RELEASE_KEY_ALIAS=traxettle
+RELEASE_STORE_PASSWORD=traxettle2024
+RELEASE_KEY_PASSWORD=traxettle2024
+
+# Note: These values should match the keystore you generated for your app
+# If you need to generate a new keystore:
+# keytool -genkeypair -v -storetype PKCS12 -keystore traxettle-release-key.keystore -alias traxettle -keyalg RSA -keysize 2048 -validity 10000 -storepass your_password -keypass your_password

@@ -1,0 +1,32 @@
+# Copy this template to:
+# - rc_local.properties
+# - rc_staging.properties
+# - rc_prod.properties
+#
+# These files are gitignored and loaded automatically by:
+# - apps/mobile/scripts/build-android.sh
+# - scripts/web-deployment/deploy-web-staging.sh
+# - scripts/web-deployment/deploy-web-prod.sh
+#
+# NOTE:
+# - Use RevenueCat public SDK keys for mobile clients.
+# - Never put secret keys in client-side code.
+
+# Public SDK key for iOS app (starts with appl_)
+RC_REVENUECAT_APPLE_PUBLIC_KEY=appl_CHANGE_ME
+
+# Public SDK key for Android app (starts with goog_)
+RC_REVENUECAT_GOOGLE_PUBLIC_KEY=goog_CHANGE_ME
+
+# RevenueCat entitlement identifier used by app and webhook mapping.
+RC_REVENUECAT_PRO_ENTITLEMENT_ID=pro
+
+# RevenueCat offering identifier used by mobile client.
+RC_REVENUECAT_OFFERING_ID=default
+
+# Shared webhook secret configured in RevenueCat webhook settings and API env.
+RC_REVENUECAT_WEBHOOK_SECRET=CHANGE_ME_WEBHOOK_SECRET
+
+# Optional: RevenueCat Secret API key (server-to-server REST usage only).
+# Current webhook-only flow in this repo does not require it.
+RC_REVENUECAT_SECRET_API_KEY=

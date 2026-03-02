@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -29,6 +29,21 @@ export default function DashboardScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+
+  const MAX_DASHBOARD_EVENTS = 5;
+
+  const dashboardEvents = useMemo(() => {
+    const active = events
+      .filter(e => e.status === 'active' || e.status === 'payment')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const settled = events
+      .filter(e => e.status === 'settled')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const combined = [...active, ...settled];
+    return combined.slice(0, MAX_DASHBOARD_EVENTS);
+  }, [events]);
+
+  const hasMore = events.length > MAX_DASHBOARD_EVENTS;
 
   const initials = (user?.displayName || 'U')
     .split(/\s+/)
@@ -169,6 +184,33 @@ export default function DashboardScreen({ navigation }: any) {
               <Text style={[styles.menuItemText, { color: c.text }]}>Profile</Text>
             </TouchableOpacity>
 
+            <TouchableOpacity
+              testID="menu-closed-events"
+              style={styles.menuItem}
+              onPress={() => { setMenuVisible(false); navigation.navigate('ClosedEvents'); }}
+            >
+              <Text style={styles.menuIcon}>📦</Text>
+              <Text style={[styles.menuItemText, { color: c.text }]}>Closed Events</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              testID="menu-help"
+              style={styles.menuItem}
+              onPress={() => { setMenuVisible(false); navigation.navigate('Help'); }}
+            >
+              <Text style={styles.menuIcon}>❓</Text>
+              <Text style={[styles.menuItemText, { color: c.text }]}>Help & Features</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              testID="menu-analytics"
+              style={styles.menuItem}
+              onPress={() => { setMenuVisible(false); navigation.navigate('Analytics'); }}
+            >
+              <Text style={styles.menuIcon}>📊</Text>
+              <Text style={[styles.menuItemText, { color: c.text }]}>Analytics</Text>
+            </TouchableOpacity>
+
             {!isPro && (
               <TouchableOpacity
                 testID="menu-upgrade"
@@ -239,15 +281,27 @@ export default function DashboardScreen({ navigation }: any) {
       </TouchableOpacity>
 
       <FlatList
-        data={events}
+        data={dashboardEvents}
         keyExtractor={(item) => item.id}
         renderItem={renderEvent}
-        contentContainerStyle={events.length === 0 ? styles.center : styles.list}
+        contentContainerStyle={dashboardEvents.length === 0 ? styles.center : styles.list}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={[styles.emptyTitle, { color: c.text }]}>No Events Yet</Text>
             <Text style={[styles.emptyDesc, { color: c.textSecondary }]}>Create your first event to start splitting expenses.</Text>
           </View>
+        }
+        ListFooterComponent={
+          hasMore ? (
+            <TouchableOpacity
+              testID="dashboard-show-more-events"
+              style={[styles.showMoreBtn, { borderColor: c.primary }]}
+              onPress={() => navigation.navigate('AllEvents')}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.showMoreText, { color: c.primary }]}>Show More</Text>
+            </TouchableOpacity>
+          ) : null
         }
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.primary} />
@@ -389,4 +443,14 @@ const styles = StyleSheet.create({
   proBannerEmoji: { fontSize: 18 },
   proBannerText: { flex: 1, fontSize: fontSizes.sm, fontWeight: '600' },
   proBannerArrow: { fontSize: 22, fontWeight: '300' },
+
+  // Show More button
+  showMoreBtn: {
+    borderWidth: 1.5,
+    borderRadius: radii.md,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    marginBottom: spacing.xl,
+  },
+  showMoreText: { fontSize: fontSizes.sm, fontWeight: '700' },
 });

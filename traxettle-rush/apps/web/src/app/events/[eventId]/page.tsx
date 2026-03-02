@@ -40,8 +40,7 @@ import type {
   SettlementApproval,
 } from '@traxettle/shared';
 
-const USE_REAL_PAYMENT_GATEWAY = process.env.NEXT_PUBLIC_USE_REAL_PAYMENTS === 'true';
-type SettlementPayResponse = Settlement & { checkoutUrl?: string };
+type SettlementPayResponse = Settlement;
 
 const Page = styled.div`
   width: 100%;
@@ -550,6 +549,13 @@ export default function EventDetailPage() {
   const [settleLoading, setSettleLoading] = useState(false);
   const [settlementPlan, setSettlementPlan] = useState<any>(null);
   const [showSettlementModal, setShowSettlementModal] = useState(false);
+  const [showMarkPaidModal, setShowMarkPaidModal] = useState(false);
+  const [markPaidTarget, setMarkPaidTarget] = useState<Settlement | null>(null);
+  const [markPaidReferenceId, setMarkPaidReferenceId] = useState('');
+  const [markPaidProofUrl, setMarkPaidProofUrl] = useState('');
+  const [markPaidNote, setMarkPaidNote] = useState('');
+  const [markPaidSubmitting, setMarkPaidSubmitting] = useState(false);
+  const [markPaidUploading, setMarkPaidUploading] = useState(false);
   const [approveLoading, setApproveLoading] = useState(false);
   const [regenerateLoading, setRegenerateLoading] = useState(false);
 
@@ -784,24 +790,69 @@ export default function EventDetailPage() {
     }
   };
 
-  const handlePay = async (settlementId: string, status: string) => {
+  const doMarkPaid = async (settlementId: string, settlementCurrency?: string) => {
+    const isINR = settlementCurrency === 'INR';
+    const paymentMode = isINR ? 'upi_or_netbanking' : 'international_transfer';
     try {
-      const endpoint = status === 'pending'
-        ? `/api/settlements/${settlementId}/pay`
-        : `/api/settlements/${settlementId}/retry`;
-      const res = await api.post<SettlementPayResponse>(endpoint, {
-        useRealGateway: USE_REAL_PAYMENT_GATEWAY,
-      });
-      const checkoutUrl = res.data?.checkoutUrl;
-      if (checkoutUrl) {
-        window.location.assign(checkoutUrl);
-        return;
-      }
-      pushToast({ type: 'success', title: 'Payment Initiated', message: 'Payment has been sent. Waiting for confirmation from the recipient.' });
+      setMarkPaidSubmitting(true);
+      const payload: Record<string, any> = {
+        paymentMode,
+        referenceId: markPaidReferenceId.trim(),
+        note: markPaidNote.trim() || undefined,
+      };
+      if (markPaidProofUrl.trim()) payload.proofUrl = markPaidProofUrl.trim();
+      const res = await api.post<SettlementPayResponse>(`/api/settlements/${settlementId}/pay`, payload);
+      pushToast({ type: 'success', title: 'Payment Marked', message: 'Marked as paid. Waiting for payee confirmation.' });
       // Optimistic update
       setSettlements(prev => prev.map(s => s.id === settlementId ? { ...s, ...res.data } : s));
+      setShowMarkPaidModal(false);
+      setMarkPaidTarget(null);
+      setMarkPaidReferenceId('');
+      setMarkPaidProofUrl('');
+      setMarkPaidNote('');
     } catch (err: any) {
-      pushToast({ type: 'error', title: 'Payment Failed', message: err.message });
+      pushToast({ type: 'error', title: 'Payment Update Failed', message: err.message });
+    } finally {
+      setMarkPaidSubmitting(false);
+    }
+  };
+
+  const handlePay = (settlement: Settlement) => {
+    setMarkPaidTarget(settlement);
+    setMarkPaidReferenceId('');
+    setMarkPaidProofUrl('');
+    setMarkPaidNote('');
+    setShowMarkPaidModal(true);
+  };
+
+  const handleUploadMarkPaidProof = async (file: File) => {
+    if (!markPaidTarget) return;
+    try {
+      setMarkPaidUploading(true);
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const raw = typeof reader.result === 'string' ? reader.result : '';
+          const marker = raw.indexOf('base64,');
+          if (marker < 0) return reject(new Error('Unable to read file'));
+          resolve(raw.slice(marker + 7));
+        };
+        reader.onerror = () => reject(new Error('Unable to read file'));
+        reader.readAsDataURL(file);
+      });
+      const res = await api.post<{ proofUrl: string }>(`/api/settlements/${markPaidTarget.id}/upload-proof`, {
+        filename: file.name,
+        contentType: file.type || 'application/octet-stream',
+        base64,
+      });
+      if (res.data?.proofUrl) {
+        setMarkPaidProofUrl(res.data.proofUrl);
+        pushToast({ type: 'success', title: 'Proof uploaded', message: 'Proof URL attached to this payment.' });
+      }
+    } catch (err: any) {
+      pushToast({ type: 'error', title: 'Upload failed', message: err.message });
+    } finally {
+      setMarkPaidUploading(false);
     }
   };
 
@@ -815,6 +866,39 @@ export default function EventDetailPage() {
         pushToast({ type: 'success', title: 'All Payments Complete', message: 'All transactions are settled. The event can now be closed.' });
         fetchAll();
       }
+    } catch (err: any) {
+      pushToast({ type: 'error', title: 'Error', message: err.message });
+    }
+  };
+
+  const handlePayeeMarkPaid = (settlementId: string) => {
+    setConfirmModal({
+      open: true,
+      title: 'Mark As Paid?',
+      message: 'This will directly complete this settlement as if payment has already been received.',
+      variant: 'warning',
+      confirmLabel: 'Mark as Paid',
+      onConfirm: async () => {
+        closeConfirmModal();
+        try {
+          const res = await api.post<{ settlement: Settlement; allComplete: boolean }>(`/api/settlements/${settlementId}/mark-paid-by-payee`, {});
+          setSettlements(prev => prev.map(s => s.id === settlementId ? { ...s, status: 'completed' as const } : s));
+          pushToast({ type: 'success', title: 'Marked as paid', message: 'Settlement completed successfully.' });
+          if (res.data?.allComplete) fetchAll();
+        } catch (err: any) {
+          pushToast({ type: 'error', title: 'Error', message: err.message });
+        }
+      },
+    });
+  };
+
+  const handleReject = async (settlementId: string) => {
+    try {
+      await api.post(`/api/settlements/${settlementId}/reject`, {
+        reason: 'Payment not received',
+      });
+      pushToast({ type: 'success', title: 'Payment Rejected', message: 'Marked as pending so payer can re-submit.' });
+      setSettlements(prev => prev.map(s => s.id === settlementId ? { ...s, status: 'pending' as const } : s));
     } catch (err: any) {
       pushToast({ type: 'error', title: 'Error', message: err.message });
     }
@@ -1324,8 +1408,8 @@ export default function EventDetailPage() {
                     <TransactionMeta>
                       <StatusDot $status={settlementStatus} />
                       {settlementStatus === 'pending' && 'Awaiting payment'}
-                      {settlementStatus === 'initiated' && 'Payment sent — awaiting confirmation'}
-                      {settlementStatus === 'failed' && 'Payment failed/cancelled — retry required'}
+                      {settlementStatus === 'initiated' && 'Marked paid — awaiting payee confirmation'}
+                      {settlementStatus === 'failed' && 'Payment failed/rejected — payer should resubmit'}
                       {settlementStatus === 'completed' && 'Payment confirmed ✓'}
                       {s.fromEntityType === 'group' && ` · Payer: ${getUserName(s.fromUserId)}`}
                       {s.toEntityType === 'group' && ` · Recipient: ${getUserName(s.toUserId)}`}
@@ -1341,15 +1425,25 @@ export default function EventDetailPage() {
                     )}
                   </TransactionAmount>
                   <TransactionActions>
-                    {(settlementStatus === 'pending' || settlementStatus === 'initiated' || settlementStatus === 'failed') && isPayer && (
-                      <Button $variant="primary" $size="sm" onClick={() => handlePay(s.id, settlementStatus)} data-testid={`pay-btn-${s.id}`}>
-                        {settlementStatus === 'pending' ? 'Pay' : 'Retry Payment'}
+                    {(settlementStatus === 'pending' || settlementStatus === 'failed') && isPayer && (
+                      <Button $variant="primary" $size="sm" onClick={() => handlePay(s)} data-testid={`pay-btn-${s.id}`}>
+                        {settlementStatus === 'pending' ? 'I\'ve Paid' : 'Mark Paid Again'}
+                      </Button>
+                    )}
+                    {(settlementStatus === 'pending' || settlementStatus === 'failed') && isPayee && (
+                      <Button $variant="primary" $size="sm" onClick={() => handlePayeeMarkPaid(s.id)} data-testid={`payee-mark-paid-btn-${s.id}`}>
+                        Mark as Paid
                       </Button>
                     )}
                     {settlementStatus === 'initiated' && isPayee && (
-                      <Button $variant="primary" $size="sm" onClick={() => handleApprove(s.id)} data-testid={`approve-btn-${s.id}`}>
-                        Confirm Receipt
-                      </Button>
+                      <>
+                        <Button $variant="primary" $size="sm" onClick={() => handleApprove(s.id)} data-testid={`approve-btn-${s.id}`}>
+                          Confirm Receipt
+                        </Button>
+                        <Button $variant="outline" $size="sm" onClick={() => handleReject(s.id)} data-testid={`reject-btn-${s.id}`}>
+                          Reject
+                        </Button>
+                      </>
                     )}
                     {settlementStatus === 'failed' && !isPayer && (
                       <Badge $variant="error">Failed</Badge>
@@ -1446,7 +1540,7 @@ export default function EventDetailPage() {
                             <span style={{ fontSize: 11, marginLeft: 6, opacity: 0.5 }}>{isExpanded ? '▲' : '▼'}</span>
                           </ListItemTitle>
                           <ListItemSub>
-                            Paid by: {getUserName(expense.paidBy)} · {expense.splitType} split{!expense.isPrivate && ` · ${expense.splits.length} split(s)`}
+                            Paid by: {getUserName(expense.paidBy)} · {expense.paidOnBehalfOf && expense.paidOnBehalfOf.length > 0 ? 'On Behalf' : expense.splitType.charAt(0).toUpperCase() + expense.splitType.slice(1)} split{!expense.isPrivate && ` · ${expense.splits.length} split(s)`}
                           </ListItemSub>
                         </ListItemInfo>
                         <Amount>{sym}{expense.amount.toFixed(2)}</Amount>
@@ -1466,7 +1560,7 @@ export default function EventDetailPage() {
                       {isExpanded && expense.splits && expense.splits.length > 0 && (
                         <SplitDetailPanel>
                           <SplitMetaRow>
-                            <SplitMetaItem><strong>Split type:</strong> {expense.splitType.charAt(0).toUpperCase() + expense.splitType.slice(1)}</SplitMetaItem>
+                            <SplitMetaItem><strong>Split type:</strong> {expense.paidOnBehalfOf && expense.paidOnBehalfOf.length > 0 ? 'On Behalf' : expense.splitType.charAt(0).toUpperCase() + expense.splitType.slice(1)}</SplitMetaItem>
                             {expense.description && <SplitMetaItem><strong>Note:</strong> {expense.description}</SplitMetaItem>}
                             {expense.paidOnBehalfOf && expense.paidOnBehalfOf.length > 0 && (
                               <SplitMetaItem><strong>On behalf of:</strong> {expense.paidOnBehalfOf.map((e: any) => getEntityName(e.entityId, e.entityType)).join(', ')}</SplitMetaItem>
@@ -1938,6 +2032,103 @@ export default function EventDetailPage() {
         </ModalBody>
       </Modal>
 
+      {/* Mark Paid Modal */}
+      <Modal open={showMarkPaidModal} onClose={() => setShowMarkPaidModal(false)}>
+        <ModalHeader>
+          <ModalTitle>Pay Externally and Mark Paid</ModalTitle>
+        </ModalHeader>
+        <ModalBody>
+          {!markPaidTarget ? (
+            <p style={{ margin: 0 }}>No settlement selected.</p>
+          ) : (
+            <>
+              {(() => {
+                const settlementCurrency = markPaidTarget.settlementCurrency || markPaidTarget.currency;
+                const isINR = settlementCurrency === 'INR';
+                const payeeMethods = ((markPaidTarget as any).payeePaymentMethods || []) as Array<{ label: string; type: string; details: string; currency: string }>;
+                return (
+                  <>
+                    <p style={{ marginTop: 0, fontSize: 14 }}>
+                      {isINR
+                        ? 'Complete payment via UPI / Net Banking / Bank Transfer outside Traxettle.'
+                        : 'Complete payment via Bank Transfer / Card App / PayPal / Wise / SWIFT outside Traxettle.'}
+                    </p>
+                    <div style={{ marginBottom: 12 }}>
+                      <strong style={{ fontSize: 13 }}>Payee Methods ({settlementCurrency})</strong>
+                      {payeeMethods.length === 0 ? (
+                        <p style={{ margin: '6px 0 0', fontSize: 12, opacity: 0.75 }}>Payee has not configured a method for this currency yet.</p>
+                      ) : (
+                        payeeMethods.map((m, idx) => (
+                          <div key={`${m.label}-${idx}`} style={{ border: '1px solid var(--color-border, #eee)', borderRadius: 8, padding: '8px 10px', marginTop: 8 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13 }}>{m.label} · {m.currency}</div>
+                            <div style={{ fontSize: 12, opacity: 0.75 }}>{String(m.type || '').toUpperCase()}</div>
+                            <div style={{ fontSize: 12, marginTop: 2 }}>{m.details}</div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+              <Field>
+                <Label htmlFor="mark-paid-reference">Reference ID (required)</Label>
+                <Input
+                  id="mark-paid-reference"
+                  value={markPaidReferenceId}
+                  onChange={(e) => setMarkPaidReferenceId(e.target.value)}
+                  placeholder="UTR / txn ID / bank reference"
+                />
+              </Field>
+              <Field>
+                <Label htmlFor="mark-paid-proof">Proof URL (optional)</Label>
+                <Input
+                  id="mark-paid-proof"
+                  value={markPaidProofUrl}
+                  onChange={(e) => setMarkPaidProofUrl(e.target.value)}
+                  placeholder="https://... uploaded proof url"
+                />
+              </Field>
+              <Field>
+                <Label htmlFor="mark-paid-upload">Upload Proof File</Label>
+                <Input
+                  id="mark-paid-upload"
+                  type="file"
+                  onChange={(e) => {
+                    const file = e.currentTarget.files?.[0];
+                    if (file) void handleUploadMarkPaidProof(file);
+                  }}
+                />
+                <div style={{ fontSize: 12, opacity: 0.75 }}>
+                  {markPaidUploading ? 'Uploading proof…' : 'This upload auto-fills Proof URL.'}
+                </div>
+              </Field>
+              <Field>
+                <Label htmlFor="mark-paid-note">Note (optional)</Label>
+                <Input
+                  id="mark-paid-note"
+                  value={markPaidNote}
+                  onChange={(e) => setMarkPaidNote(e.target.value)}
+                  placeholder="Any additional context for payee"
+                />
+              </Field>
+            </>
+          )}
+          <ModalFooter>
+            <Button type="button" $variant="outline" onClick={() => setShowMarkPaidModal(false)} disabled={markPaidSubmitting || markPaidUploading}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              $variant="primary"
+              disabled={markPaidSubmitting || markPaidUploading || !markPaidTarget || !markPaidReferenceId.trim()}
+              onClick={() => markPaidTarget && doMarkPaid(markPaidTarget.id, markPaidTarget.settlementCurrency || markPaidTarget.currency)}
+            >
+              {markPaidSubmitting ? 'Submitting…' : 'I\'ve Paid'}
+            </Button>
+          </ModalFooter>
+        </ModalBody>
+      </Modal>
+
       {/* Settlement Details Modal */}
       <Modal open={showSettlementModal} onClose={() => setShowSettlementModal(false)}>
         <ModalHeader>
@@ -1985,16 +2176,37 @@ export default function EventDetailPage() {
                       ? `${CURRENCY_SYMBOLS[s.settlementCurrency] || s.settlementCurrency}${s.settlementAmount.toFixed(2)}`
                       : `${currSym}${s.amount.toFixed(2)}`;
                     return (
-                      <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--color-border, #f0f0f0)' }}>
-                        <span style={{ flex: 1 }}>
-                          <strong>{getEntityName(s.fromEntityId, s.fromEntityType)}</strong>
-                          <span style={{ margin: '0 6px', opacity: 0.5 }}>→</span>
-                          <strong>{getEntityName(s.toEntityId, s.toEntityType)}</strong>
-                        </span>
-                        <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{displayAmt}</span>
-                        <Badge $variant={s.status === 'completed' ? 'success' : s.status === 'initiated' ? 'warning' : 'default'} style={{ fontSize: 10 }}>
-                          {s.status}
-                        </Badge>
+                      <div key={s.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--color-border, #f0f0f0)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ flex: 1 }}>
+                            <strong>{getEntityName(s.fromEntityId, s.fromEntityType)}</strong>
+                            <span style={{ margin: '0 6px', opacity: 0.5 }}>→</span>
+                            <strong>{getEntityName(s.toEntityId, s.toEntityType)}</strong>
+                          </span>
+                          <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{displayAmt}</span>
+                          <Badge $variant={s.status === 'completed' ? 'success' : s.status === 'initiated' ? 'warning' : 'default'} style={{ fontSize: 10 }}>
+                            {s.status}
+                          </Badge>
+                        </div>
+                        <div style={{ marginTop: 8, paddingLeft: 4 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, opacity: 0.8, marginBottom: 6 }}>Timeline</div>
+                          {((s as any).auditTrail || []).length === 0 ? (
+                            <div style={{ fontSize: 12, opacity: 0.6 }}>No activity yet.</div>
+                          ) : (
+                            ((s as any).auditTrail || []).map((entry: any, idx: number) => (
+                              <div key={`${entry.id || idx}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 6 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: 3, background: 'var(--color-primary)', marginTop: 6 }} />
+                                <div style={{ fontSize: 12 }}>
+                                  <div style={{ fontWeight: 600 }}>{String(entry.action || 'update').replace(/_/g, ' ')}</div>
+                                  <div style={{ opacity: 0.75 }}>by {getUserName(entry.actorUserId || '')} · {formatDate(entry.createdAt)}</div>
+                                  {entry.referenceId ? <div>Ref: {entry.referenceId}</div> : null}
+                                  {entry.proofUrl ? <div style={{ color: 'var(--color-primary)' }}>Proof: {entry.proofUrl}</div> : null}
+                                  {entry.note ? <div>{entry.note}</div> : null}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
                       </div>
                     );
                   })}

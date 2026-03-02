@@ -6,6 +6,68 @@ import { EntitlementService } from '../services/entitlement.service';
 
 const router: Router = Router();
 const entitlementService = new EntitlementService();
+const PAYMENT_METHOD_TYPES = new Set(['upi', 'bank', 'paypal', 'wise', 'swift', 'other']);
+interface UserPaymentMethod {
+  id: string;
+  label: string;
+  currency: string;
+  type: string;
+  details: string;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+function normalizePaymentMethods(raw: any): UserPaymentMethod[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((method: any) => ({
+      id: typeof method?.id === 'string' ? method.id : '',
+      label: typeof method?.label === 'string' ? method.label.trim() : '',
+      currency: typeof method?.currency === 'string' ? method.currency.trim().toUpperCase() : '',
+      type: typeof method?.type === 'string' ? method.type.toLowerCase() : '',
+      details: typeof method?.details === 'string' ? method.details.trim() : '',
+      isActive: method?.isActive !== false,
+      createdAt: method?.createdAt || undefined,
+      updatedAt: method?.updatedAt || undefined,
+    }))
+    .filter((method: any) =>
+      method.id &&
+      method.label &&
+      method.currency &&
+      method.details &&
+      PAYMENT_METHOD_TYPES.has(method.type)
+    );
+}
+
+function sortPaymentMethods(methods: UserPaymentMethod[]): UserPaymentMethod[] {
+  return [...methods].sort((a, b) => {
+    if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+    return (a.label || '').localeCompare(b.label || '');
+  });
+}
+
+// Debug endpoint to check entitlement details
+router.get('/debug/entitlement', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const entitlement = await entitlementService.getEntitlement(uid);
+    const capabilities = entitlementService.computeCapabilities(entitlement);
+    
+    return res.json({
+      success: true,
+      data: {
+        userId: uid,
+        entitlement,
+        capabilities,
+        isActivePro: entitlement.tier === 'pro' && 
+          (entitlement.entitlementStatus === 'active' || entitlement.entitlementStatus === 'grace_period'),
+      }
+    } as ApiResponse);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message } as ApiResponse);
+  }
+});
 
 router.get('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
@@ -61,7 +123,7 @@ router.get('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
       preferences: {
         ...defaultPreferences,
         ...(data.preferences || {})
-      }
+      },
     };
 
     return res.json({ success: true, data: profile } as ApiResponse<UserProfile>);
@@ -113,6 +175,7 @@ router.put('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
       phoneNumber,
       photoURL,
       preferences: nextPreferences,
+      paymentMethods: normalizePaymentMethods(existing.paymentMethods),
       createdAt: existing.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -133,13 +196,173 @@ router.put('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
       entitlementSource: entitlement.entitlementSource,
       internalTester: entitlement.internalTester,
       capabilities,
-      preferences: updatedDoc.preferences
+      preferences: updatedDoc.preferences,
     };
 
     return res.json({ success: true, data: profile } as ApiResponse<UserProfile>);
   } catch (err) {
     console.error('PUT /profile error:', err);
     return res.status(500).json({ success: false, error: 'Failed to update profile' } as ApiResponse);
+  }
+});
+
+router.get('/payment-methods', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const currency = typeof req.query.currency === 'string' ? req.query.currency.trim().toUpperCase() : '';
+    const ref = db.collection('users').doc(uid);
+    const snap = await ref.get();
+    const data = snap.exists ? (snap.data() || {}) : {};
+    const methods = sortPaymentMethods(normalizePaymentMethods(data.paymentMethods));
+    const filtered = currency ? methods.filter((m) => m.currency === currency) : methods;
+    return res.json({ success: true, data: filtered } as ApiResponse<UserPaymentMethod[]>);
+  } catch (err) {
+    console.error('GET /payment-methods error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to load payment methods' } as ApiResponse);
+  }
+});
+
+router.post('/payment-methods', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const ref = db.collection('users').doc(uid);
+    const snap = await ref.get();
+    const data = snap.exists ? (snap.data() || {}) : {};
+    const methods = normalizePaymentMethods(data.paymentMethods);
+
+    const label = typeof req.body?.label === 'string' ? req.body.label.trim() : '';
+    const currency = typeof req.body?.currency === 'string' ? req.body.currency.trim().toUpperCase() : '';
+    const type = typeof req.body?.type === 'string' ? req.body.type.trim().toLowerCase() : '';
+    const details = typeof req.body?.details === 'string' ? req.body.details.trim() : '';
+    const isActive = req.body?.isActive !== false;
+
+    if (!label || !currency || !details || !PAYMENT_METHOD_TYPES.has(type)) {
+      return res.status(400).json({ success: false, error: 'Invalid payment method payload' } as ApiResponse);
+    }
+
+    const now = new Date().toISOString();
+    const method: UserPaymentMethod = {
+      id: `pm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      label,
+      currency,
+      type: type as any,
+      details,
+      isActive,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const next = [...methods, method];
+    await ref.set({ paymentMethods: next, updatedAt: now }, { merge: true });
+    return res.status(201).json({ success: true, data: method } as ApiResponse<UserPaymentMethod>);
+  } catch (err) {
+    console.error('POST /payment-methods error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to add payment method' } as ApiResponse);
+  }
+});
+
+router.put('/payment-methods/:methodId', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const methodId = req.params.methodId;
+    const ref = db.collection('users').doc(uid);
+    const snap = await ref.get();
+    const data = snap.exists ? (snap.data() || {}) : {};
+    const methods = normalizePaymentMethods(data.paymentMethods);
+    const idx = methods.findIndex((m) => m.id === methodId);
+    if (idx < 0) {
+      return res.status(404).json({ success: false, error: 'Payment method not found' } as ApiResponse);
+    }
+
+    const current = methods[idx];
+    const next: UserPaymentMethod = {
+      ...current,
+      label: typeof req.body?.label === 'string' ? req.body.label.trim() : current.label,
+      currency: typeof req.body?.currency === 'string' ? req.body.currency.trim().toUpperCase() : current.currency,
+      type: typeof req.body?.type === 'string' ? req.body.type.trim().toLowerCase() : current.type,
+      details: typeof req.body?.details === 'string' ? req.body.details.trim() : current.details,
+      isActive: typeof req.body?.isActive === 'boolean' ? req.body.isActive : current.isActive,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (!next.label || !next.currency || !next.details || !PAYMENT_METHOD_TYPES.has(next.type)) {
+      return res.status(400).json({ success: false, error: 'Invalid payment method payload' } as ApiResponse);
+    }
+
+    methods[idx] = next;
+    await ref.set({ paymentMethods: methods, updatedAt: new Date().toISOString() }, { merge: true });
+    return res.json({ success: true, data: next } as ApiResponse<UserPaymentMethod>);
+  } catch (err) {
+    console.error('PUT /payment-methods/:methodId error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update payment method' } as ApiResponse);
+  }
+});
+
+router.delete('/payment-methods/:methodId', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const methodId = req.params.methodId;
+    const ref = db.collection('users').doc(uid);
+    const snap = await ref.get();
+    const data = snap.exists ? (snap.data() || {}) : {};
+    const methods = normalizePaymentMethods(data.paymentMethods);
+    const next = methods.filter((m) => m.id !== methodId);
+    if (next.length === methods.length) {
+      return res.status(404).json({ success: false, error: 'Payment method not found' } as ApiResponse);
+    }
+
+    await ref.set({ paymentMethods: next, updatedAt: new Date().toISOString() }, { merge: true });
+    return res.json({ success: true, data: { deleted: true } } as ApiResponse<{ deleted: boolean }>);
+  } catch (err) {
+    console.error('DELETE /payment-methods/:methodId error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to delete payment method' } as ApiResponse);
+  }
+});
+
+router.delete('/account', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const batch = db.batch();
+
+    // Delete user document
+    const userRef = db.collection('users').doc(uid);
+    batch.delete(userRef);
+
+    // Delete events where user is the creator
+    const eventsSnapshot = await db.collection('events').where('createdBy', '==', uid).get();
+    eventsSnapshot.forEach(doc => batch.delete(doc.ref));
+
+    // Delete expenses where user is the payer
+    const expensesSnapshot = await db.collection('expenses').where('paidBy', '==', uid).get();
+    expensesSnapshot.forEach(doc => batch.delete(doc.ref));
+
+    // Remove user from participants in events they didn't create
+    const otherEventsSnapshot = await db.collection('events').get();
+    otherEventsSnapshot.forEach(eventDoc => {
+      const eventData = eventDoc.data();
+      const participants = eventData.participants || [];
+      const updatedParticipants = participants.filter((p: any) => p.userId !== uid);
+      if (updatedParticipants.length !== participants.length) {
+        batch.update(eventDoc.ref, { participants: updatedParticipants });
+      }
+    });
+
+    // Remove user from groups in events
+    otherEventsSnapshot.forEach(eventDoc => {
+      const eventData = eventDoc.data();
+      const groups = eventData.groups || [];
+      const updatedGroups = groups.map((group: any) => ({
+        ...group,
+        members: group.members.filter((memberId: string) => memberId !== uid)
+      })).filter((group: any) => group.members.length > 0);
+      batch.update(eventDoc.ref, { groups: updatedGroups });
+    });
+
+    await batch.commit();
+    return res.json({ success: true, data: { deleted: true } } as ApiResponse<{ deleted: boolean }>);
+  } catch (err) {
+    console.error('DELETE /account error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to delete account' } as ApiResponse);
   }
 });
 
