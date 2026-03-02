@@ -38,6 +38,39 @@ Quick policy reminder:
 - `apps/web/README.md`: web-only setup, local/staging behavior, local run options.
 - `apps/mobile/README.md`: mobile-only setup, simulator/device workflow, local run options.
 
+## 🩺 Environment Setup (Doctor Script)
+
+Before starting development, run the doctor script to verify all dependencies:
+
+```bash
+# Check local environment
+./doctor local
+
+# Check staging environment  
+./doctor staging
+
+# Check production environment
+./doctor production
+
+# Non-interactive mode (assumes "no" for all questions)
+./doctor local --non-interactive
+./doctor staging -n
+
+# Alternative methods
+node common/scripts/doctor.js local
+bash scripts/doctor.sh local
+```
+
+The doctor script checks:
+- ✅ System requirements (Node.js v24+, pnpm, Git)
+- ✅ Backend, web, and mobile dependencies
+- ✅ Firebase configuration and service accounts
+- ✅ Android SDK, keystore, and build tools
+- ✅ RevenueCat, email, and environment variables
+- ✅ Final build verification
+
+**First-time setup?** See [Complete Setup Guide](docs/SETUP.md)
+
 ## Zero-Lock Quick Start (Recommended)
 Use the atomic scripts when Rush lock contention is a problem.
 

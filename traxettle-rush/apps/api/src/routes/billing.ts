@@ -91,10 +91,18 @@ router.post('/revenuecat/webhook', async (req, res) => {
       return res.json({ success: true, data: { skipped: true } } as ApiResponse);
     }
 
-    const userId = revenueCatService.resolveUserId(event);
+    const userId = await revenueCatService.resolveUserId(event);
     if (!userId) {
       return res.status(400).json({ success: false, error: 'Missing app_user_id in webhook payload' } as ApiResponse);
     }
+
+    console.log('[Billing Webhook] Processing event:', {
+      eventId: event.id,
+      eventType: event.type,
+      userId,
+      appUserId: event.app_user_id,
+      entitlementIds: event.entitlement_ids,
+    });
 
     const entitlement = await entitlementService.applyRevenueCatEntitlement(userId, {
       tier: revenueCatService.mapTier(event),
@@ -102,6 +110,13 @@ router.post('/revenuecat/webhook', async (req, res) => {
       entitlementExpiresAt: revenueCatService.getExpiry(event),
     });
     const capabilities = entitlementService.computeCapabilities(entitlement);
+
+    console.log('[Billing Webhook] Updated entitlement:', {
+      userId,
+      tier: entitlement.tier,
+      entitlementStatus: entitlement.entitlementStatus,
+      capabilities,
+    });
 
     if (eventId) {
       await billingEventsService.markProcessed(eventId, req.body);

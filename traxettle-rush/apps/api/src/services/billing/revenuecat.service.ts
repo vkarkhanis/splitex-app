@@ -1,4 +1,5 @@
-import type { EntitlementStatus, PlanTier } from '@traxettle/shared';
+import { db } from '../../config/firebase';
+import type { EntitlementSource, EntitlementStatus, PlanTier, UserCapabilities } from '@traxettle/shared';
 
 type RevenueCatEvent = {
   id?: string;
@@ -47,15 +48,69 @@ export class RevenueCatService {
     };
   }
 
-  resolveUserId(event: RevenueCatEvent): string | null {
+  async resolveUserId(event: RevenueCatEvent): Promise<string | null> {
     const candidate = event.app_user_id || event.aliases?.[0] || null;
     if (!candidate) return null;
 
     // Mobile client tags RevenueCat app_user_id as "<env>::<userId>" to avoid
     // cross-environment customer collisions (local/staging/prod).
     const match = candidate.match(/^(local|staging|production|internal)::(.+)$/i);
-    if (match?.[2]) return match[2];
-    return candidate;
+    const extractedUserId = match?.[2] || candidate;
+
+    console.log('[RevenueCat] Resolving user ID:', { candidate, extractedUserId });
+
+    // First try to find existing user by matching the extracted user ID
+    const userDoc = await db.collection('users').doc(extractedUserId).get();
+    if (userDoc.exists) {
+      console.log('[RevenueCat] Found existing user by ID:', extractedUserId);
+      return extractedUserId;
+    }
+
+    // If not found by ID, we need to find the user by email
+    // RevenueCat webhooks include customer info with email
+    const email = this.extractEmailFromEvent(event);
+    if (email) {
+      console.log('[RevenueCat] Looking for user by email:', email);
+      const usersSnapshot = await db.collection('users')
+        .where('email', '==', email.toLowerCase())
+        .limit(1)
+        .get();
+      
+      if (!usersSnapshot.empty) {
+        const existingUserId = usersSnapshot.docs[0].id;
+        console.log('[RevenueCat] Found existing user by email:', email, '→', existingUserId);
+        
+        // Update the existing user with the RevenueCat user ID for future webhooks
+        await db.collection('users').doc(existingUserId).set({
+          revenueCatAppUserId: candidate,
+          updatedAt: new Date().toISOString(),
+        }, { merge: true });
+        
+        return existingUserId;
+      }
+    }
+
+    console.log('[RevenueCat] Creating new user for:', extractedUserId);
+    return extractedUserId;
+  }
+
+  private extractEmailFromEvent(event: RevenueCatEvent): string | null {
+    // RevenueCat webhooks may include email in various places
+    // This is a simplified version - you might need to adjust based on actual webhook payload
+    if (event.app_user_id && event.app_user_id.includes('@')) {
+      return event.app_user_id;
+    }
+    
+    // Check aliases for email
+    if (event.aliases) {
+      for (const alias of event.aliases) {
+        if (alias.includes('@')) {
+          return alias;
+        }
+      }
+    }
+    
+    return null;
   }
 
   mapTier(event: RevenueCatEvent): PlanTier {

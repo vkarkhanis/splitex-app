@@ -173,13 +173,32 @@ export default function ClosedEventsScreen({ navigation }: any) {
       const details = await Promise.all(eventsToExport.map(fetchEventDetails));
       const today = new Date();
       const dateStr = `${today.getDate().toString().padStart(2, '0')}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getFullYear()}`;
-      const fileName = `closed-events-${dateStr}`;
+      const timeStr = `${today.getHours().toString().padStart(2, '0')}-${today.getMinutes().toString().padStart(2, '0')}`;
+      const fileName = `closed-events-${dateStr}-${timeStr}`;
 
       if (format === 'csv') {
         const csv = buildCsvContent(details);
         const csvFile = new File(Paths.cache, `${fileName}.csv`);
-        csvFile.create();
-        await csvFile.write(csv);
+        
+        // Create CSV file using File API with proper Android handling
+        try {
+          // For Android, always try to delete first to avoid conflicts
+          if (Platform.OS === 'android') {
+            try {
+              await csvFile.delete();
+            } catch (deleteErr) {
+              // File might not exist, that's fine
+              console.log('File does not exist or cannot be deleted, continuing...');
+            }
+          }
+          
+          csvFile.create();
+          await csvFile.write(csv);
+          console.log(`CSV created successfully at: ${csvFile.uri}`);
+        } catch (writeErr: any) {
+          console.error('CSV write error:', writeErr);
+          throw new Error(`Failed to create CSV file: ${writeErr.message}`);
+        }
         const fileUri = csvFile.uri;
         
         // Let user open in any app or share
@@ -192,9 +211,13 @@ export default function ClosedEventsScreen({ navigation }: any) {
         const html = buildHtmlContent(details);
         const { uri } = await Print.printToFileAsync({ html });
         
-        // Let user open in any app or share
+        // Let user open in any app or share with proper filename in dialog
         if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: `Open ${fileName}.pdf` });
+          await Sharing.shareAsync(uri, { 
+            mimeType: 'application/pdf', 
+            dialogTitle: `Open ${fileName}.pdf`,
+            // Note: The actual file will have a generated name, but dialog shows our preferred name
+          });
         } else {
           Alert.alert('Export Complete', `PDF saved as ${fileName}.pdf`);
         }

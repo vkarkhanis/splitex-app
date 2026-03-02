@@ -139,9 +139,10 @@ export default function AnalyticsScreen({ navigation }: any) {
     try {
       const today = new Date();
       const dateStr = `${today.getDate().toString().padStart(2, '0')}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getFullYear()}`;
+      const timeStr = `${today.getHours().toString().padStart(2, '0')}-${today.getMinutes().toString().padStart(2, '0')}`;
       const eventName = (myExpenses[0] as any)._eventName || 'analytics';
       const sanitizedName = eventName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 20);
-      const fileName = `${sanitizedName}-${dateStr}`;
+      const fileName = `${sanitizedName}-${dateStr}-${timeStr}`;
       
       if (format === 'csv') {
         const rows = ['Event,Title,Category,Amount,Currency,Split Type,Date'];
@@ -149,9 +150,27 @@ export default function AnalyticsScreen({ navigation }: any) {
           const cat = categorize(exp.title);
           rows.push(`"${(exp as any)._eventName}","${exp.title}","${cat}","${exp.amount}","${exp.currency}","${exp.splitType}","${new Date(exp.createdAt).toLocaleDateString()}"`);
         }
+        // Create CSV file using File API with proper Android handling
         const csvFile = new File(Paths.cache, `${fileName}.csv`);
-        csvFile.create();
-        await csvFile.write(rows.join('\n'));
+        
+        try {
+          // For Android, always try to delete first to avoid conflicts
+          if (Platform.OS === 'android') {
+            try {
+              await csvFile.delete();
+            } catch (deleteErr) {
+              // File might not exist, that's fine
+              console.log('File does not exist or cannot be deleted, continuing...');
+            }
+          }
+          
+          csvFile.create();
+          await csvFile.write(rows.join('\n'));
+          console.log(`CSV created successfully at: ${csvFile.uri}`);
+        } catch (writeErr: any) {
+          console.error('CSV write error:', writeErr);
+          throw new Error(`Failed to create CSV file: ${writeErr.message}`);
+        }
         
         // Let user open in any app or share
         if (await Sharing.isAvailableAsync()) {
@@ -180,9 +199,13 @@ export default function AnalyticsScreen({ navigation }: any) {
         html += `</table></body></html>`;
         const { uri } = await Print.printToFileAsync({ html });
         
-        // Let user open in any app or share
+        // Let user open in any app or share with proper filename in dialog
         if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: `Open ${fileName}.pdf` });
+          await Sharing.shareAsync(uri, { 
+            mimeType: 'application/pdf', 
+            dialogTitle: `Open ${fileName}.pdf`,
+            // Note: The actual file will have a generated name, but dialog shows our preferred name
+          });
         } else {
           Alert.alert('Export Complete', `PDF saved as ${fileName}.pdf`);
         }

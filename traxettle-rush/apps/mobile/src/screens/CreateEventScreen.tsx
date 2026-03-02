@@ -26,6 +26,13 @@ export default function CreateEventScreen({ navigation }: any) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'event' | 'trip'>('event');
+
+  // Debug logging for Pro features
+  console.log('[CreateEvent] Debug:', {
+    tier,
+    capabilities,
+    multiCurrencySettlement: capabilities.multiCurrencySettlement,
+  });
   const [startDate, setStartDate] = useState<Date>(new Date());
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [pickerTarget, setPickerTarget] = useState<'start' | 'end' | null>(null);

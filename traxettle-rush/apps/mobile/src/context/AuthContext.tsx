@@ -76,6 +76,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const serverCapabilities: AuthCapabilities = {
       multiCurrencySettlement: Boolean(data?.capabilities?.multiCurrencySettlement),
     };
+    
+    console.log('[AuthContext] Profile data:', {
+      serverTier: serverTier,
+      nextTier,
+      serverCapabilities,
+      allowLocalTierOverride,
+      dataCapabilities: data?.capabilities,
+    });
+    
     setCapabilities(
       allowLocalTierOverride
         ? { multiCurrencySettlement: nextTier === 'pro' || serverCapabilities.multiCurrencySettlement }

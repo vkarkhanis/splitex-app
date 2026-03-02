@@ -177,10 +177,29 @@ export async function purchasePro(): Promise<PurchaseResult> {
   }
 
   try {
+    console.log('[Purchases] Starting purchase for package:', pkg.identifier);
+    console.log('[Purchases] Package details:', {
+      identifier: pkg.identifier,
+      price: pkg.product.price,
+      priceString: pkg.product.priceString,
+    });
+    
     const { customerInfo } = await Purchases.purchasePackage(pkg);
     const isPro = !!customerInfo.entitlements.active[PRO_ENTITLEMENT];
+    
+    console.log('[Purchases] Purchase successful, isPro:', isPro);
+    console.log('[Purchases] Customer info:', customerInfo.entitlements);
+    
     return { success: isPro, customerInfo };
   } catch (err: any) {
+    console.log('[Purchases] Purchase error:', err);
+    console.log('[Purchases] Error details:', {
+      code: err.code,
+      message: err.message,
+      userCancelled: err.userCancelled,
+      underlyingError: err.underlyingError,
+    });
+    
     if (err.userCancelled) {
       return { success: false, customerInfo: null, userCancelled: true };
     }

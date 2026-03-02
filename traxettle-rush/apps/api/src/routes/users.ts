@@ -47,6 +47,28 @@ function sortPaymentMethods(methods: UserPaymentMethod[]): UserPaymentMethod[] {
   });
 }
 
+// Debug endpoint to check entitlement details
+router.get('/debug/entitlement', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const entitlement = await entitlementService.getEntitlement(uid);
+    const capabilities = entitlementService.computeCapabilities(entitlement);
+    
+    return res.json({
+      success: true,
+      data: {
+        userId: uid,
+        entitlement,
+        capabilities,
+        isActivePro: entitlement.tier === 'pro' && 
+          (entitlement.entitlementStatus === 'active' || entitlement.entitlementStatus === 'grace_period'),
+      }
+    } as ApiResponse);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message } as ApiResponse);
+  }
+});
+
 router.get('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const uid = req.user!.uid;
