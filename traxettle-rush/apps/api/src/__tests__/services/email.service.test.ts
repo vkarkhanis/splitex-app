@@ -1,3 +1,15 @@
+const getDocMock = jest.fn();
+
+jest.mock('../../config/firebase', () => ({
+  db: {
+    collection: () => ({
+      doc: (id: string) => ({
+        get: () => getDocMock(id),
+      }),
+    }),
+  },
+}));
+
 jest.mock('nodemailer', () => {
   const sendMailMock = jest.fn();
   return {
@@ -16,6 +28,8 @@ const sendMailMock = (nodemailer as any).__sendMailMock;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Default: all users have notifications enabled (or no preference = default true)
+  getDocMock.mockResolvedValue({ exists: true, data: () => ({ preferences: { notifications: true } }) });
   delete process.env.SMTP_HOST;
   delete process.env.SMTP_PORT;
   delete process.env.SMTP_SECURE;
@@ -455,6 +469,86 @@ describe('EmailService', () => {
       // Should not throw, just warn
       expect(sendMailMock).toHaveBeenCalledTimes(2);
       consoleSpy.mockRestore();
+    });
+
+    it('should skip recipients who have notifications disabled', async () => {
+      sendMailMock.mockResolvedValue({ message: '{}' });
+      // user2 has notifications disabled
+      getDocMock.mockImplementation((id: string) => {
+        if (id === 'user2') {
+          return Promise.resolve({ exists: true, data: () => ({ preferences: { notifications: false } }) });
+        }
+        return Promise.resolve({ exists: true, data: () => ({ preferences: { notifications: true } }) });
+      });
+
+      const service = new EmailService();
+      await service.sendBulkNotifications(
+        [
+          { userId: 'user1', email: 'user1@example.com' },
+          { userId: 'user2', email: 'user2@example.com' },
+          { userId: 'user3', email: 'user3@example.com' },
+        ],
+        'actor',
+        {
+          eventName: 'Trip',
+          eventId: 'e1',
+          actorName: 'Actor',
+          type: 'expense_added',
+          details: { Title: 'Test' },
+        }
+      );
+
+      await new Promise(r => setTimeout(r, 50));
+
+      // Should send to user1 and user3, but NOT user2
+      expect(sendMailMock).toHaveBeenCalledTimes(2);
+      const emails = sendMailMock.mock.calls.map((c: any) => c[0].to);
+      expect(emails).toContain('user1@example.com');
+      expect(emails).toContain('user3@example.com');
+      expect(emails).not.toContain('user2@example.com');
+    });
+
+    it('should default to sending if user has no preferences set', async () => {
+      sendMailMock.mockResolvedValue({ message: '{}' });
+      // User doc exists but has no preferences field
+      getDocMock.mockResolvedValue({ exists: true, data: () => ({}) });
+
+      const service = new EmailService();
+      await service.sendBulkNotifications(
+        [{ userId: 'user1', email: 'user1@example.com' }],
+        'actor',
+        {
+          eventName: 'Trip',
+          eventId: 'e1',
+          actorName: 'Actor',
+          type: 'expense_added',
+          details: {},
+        }
+      );
+
+      await new Promise(r => setTimeout(r, 50));
+      expect(sendMailMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should default to sending if preference lookup fails', async () => {
+      sendMailMock.mockResolvedValue({ message: '{}' });
+      getDocMock.mockRejectedValue(new Error('Firestore unavailable'));
+
+      const service = new EmailService();
+      await service.sendBulkNotifications(
+        [{ userId: 'user1', email: 'user1@example.com' }],
+        'actor',
+        {
+          eventName: 'Trip',
+          eventId: 'e1',
+          actorName: 'Actor',
+          type: 'expense_added',
+          details: {},
+        }
+      );
+
+      await new Promise(r => setTimeout(r, 50));
+      expect(sendMailMock).toHaveBeenCalledTimes(1);
     });
   });
 });

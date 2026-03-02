@@ -13,14 +13,17 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Image,
+  Linking,
+  Dimensions,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { File } from 'expo-file-system';
+import { readAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import { useSharedContent } from '../hooks/useSharedContent';
 import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { api } from '../api';
+import { api, getResolvedApiBaseUrl } from '../api';
 import type {
   Event as TraxettleEvent,
   Expense,
@@ -103,6 +106,13 @@ export default function EventDetailScreen({ route, navigation }: any) {
 
   const [expenseDetailModal, setExpenseDetailModal] = useState(false);
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+
+  const [proofViewerUrl, setProofViewerUrl] = useState<string | null>(null);
+  const [apiBaseUrl, setApiBaseUrl] = useState<string>('');
+
+  useEffect(() => {
+    getResolvedApiBaseUrl().then(setApiBaseUrl);
+  }, []);
 
   const [editGroupModal, setEditGroupModal] = useState(false);
   const [editGroupId, setEditGroupId] = useState<string | null>(null);
@@ -374,14 +384,13 @@ export default function EventDetailScreen({ route, navigation }: any) {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 0.8,
       });
       if (result.canceled || !result.assets?.[0]?.uri) return;
 
       const asset = result.assets[0];
-      const file = new File(asset.uri);
-      const base64 = await file.base64();
+      const base64 = await readAsStringAsync(asset.uri, { encoding: EncodingType.Base64 });
 
       const upload = await api.post<{ proofUrl: string }>(`/api/settlements/${markPaidTarget.id}/upload-proof`, {
         filename: asset.fileName || `proof-${Date.now()}.jpg`,
@@ -1445,7 +1454,12 @@ export default function EventDetailScreen({ route, navigation }: any) {
                                 <Text style={[styles.timelineMeta, { color: colors.textSecondary }]}>Ref: {entry.referenceId}</Text>
                               )}
                               {entry.proofUrl && (
-                                <Text style={[styles.timelineMeta, { color: colors.primary }]}>Proof: {entry.proofUrl}</Text>
+                                <TouchableOpacity onPress={() => {
+                                  const url = entry.proofUrl.startsWith('/') ? `${apiBaseUrl}${entry.proofUrl}` : entry.proofUrl;
+                                  setProofViewerUrl(url);
+                                }}>
+                                  <Text style={[styles.timelineMeta, { color: colors.primary, textDecorationLine: 'underline' }]}>📎 View proof screenshot</Text>
+                                </TouchableOpacity>
                               )}
                               {entry.note && (
                                 <Text style={[styles.timelineMeta, { color: colors.textSecondary }]}>{entry.note}</Text>
@@ -1564,6 +1578,28 @@ export default function EventDetailScreen({ route, navigation }: any) {
             </View>
           </ScrollView>
         </View>
+      </View>
+    </Modal>
+
+    {/* ── Proof Image Viewer Modal ── */}
+    <Modal visible={!!proofViewerUrl} animationType="fade" transparent onRequestClose={() => setProofViewerUrl(null)}>
+      <View style={styles.proofViewerOverlay}>
+        <TouchableOpacity style={styles.proofViewerClose} onPress={() => setProofViewerUrl(null)}>
+          <Text style={styles.proofViewerCloseText}>✕</Text>
+        </TouchableOpacity>
+        {proofViewerUrl && (
+          <Image
+            source={{ uri: proofViewerUrl }}
+            style={styles.proofViewerImage}
+            resizeMode="contain"
+          />
+        )}
+        <TouchableOpacity
+          style={[styles.proofViewerOpenBtn, { backgroundColor: colors.primary }]}
+          onPress={() => { if (proofViewerUrl) Linking.openURL(proofViewerUrl); }}
+        >
+          <Text style={styles.proofViewerOpenText}>Open in Browser</Text>
+        </TouchableOpacity>
       </View>
     </Modal>
   </>
@@ -1740,4 +1776,37 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderRadius: radii.sm, padding: spacing.md, marginBottom: spacing.sm,
   },
   proofAttachedText: { fontSize: fontSizes.sm, fontWeight: '600' },
+
+  // Proof Viewer Modal
+  proofViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  proofViewerClose: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  proofViewerCloseText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  proofViewerImage: {
+    width: Dimensions.get('window').width - 32,
+    height: Dimensions.get('window').height * 0.65,
+  },
+  proofViewerOpenBtn: {
+    position: 'absolute',
+    bottom: 50,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: radii.sm,
+  },
+  proofViewerOpenText: { color: '#fff', fontWeight: '600', fontSize: fontSizes.sm },
 });

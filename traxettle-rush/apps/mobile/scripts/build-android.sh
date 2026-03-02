@@ -78,7 +78,8 @@ info "Checking prerequisites..."
 # Determine Firebase environment based on profile
 case "$PROFILE" in
   debug)          FIREBASE_ENV="local" ;;
-  *)              FIREBASE_ENV="staging" ;;
+  staging|debug:staging) FIREBASE_ENV="staging" ;;
+  production)     FIREBASE_ENV="prod" ;;
 esac
 
 GOOGLE_SERVICES_SRC="$MOBILE_DIR/google-services.$FIREBASE_ENV.json"
@@ -154,7 +155,9 @@ case "$PROFILE" in
       warn "Set it via: EXPO_PUBLIC_API_URL=https://your-prod-api.run.app ./scripts/build-android.sh production"
       export EXPO_PUBLIC_API_URL="https://traxettle-api-staging-lomxjapdhq-uc.a.run.app"
     fi
-    # Google OAuth client IDs for traxettle-staging (943648574702) — update when production Firebase project is ready
+    # TODO: Replace these with production Firebase project OAuth client IDs
+    # From Firebase Console → Project Settings → General → Your apps → Android
+    warn "Using staging OAuth client IDs — replace with production IDs when Firebase project is ready"
     export EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID="943648574702-n7h4msh3iho1187po0dnc8tja7insc89.apps.googleusercontent.com"
     export EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID="943648574702-0qk99r3oql0sv3k4h6cgluffdqs7letj.apps.googleusercontent.com"
     export EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID="943648574702-cvgj086ppdcbqgcagrekjs4pekn0q1ok.apps.googleusercontent.com"

@@ -19,8 +19,10 @@ function isProdRuntime(): boolean {
 function buildEmulatorObjectUrl(bucketName: string, objectPath: string): string | null {
   const emulatorHost = process.env.STORAGE_EMULATOR_HOST;
   if (!emulatorHost) return null;
+  // Return an API-relative path so clients access the file through the API
+  // server (which is already reachable from all platforms).
   const encodedPath = encodeURIComponent(objectPath);
-  return `http://${emulatorHost}/v0/b/${bucketName}/o/${encodedPath}?alt=media`;
+  return `/api/settlements/storage-proxy/${encodedPath}?bucket=${encodeURIComponent(bucketName)}`;
 }
 
 function resolveBucketName(): string | undefined {
@@ -173,25 +175,39 @@ router.post('/:settlementId/upload-proof', requireAuth, async (req: Authenticate
 
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
     const filePath = `settlements/${settlementId}/proofs/${uid}-${Date.now()}-${safeName}`;
-    const bucketName = resolveBucketName();
-    const bucket = bucketName ? storage.bucket(bucketName) : storage.bucket();
-    const file = bucket.file(filePath);
-    await file.save(buffer, {
-      metadata: { contentType },
-      resumable: false,
-    } as any);
+    const bucketName = resolveBucketName() || 'default-bucket';
 
     let proofUrl: string;
-    try {
+    const emulatorHost = process.env.STORAGE_EMULATOR_HOST;
+
+    if (emulatorHost) {
+      // Upload directly via HTTP to the storage emulator (Admin SDK defaults
+      // to HTTPS which the emulator doesn't support).
+      const uploadUrl = `http://${emulatorHost}/upload/storage/v1/b/${encodeURIComponent(bucketName)}/o?uploadType=media&name=${encodeURIComponent(filePath)}`;
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': contentType },
+        body: buffer,
+      });
+      if (!uploadRes.ok) {
+        const errText = await uploadRes.text().catch(() => '');
+        throw new Error(`Storage emulator upload failed (${uploadRes.status}): ${errText}`);
+      }
+      proofUrl = buildEmulatorObjectUrl(bucketName, filePath)!;
+    } else {
+      // Production: use Admin SDK
+      const bucket = storage.bucket(bucketName);
+      const file = bucket.file(filePath);
+      await file.save(buffer, {
+        metadata: { contentType },
+        resumable: false,
+      } as any);
+
       const [signedUrl] = await file.getSignedUrl({
         action: 'read',
         expires: new Date('2099-01-01'),
       } as any);
       proofUrl = signedUrl;
-    } catch (err) {
-      const fallback = buildEmulatorObjectUrl(bucket.name, filePath);
-      if (!fallback) throw err;
-      proofUrl = fallback;
     }
 
     return res.json({
@@ -338,6 +354,32 @@ router.post('/:settlementId/retry', requireAuth, async (req: AuthenticatedReques
       return res.status(404).json({ success: false, error: err.message } as ApiResponse);
     }
     return res.status(400).json({ success: false, error: err.message } as ApiResponse);
+  }
+});
+
+// Proxy endpoint to serve storage emulator files through the API server.
+// In emulator mode, proof URLs are stored as API-relative paths so the
+// mobile app can reach them regardless of platform (Android 10.0.2.2 vs iOS localhost).
+router.get('/storage-proxy/:objectPath', async (req, res) => {
+  const emulatorHost = process.env.STORAGE_EMULATOR_HOST;
+  if (!emulatorHost) {
+    return res.status(404).json({ success: false, error: 'Storage proxy only available in emulator mode' });
+  }
+  try {
+    const objectPath = req.params.objectPath;
+    const bucket = typeof req.query.bucket === 'string' ? req.query.bucket : '';
+    const url = `http://${emulatorHost}/v0/b/${bucket}/o/${encodeURIComponent(objectPath)}?alt=media`;
+    const upstream = await fetch(url);
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({ success: false, error: 'File not found in storage emulator' });
+    }
+    const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    return res.send(buffer);
+  } catch (err: any) {
+    console.error('GET /settlements/storage-proxy error:', err.message);
+    return res.status(500).json({ success: false, error: 'Failed to proxy storage file' });
   }
 });
 
