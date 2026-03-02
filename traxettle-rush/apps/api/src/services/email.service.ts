@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { db } from '../config/firebase';
 
 export interface InvitationEmailData {
   inviteeEmail: string;
@@ -295,14 +296,37 @@ export class EmailService {
 
   /**
    * Send notification emails to multiple recipients (fire-and-forget).
-   * Excludes the actor from the recipient list.
+   * Excludes the actor and recipients who have notifications disabled.
    */
   async sendBulkNotifications(
     recipients: { userId: string; email?: string }[],
     actorUserId: string,
     baseData: Omit<NotificationEmailData, 'recipientEmail'>
   ): Promise<void> {
-    const targets = recipients.filter(r => r.userId !== actorUserId && r.email);
+    const candidates = recipients.filter(r => r.userId !== actorUserId && r.email);
+    if (candidates.length === 0) return;
+
+    // Look up each recipient's notification preference and filter out opted-out users
+    const prefsResults = await Promise.allSettled(
+      candidates.map(async r => {
+        try {
+          const snap = await db.collection('users').doc(r.userId).get();
+          const prefs = snap.exists ? snap.data()?.preferences : undefined;
+          // Default to true (send) if preference is not explicitly set to false
+          const wantsNotifications = prefs?.notifications !== false;
+          return { ...r, wantsNotifications };
+        } catch {
+          // If we can't look up preferences, default to sending
+          return { ...r, wantsNotifications: true };
+        }
+      })
+    );
+
+    const targets = prefsResults
+      .filter((r): r is PromiseFulfilledResult<{ userId: string; email?: string; wantsNotifications: boolean }> => r.status === 'fulfilled')
+      .map(r => r.value)
+      .filter(r => r.wantsNotifications);
+
     if (targets.length === 0) return;
 
     // Fire-and-forget — don't block the API response

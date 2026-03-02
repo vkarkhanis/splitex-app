@@ -13,6 +13,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import { openExportedFile } from '../utils/openFile';
 import * as Print from 'expo-print';
 import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
@@ -199,28 +200,14 @@ export default function ClosedEventsScreen({ navigation }: any) {
           console.error('CSV write error:', writeErr);
           throw new Error(`Failed to create CSV file: ${writeErr.message}`);
         }
-        const fileUri = csvFile.uri;
-        
-        // Let user open in any app or share
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: `Open ${fileName}.csv` });
-        } else {
-          Alert.alert('Export Complete', `CSV saved as ${fileName}.csv`);
-        }
+        // Open in user's chosen app (e.g. spreadsheet viewer)
+        await openExportedFile(csvFile.uri, 'text/csv', `Open ${fileName}.csv`);
       } else {
         const html = buildHtmlContent(details);
         const { uri } = await Print.printToFileAsync({ html });
         
-        // Let user open in any app or share with proper filename in dialog
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(uri, { 
-            mimeType: 'application/pdf', 
-            dialogTitle: `Open ${fileName}.pdf`,
-            // Note: The actual file will have a generated name, but dialog shows our preferred name
-          });
-        } else {
-          Alert.alert('Export Complete', `PDF saved as ${fileName}.pdf`);
-        }
+        // Open in user's chosen app (e.g. PDF viewer)
+        await openExportedFile(uri, 'application/pdf', `Open ${fileName}.pdf`);
       }
     } catch (err: any) {
       Alert.alert('Export failed', err?.message || 'An error occurred while exporting.');
