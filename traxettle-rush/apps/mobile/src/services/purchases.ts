@@ -6,14 +6,16 @@ import Purchases, {
   LOG_LEVEL,
 } from 'react-native-purchases';
 import { ENV } from '../config/env';
+import { getRuntimeConfig } from '../config/runtime';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const PRO_ENTITLEMENT = ENV.REVENUECAT_PRO_ENTITLEMENT_ID;
-const OFFERING_ID = ENV.REVENUECAT_OFFERING_ID;
+let PRO_ENTITLEMENT = ENV.REVENUECAT_PRO_ENTITLEMENT_ID;
+let OFFERING_ID = ENV.REVENUECAT_OFFERING_ID;
 
 // ─── Initialisation ──────────────────────────────────────────────────────────
 
 let _initialised = false;
+let _currentAppUserId: string | undefined;
 
 export interface PurchasesConfigDebug {
   platform: 'ios' | 'android';
@@ -29,16 +31,85 @@ export function getPurchasesConfigDebug(): PurchasesConfigDebug {
 }
 
 /**
+ * Reconfigure RevenueCat with runtime configuration.
+ * Call this when environment changes (e.g., switching to staging mode).
+ */
+export async function reconfigurePurchasesWithRuntimeConfig(): Promise<void> {
+  if (!_initialised || !_currentAppUserId) {
+    console.log('[Purchases] Cannot reconfigure - not initialized or no app user ID');
+    return;
+  }
+
+  try {
+    const runtimeConfig = await getRuntimeConfig();
+    const { revenueCatConfig } = runtimeConfig;
+    
+    // Update local constants
+    PRO_ENTITLEMENT = revenueCatConfig.proEntitlement;
+    OFFERING_ID = revenueCatConfig.offering;
+    
+    // Get the appropriate API key for platform
+    const apiKey = Platform.OS === 'ios' 
+      ? revenueCatConfig.appleApiKey 
+      : revenueCatConfig.googleApiKey;
+    
+    if (!apiKey) {
+      console.warn('[Purchases] No RevenueCat API key in runtime config - keeping current configuration');
+      return;
+    }
+    
+    console.log('[Purchases] Reconfiguring with runtime config:', {
+      platform: Platform.OS,
+      keyPrefix: apiKey.slice(0, 10) + '...',
+      entitlement: revenueCatConfig.proEntitlement,
+      offering: revenueCatConfig.offering
+    });
+    
+    // Reconfigure RevenueCat with new API key
+    await Purchases.configure({ apiKey, appUserID: _currentAppUserId });
+    
+    console.log('[Purchases] Successfully reconfigured with runtime config');
+  } catch (error) {
+    console.error('[Purchases] Failed to reconfigure with runtime config:', error);
+  }
+}
+
+/**
  * Configure RevenueCat SDK.  Call once at app startup (after user is known).
  * Pass the authenticated user's ID so purchases are attributed correctly.
  */
 export async function initPurchases(appUserId?: string): Promise<void> {
   if (_initialised) return;
 
-  const apiKey =
-    Platform.OS === 'ios'
+  // Store app user ID for potential reconfiguration
+  _currentAppUserId = appUserId;
+
+  // Try runtime config first, fallback to build-time config
+  let apiKey: string | undefined;
+  let entitlement: string;
+  let offering: string;
+
+  try {
+    const runtimeConfig = await getRuntimeConfig();
+    const { revenueCatConfig } = runtimeConfig;
+    
+    apiKey = Platform.OS === 'ios' 
+      ? revenueCatConfig.appleApiKey 
+      : revenueCatConfig.googleApiKey;
+    entitlement = revenueCatConfig.proEntitlement;
+    offering = revenueCatConfig.offering;
+    
+    console.log('[Purchases] Using runtime RevenueCat configuration');
+  } catch (error) {
+    // Fallback to build-time configuration
+    apiKey = Platform.OS === 'ios'
       ? ENV.REVENUECAT_APPLE_API_KEY
       : ENV.REVENUECAT_GOOGLE_API_KEY;
+    entitlement = ENV.REVENUECAT_PRO_ENTITLEMENT_ID;
+    offering = ENV.REVENUECAT_OFFERING_ID;
+    
+    console.log('[Purchases] Using build-time RevenueCat configuration (fallback)');
+  }
 
   if (!apiKey) {
     console.warn(
@@ -49,6 +120,10 @@ export async function initPurchases(appUserId?: string): Promise<void> {
     return;
   }
 
+  // Update local constants
+  PRO_ENTITLEMENT = entitlement;
+  OFFERING_ID = offering;
+
   if (__DEV__) {
     Purchases.setLogLevel(LOG_LEVEL.DEBUG);
   }
@@ -57,13 +132,20 @@ export async function initPurchases(appUserId?: string): Promise<void> {
     await Purchases.configure({ apiKey, appUserID: appUserId || undefined });
   } catch (err: any) {
     const debug = getPurchasesConfigDebug();
-    throw new Error(
-      `RevenueCat configure failed (platform=${debug.platform}, keyPrefix=${
-        debug.keyPrefix || 'none'
-      }): ${err?.message || 'unknown error'}`,
+    console.error(
+      '[Purchases] Failed to configure RevenueCat SDK',
+      {
+        platform: debug.platform,
+        keyPresent: debug.keyPresent,
+        keyPrefix: debug.keyPrefix,
+        error: err.message,
+      },
     );
+    return;
   }
+
   _initialised = true;
+  console.log('[Purchases] RevenueCat SDK configured successfully');
 }
 
 /**
@@ -112,7 +194,27 @@ export async function getCustomerInfo(): Promise<CustomerInfo | null> {
 export async function getProOffering(): Promise<PurchasesOffering | null> {
   if (!_initialised) return null;
   const offerings = await Purchases.getOfferings();
-  return offerings.all[OFFERING_ID] ?? offerings.current ?? null;
+  
+  console.log('[Purchases] Available offerings:', {
+    total: offerings.all.length,
+    offeringIds: Object.keys(offerings.all),
+    current: offerings.current?.identifier || 'none',
+    requestedOfferingId: OFFERING_ID
+  });
+  
+  const offering = offerings.all[OFFERING_ID] ?? offerings.current ?? null;
+  
+  if (offering) {
+    console.log('[Purchases] Found offering:', {
+      identifier: offering.identifier,
+      packagesCount: offering.availablePackages.length,
+      packageIds: offering.availablePackages.map(p => p.identifier)
+    });
+  } else {
+    console.warn('[Purchases] No offering found - check Google Play Console products');
+  }
+  
+  return offering;
 }
 
 /**
@@ -123,7 +225,18 @@ export async function getProOffering(): Promise<PurchasesOffering | null> {
 export async function getProPackage(): Promise<PurchasesPackage | null> {
   const offering = await getProOffering();
   if (!offering) return null;
-  return offering.annual ?? offering.lifetime ?? offering.availablePackages[0] ?? null;
+  
+  const pkg = offering.annual ?? offering.lifetime ?? offering.availablePackages[0] ?? null;
+  
+  console.log('[Purchases] Selected package:', {
+    found: !!pkg,
+    identifier: pkg?.identifier || 'none',
+    hasAnnual: !!offering.annual,
+    hasLifetime: !!offering.lifetime,
+    totalPackages: offering.availablePackages.length
+  });
+  
+  return pkg;
 }
 
 // ─── Purchase & Restore ──────────────────────────────────────────────────────
@@ -172,7 +285,7 @@ export async function purchasePro(): Promise<PurchaseResult> {
     return {
       success: false,
       customerInfo: null,
-      error: 'No Pro package available. Please try again later.',
+      error: 'Subscription packages are not available yet. This may be due to payment setup verification. Please try again later or contact support.',
     };
   }
 

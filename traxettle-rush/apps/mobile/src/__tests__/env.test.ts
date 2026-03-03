@@ -32,8 +32,8 @@ describe('env config', () => {
 
   it('uses production URLs when __DEV__ is false', () => {
     const { ENV } = loadEnv('ios', false);
-    expect(ENV.API_URL).toBe('https://traxettle-api-staging-lomxjapdhq-uc.a.run.app');
-    expect(ENV.WS_URL).toBe('wss://traxettle-api-staging-lomxjapdhq-uc.a.run.app/ws');
+    expect(ENV.API_URL).toBe('https://traxettle-api-prod-943648574702.us-central1.run.app');
+    expect(ENV.WS_URL).toBe('wss://traxettle-api-prod-943648574702.us-central1.run.app/ws');
   });
 
   it('parses real payment flag from EXPO_PUBLIC_USE_REAL_PAYMENTS', () => {

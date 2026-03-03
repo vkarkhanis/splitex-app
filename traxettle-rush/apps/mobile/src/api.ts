@@ -3,6 +3,7 @@ import { ENV, getApiUrl, getEmulatorApiUrl, isLocalLikeEnv } from './config/env'
 
 const TOKEN_KEY = '@traxettle_token';
 const FIREBASE_EMULATOR_KEY = '@traxettle_dev_firebase_emulator';
+const STAGING_MODE_KEY = '@traxettle_staging_mode';
 
 export class ApiRequestError extends Error {
   status: number;
@@ -39,10 +40,30 @@ export async function setFirebaseEmulatorEnabled(enabled: boolean): Promise<void
   await AsyncStorage.setItem(FIREBASE_EMULATOR_KEY, enabled ? 'true' : 'false');
 }
 
+export async function isStagingModeEnabled(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(STAGING_MODE_KEY)) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export async function setStagingModeEnabled(enabled: boolean): Promise<void> {
+  if (enabled) {
+    await AsyncStorage.setItem(STAGING_MODE_KEY, 'true');
+  } else {
+    await AsyncStorage.removeItem(STAGING_MODE_KEY);
+  }
+}
+
 export async function getResolvedApiBaseUrl(): Promise<string> {
-  if (!isLocalLikeEnv() || !ENV.LOCAL_DEV_OPTIONS_ENABLED) return getApiUrl();
-  const useEmulator = await isFirebaseEmulatorEnabled();
-  return useEmulator ? getEmulatorApiUrl() : getApiUrl();
+  if (isLocalLikeEnv() && ENV.LOCAL_DEV_OPTIONS_ENABLED) {
+    const useEmulator = await isFirebaseEmulatorEnabled();
+    return useEmulator ? getEmulatorApiUrl() : getApiUrl();
+  }
+
+  const useStaging = await isStagingModeEnabled();
+  return useStaging ? ENV.STAGING_API_URL : ENV.PROD_API_URL;
 }
 
 async function request<T = any>(

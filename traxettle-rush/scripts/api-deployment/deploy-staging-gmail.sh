@@ -19,4 +19,7 @@ if [[ -z "${SMTP_PASS:-}" ]]; then
   exit 1
 fi
 
+# Export SMTP_PASS for the child script
+export SMTP_PASS
+
 exec bash "${SCRIPT_DIR}/deploy-staging.sh"

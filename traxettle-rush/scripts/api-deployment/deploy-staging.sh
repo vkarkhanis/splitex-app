@@ -13,7 +13,7 @@ SERVICE_NAME="traxettle-api-staging"
 RUNTIME_SA_NAME="traxettle-api-staging-runtime"
 DOMAIN_NAME="CHANGE_ME_OPTIONAL_DOMAIN_OR_LEAVE_EMPTY"
 
-APP_URL="https://staging.traxettle.app"
+APP_URL=""
 NODE_ENV_VALUE="staging"
 MIN_INSTANCES="0"
 
@@ -165,7 +165,8 @@ fi
 # Allow runtime SA to read secrets
 gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" \
   --member="serviceAccount:${RUNTIME_SA_EMAIL}" \
-  --role="roles/secretmanager.secretAccessor" >/dev/null
+  --role="roles/secretmanager.secretAccessor" \
+  --condition="expression=request.auth != null,title=authenticated-access,description=Only authenticated users can access the API" >/dev/null
 
 # ---- Upsert secrets ----
 TMP_KEY_FILE="$(mktemp)"

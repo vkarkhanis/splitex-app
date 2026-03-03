@@ -1,16 +1,17 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, View, Platform } from 'react-native';
+import { ActivityIndicator, AppState, View, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { PurchaseProvider } from './context/PurchaseContext';
-import { FeedbackProvider } from './context/FeedbackContext';
+import { FeedbackProvider, useFeedback } from './context/FeedbackContext';
 import { ENV } from './config/env';
+import { isStagingModeEnabled } from './api';
 
 // Configure Google Sign-In once at app startup
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
@@ -166,6 +167,61 @@ function AppInner() {
   );
 }
 
+function useProdReachabilityToast() {
+  const { pushToast } = useFeedback();
+  const lastShownAt = useRef<number>(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function checkProd() {
+      try {
+        const useStaging = await isStagingModeEnabled();
+        if (useStaging) return;
+
+        const now = Date.now();
+        if (now - lastShownAt.current < 60_000) return;
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        try {
+          const res = await fetch(`${ENV.PROD_API_URL}/health`, {
+            method: 'GET',
+            signal: controller.signal,
+          });
+          if (cancelled) return;
+          if (!res.ok) throw new Error(`health ${res.status}`);
+        } finally {
+          clearTimeout(timeout);
+        }
+      } catch {
+        if (cancelled) return;
+        lastShownAt.current = Date.now();
+        pushToast(
+          'error',
+          'Production API unavailable',
+          'Please try again later or contact support if the issue persists.',
+        );
+      }
+    }
+
+    void checkProd();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void checkProd();
+    });
+
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+  }, [pushToast]);
+}
+
+function AppBootstrap() {
+  useProdReachabilityToast();
+  return <AppInner />;
+}
+
 export default function App() {
   useEffect(() => {
     let mounted = true;
@@ -194,7 +250,7 @@ export default function App() {
         <FeedbackProvider>
           <AuthProvider>
             <PurchaseProvider>
-              <AppInner />
+              <AppBootstrap />
             </PurchaseProvider>
           </AuthProvider>
         </FeedbackProvider>

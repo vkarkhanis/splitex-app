@@ -81,10 +81,7 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [initError, setInitError] = useState<string | null>(null);
   const priceString = storePriceString ?? fallbackPrice();
 
-  // Keep in sync with AuthContext tier (server-side or local override)
-  useEffect(() => {
-    if (tier === 'pro') setIsPro(true);
-  }, [tier]);
+  // Note: We don't sync with tier alone - both RevenueCat AND server must agree
 
   // Initialise RevenueCat when user logs in
   useEffect(() => {
@@ -102,7 +99,18 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setInitError(null);
 
         await loginPurchaseUser(rcAppUserId);
-        const pro = await hasProEntitlement();
+        
+        const revenueCatPro = await hasProEntitlement();
+        
+        // Both RevenueCat AND server must agree for pro status
+        const pro = tier === 'pro' && revenueCatPro;
+        
+        console.log('[PurchaseProvider] isPro determination:', {
+          tier,
+          revenueCatEntitlement: revenueCatPro,
+          finalIsPro: pro,
+          bothAgree: tier === 'pro' && revenueCatPro
+        });
         if (mounted) setIsPro(pro);
 
         // Fetch offerings for the paywall
@@ -140,9 +148,11 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const refreshStatus = useCallback(async () => {
     if (!isPurchasesConfigured()) return;
-    const pro = await hasProEntitlement();
+    const revenueCatPro = await hasProEntitlement();
+    // Both RevenueCat AND server must agree for pro status
+    const pro = tier === 'pro' && revenueCatPro;
     setIsPro(pro);
-  }, []);
+  }, [tier]);
 
   const handlePurchase = useCallback(async () => {
     if (!isPurchasesConfigured()) {

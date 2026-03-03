@@ -6,6 +6,7 @@ exports[`Shared types - Enums enum/currency public contract snapshot 1`] = `
     "ACTIVE": "active",
     "CLOSED": "closed",
     "PAYMENT": "payment",
+    "REVIEW": "review",
     "SETTLED": "settled",
   },
   "EventType": {

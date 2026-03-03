@@ -20,6 +20,11 @@
       "reviewCategory": "production"
     },
     {
+      "packageName": "@traxettle/doctor-tool",
+      "projectFolder": "tools/doctor-tool",
+      "reviewCategory": "production"
+    },
+    {
       "packageName": "@traxettle/mobile",
       "projectFolder": "apps/mobile",
       "reviewCategory": "production"
