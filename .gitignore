@@ -12,3 +12,5 @@ Thumbs.db
 
 # service account
 *sa*.json
+fb-service-accounts/
+**/fb-service-accounts/
