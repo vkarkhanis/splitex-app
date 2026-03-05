@@ -13,7 +13,7 @@ SERVICE_NAME="traxettle-api-staging"
 RUNTIME_SA_NAME="traxettle-api-staging-runtime"
 DOMAIN_NAME="CHANGE_ME_OPTIONAL_DOMAIN_OR_LEAVE_EMPTY"
 
-APP_URL="https://staging.traxettle.app"
+APP_URL=""
 NODE_ENV_VALUE="staging"
 MIN_INSTANCES="0"
 
@@ -61,6 +61,8 @@ SECRET_JWT_SECRET="traxettle-stg-jwt-secret"
 SECRET_JWT_REFRESH_SECRET="traxettle-stg-jwt-refresh-secret"
 SECRET_FIREBASE_WEB_API_KEY="traxettle-stg-firebase-web-api-key"
 SECRET_REVENUECAT_WEBHOOK_SECRET="traxettle-stg-revenuecat-webhook-secret"
+SECRET_REVENUECAT_GOOGLE_API_KEY="traxettle-stg-revenuecat-google-api-key"
+SECRET_REVENUECAT_APPLE_API_KEY="traxettle-stg-revenuecat-apple-api-key"
 SECRET_SMTP_PASS="traxettle-stg-smtp-pass"
 
 # ---- Helpers ----
@@ -127,6 +129,12 @@ require_cmd bash
 [ -f "$RC_LOADER" ] || fail "Missing RevenueCat loader: $RC_LOADER"
 source "$RC_LOADER" staging
 
+# RevenueCat public SDK keys used by the mobile client. We also expose them via
+# the API runtime config endpoint (/api/config) so the app can reconfigure after
+# a runtime environment switch.
+REVENUECAT_GOOGLE_API_KEY="${REVENUECAT_GOOGLE_API_KEY:-${RC_REVENUECAT_GOOGLE_PUBLIC_KEY:-${EXPO_PUBLIC_REVENUECAT_GOOGLE_KEY:-}}}"
+REVENUECAT_APPLE_API_KEY="${REVENUECAT_APPLE_API_KEY:-${RC_REVENUECAT_APPLE_PUBLIC_KEY:-${EXPO_PUBLIC_REVENUECAT_APPLE_KEY:-}}}"
+
 require_not_placeholder "GCP_PROJECT_ID" "$GCP_PROJECT_ID"
 require_not_placeholder "FIREBASE_PROJECT_ID" "$FIREBASE_PROJECT_ID"
 require_not_placeholder "FIREBASE_CLIENT_EMAIL" "$FIREBASE_CLIENT_EMAIL"
@@ -165,7 +173,8 @@ fi
 # Allow runtime SA to read secrets
 gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" \
   --member="serviceAccount:${RUNTIME_SA_EMAIL}" \
-  --role="roles/secretmanager.secretAccessor" >/dev/null
+  --role="roles/secretmanager.secretAccessor" \
+  --condition="expression=request.auth != null,title=authenticated-access,description=Only authenticated users can access the API" >/dev/null
 
 # ---- Upsert secrets ----
 TMP_KEY_FILE="$(mktemp)"
@@ -179,6 +188,12 @@ upsert_secret_text "$SECRET_FIREBASE_STORAGE_BUCKET" "$FIREBASE_STORAGE_BUCKET"
 upsert_secret_text "$SECRET_JWT_SECRET" "$JWT_SECRET"
 upsert_secret_text "$SECRET_JWT_REFRESH_SECRET" "$JWT_REFRESH_SECRET"
 upsert_secret_text "$SECRET_REVENUECAT_WEBHOOK_SECRET" "$REVENUECAT_WEBHOOK_SECRET"
+if [[ -n "$REVENUECAT_GOOGLE_API_KEY" ]]; then
+  upsert_secret_text "$SECRET_REVENUECAT_GOOGLE_API_KEY" "$REVENUECAT_GOOGLE_API_KEY"
+fi
+if [[ -n "$REVENUECAT_APPLE_API_KEY" ]]; then
+  upsert_secret_text "$SECRET_REVENUECAT_APPLE_API_KEY" "$REVENUECAT_APPLE_API_KEY"
+fi
 if [[ -n "$FIREBASE_WEB_API_KEY" ]]; then
   upsert_secret_text "$SECRET_FIREBASE_WEB_API_KEY" "$FIREBASE_WEB_API_KEY"
 fi
@@ -220,6 +235,8 @@ DEPLOY_CMD=(
   --set-secrets "JWT_SECRET=${SECRET_JWT_SECRET}:latest"
   --set-secrets "JWT_REFRESH_SECRET=${SECRET_JWT_REFRESH_SECRET}:latest"
   --set-secrets "REVENUECAT_WEBHOOK_SECRET=${SECRET_REVENUECAT_WEBHOOK_SECRET}:latest"
+  --set-secrets "REVENUECAT_GOOGLE_API_KEY=${SECRET_REVENUECAT_GOOGLE_API_KEY}:latest"
+  --set-secrets "REVENUECAT_APPLE_API_KEY=${SECRET_REVENUECAT_APPLE_API_KEY}:latest"
   --project "$GCP_PROJECT_ID"
 )
 if [[ -n "$FIREBASE_WEB_API_KEY" ]]; then

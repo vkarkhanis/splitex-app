@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,18 +8,52 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   Alert,
 } from 'react-native';
 import { spacing, radii, fontSizes } from '../theme';
 import { useTheme } from '../context/ThemeContext';
+import { useFeedback } from '../context/FeedbackContext';
 import { api } from '../api';
+import { isStagingModeEnabled, setStagingModeEnabled } from '../api';
+import { ENV } from '../config/env';
 
 export default function ForgotPasswordScreen({ navigation }: any) {
   const { theme } = useTheme();
   const c = theme.colors;
+  const { pushToast } = useFeedback();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [useStaging, setUseStaging] = useState(false);
+  const [envTapCount, setEnvTapCount] = useState(0);
+
+  useEffect(() => {
+    // Load current environment setting
+    isStagingModeEnabled().then(setUseStaging);
+  }, []);
+
+  const handleEnvironmentToggle = async () => {
+    const newStagingMode = !useStaging;
+    await setStagingModeEnabled(newStagingMode);
+    setUseStaging(newStagingMode);
+    
+    pushToast(
+      'success',
+      'Environment Switched',
+      `Now using ${newStagingMode ? 'STAGING' : 'PRODUCTION'} API.`
+    );
+  };
+
+  const handleVersionTap = () => {
+    const next = envTapCount + 1;
+    if (next >= 7) {
+      setEnvTapCount(0);
+      handleEnvironmentToggle();
+      return;
+    }
+    setEnvTapCount(next);
+  };
 
   const handleSubmit = async () => {
     if (!email.trim()) {
@@ -63,12 +97,15 @@ export default function ForgotPasswordScreen({ navigation }: any) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.inner}>
-        <Text style={[styles.title, { color: c.text }]}>Forgot Password</Text>
+        <Pressable onPress={handleVersionTap}>
+          <Text style={[styles.title, { color: c.text }]}>Forgot Password</Text>
+        </Pressable>
         <Text style={[styles.desc, { color: c.textSecondary }]}>
           Enter your email address and we'll send you a link to reset your password.
         </Text>
 
-        <Text style={[styles.label, { color: c.textSecondary }]}>Email</Text>
+        <TextInput
+          style={[styles.label, { color: c.textSecondary }]}>Email</TextInput>
         <TextInput
           style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
           value={email}
@@ -104,7 +141,25 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   inner: { flex: 1, justifyContent: 'center', padding: spacing.xl },
   title: { fontSize: fontSizes.xxl, fontWeight: '700', marginBottom: spacing.sm },
-  desc: { fontSize: fontSizes.sm, marginBottom: spacing.xl, lineHeight: 20 },
+  desc: { fontSize: fontSizes.sm, marginBottom: spacing.lg, lineHeight: 20 },
+  envIndicator: {
+    alignSelf: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.full,
+    marginBottom: spacing.sm,
+  },
+  envText: {
+    fontSize: fontSizes.sm,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  envSubtext: {
+    fontSize: fontSizes.xs,
+    textAlign: 'center',
+    marginBottom: spacing.xl,
+    fontStyle: 'italic',
+  },
   label: { fontSize: fontSizes.sm, fontWeight: '600', marginBottom: spacing.xs },
   input: {
     borderRadius: radii.sm, borderWidth: 1,

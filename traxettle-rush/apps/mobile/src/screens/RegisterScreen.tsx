@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,16 +8,16 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   Alert,
 } from 'react-native';
-import {
-  GoogleSignin,
-  statusCodes,
-} from '@react-native-google-signin/google-signin';
-import { spacing, radii, fontSizes } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useFeedback } from '../context/FeedbackContext';
+import { spacing, radii, fontSizes } from '../theme';
 import { ENV } from '../config/env';
+import { isStagingModeEnabled, setStagingModeEnabled } from '../api';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
 
@@ -25,11 +25,41 @@ export default function RegisterScreen({ navigation }: any) {
   const { theme } = useTheme();
   const c = theme.colors;
   const { register, loginWithGoogle } = useAuth();
+  const { pushToast } = useFeedback();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [useStaging, setUseStaging] = useState(false);
+  const [envTapCount, setEnvTapCount] = useState(0);
+
+  useEffect(() => {
+    // Load current environment setting
+    isStagingModeEnabled().then(setUseStaging);
+  }, []);
+
+  const handleEnvironmentToggle = async () => {
+    const newStagingMode = !useStaging;
+    await setStagingModeEnabled(newStagingMode);
+    setUseStaging(newStagingMode);
+    
+    pushToast(
+      'success',
+      'Environment Switched',
+      `Now using ${newStagingMode ? 'STAGING' : 'PRODUCTION'} API.`
+    );
+  };
+
+  const handleVersionTap = () => {
+    const next = envTapCount + 1;
+    if (next >= 7) {
+      setEnvTapCount(0);
+      handleEnvironmentToggle();
+      return;
+    }
+    setEnvTapCount(next);
+  };
 
   const handleGoogleSignIn = async () => {
     if (!GOOGLE_ENABLED) return;
@@ -92,7 +122,9 @@ export default function RegisterScreen({ navigation }: any) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={[styles.card, { backgroundColor: c.surface, shadowColor: c.black }]}>
-        <Text style={[styles.title, { color: c.text }]}>Create Account</Text>
+        <Pressable onPress={handleVersionTap}>
+          <Text style={[styles.title, { color: c.text }]}>Create Account</Text>
+        </Pressable>
         <Text style={[styles.subtitle, { color: c.textSecondary }]}>Join Traxettle to start splitting expenses</Text>
 
         <TextInput
@@ -194,7 +226,25 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: fontSizes.md,
     textAlign: 'center',
-    marginBottom: spacing.xxl,
+    marginBottom: spacing.lg,
+  },
+  envIndicator: {
+    alignSelf: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.full,
+    marginBottom: spacing.sm,
+  },
+  envText: {
+    fontSize: fontSizes.sm,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  envSubtext: {
+    fontSize: fontSizes.xs,
+    textAlign: 'center',
+    marginBottom: spacing.xl,
+    fontStyle: 'italic',
   },
   input: {
     borderRadius: radii.sm,

@@ -63,7 +63,7 @@ esac
 case "$PROFILE" in
   debug) RC_ENV="local" ;;
   staging|debug:staging) RC_ENV="staging" ;;
-  production) RC_ENV="prod" ;;
+  production) RC_ENV="production" ;;
 esac
 
 echo ""
@@ -85,7 +85,7 @@ esac
 GOOGLE_SERVICES_SRC="$MOBILE_DIR/google-services.$FIREBASE_ENV.json"
 GOOGLE_SERVICES_FALLBACK="$MOBILE_DIR/google-services.json"
 GOOGLE_SERVICES_DST="$ANDROID_DIR/app/google-services.json"
-KEYSTORE_FILE="$ANDROID_DIR/app/traxettle-release-key.keystore"
+KEYSTORE_FILE="$MOBILE_DIR/keystore/traxettle-release-key.keystore"
 LOCAL_PROPS="$ANDROID_DIR/gradle.properties.local"
 
 # google-services.json is required for all builds
@@ -142,7 +142,7 @@ source "$RC_LOADER" "$RC_ENV"
 case "$PROFILE" in
   staging|debug:staging)
     export EXPO_PUBLIC_APP_ENV="staging"
-    export EXPO_PUBLIC_API_URL="https://traxettle-api-staging-lomxjapdhq-uc.a.run.app"
+    export EXPO_PUBLIC_API_URL="https://traxettle-api-staging-943648574702.us-central1.run.app"
     # Google OAuth client IDs for traxettle-staging (943648574702)
     export EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID="943648574702-n7h4msh3iho1187po0dnc8tja7insc89.apps.googleusercontent.com"
     export EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID="943648574702-0qk99r3oql0sv3k4h6cgluffdqs7letj.apps.googleusercontent.com"
@@ -151,9 +151,9 @@ case "$PROFILE" in
   production)
     export EXPO_PUBLIC_APP_ENV="production"
     if [ "${EXPO_PUBLIC_API_URL:-}" = "" ]; then
-      warn "EXPO_PUBLIC_API_URL not set. Using staging API as fallback."
+      warn "EXPO_PUBLIC_API_URL not set. Using production API."
       warn "Set it via: EXPO_PUBLIC_API_URL=https://your-prod-api.run.app ./scripts/build-android.sh production"
-      export EXPO_PUBLIC_API_URL="https://traxettle-api-staging-lomxjapdhq-uc.a.run.app"
+      export EXPO_PUBLIC_API_URL="https://traxettle-api-prod-943648574702.us-central1.run.app"
     fi
     # TODO: Replace these with production Firebase project OAuth client IDs
     # From Firebase Console → Project Settings → General → Your apps → Android

@@ -57,7 +57,7 @@ Before starting development, run the doctor script to verify all dependencies:
 ./doctor staging -n
 
 # Alternative methods
-node common/scripts/doctor.js local
+node tools/doctor-tool/scripts/doctor.js local
 bash scripts/doctor.sh local
 ```
 

@@ -16,7 +16,15 @@ import { spacing, radii, fontSizes } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, THEME_NAMES } from '../context/ThemeContext';
 import { usePurchase } from '../context/PurchaseContext';
-import { api, getResolvedApiBaseUrl, isFirebaseEmulatorEnabled, setFirebaseEmulatorEnabled } from '../api';
+import { useFeedback } from '../context/FeedbackContext';
+import {
+  api,
+  getResolvedApiBaseUrl,
+  isFirebaseEmulatorEnabled,
+  isStagingModeEnabled,
+  setFirebaseEmulatorEnabled,
+  setStagingModeEnabled,
+} from '../api';
 import { ENV, isLocalLikeEnv } from '../config/env';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
@@ -55,11 +63,14 @@ export default function ProfileScreen({ navigation }: any) {
   const { theme, themeName, setThemeName } = useTheme();
   const c = theme.colors;
   const { isPro, priceString } = usePurchase();
+  const { pushToast } = useFeedback();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tierSwitching, setTierSwitching] = useState(false);
+  const [useStaging, setUseStaging] = useState(false);
+  const [envTapCount, setEnvTapCount] = useState(0);
   const [devTapCount, setDevTapCount] = useState(0);
   const [devOptionsUnlocked, setDevOptionsUnlocked] = useState(false);
   const [useFirebaseEmulator, setUseFirebaseEmulator] = useState(false);
@@ -96,11 +107,17 @@ export default function ProfileScreen({ navigation }: any) {
     }
   }, []);
 
-  useEffect(() => { fetchProfile(); }, [fetchProfile]);
+  useEffect(() => {
+    fetchProfile();
+    // Load current environment setting
+    isStagingModeEnabled().then((isStaging) => {
+      setUseStaging(isStaging);
+      console.log('[ProfileScreen] Environment loaded:', { isStaging });
+    });
+  }, []);
   useEffect(() => {
     let mounted = true;
     async function loadDevFlags() {
-      if (!isLocalLikeEnv() || !ENV.LOCAL_DEV_OPTIONS_ENABLED) return;
       const [enabled, apiBase] = await Promise.all([
         isFirebaseEmulatorEnabled(),
         getResolvedApiBaseUrl(),
@@ -216,15 +233,43 @@ export default function ProfileScreen({ navigation }: any) {
   };
 
   const handleVersionTap = () => {
-    if (!canShowHiddenDevOptions) return;
-    const next = devTapCount + 1;
-    if (next >= 7) {
-      setDevOptionsUnlocked(true);
-      setDevTapCount(0);
-      Alert.alert('Developer options unlocked', 'Hidden local tools are now visible.');
+    if (canShowHiddenDevOptions) {
+      const next = devTapCount + 1;
+      if (next >= 7) {
+        setDevOptionsUnlocked(true);
+        setDevTapCount(0);
+        Alert.alert('Developer options unlocked', 'Hidden local tools are now visible.');
+        return;
+      }
+      setDevTapCount(next);
       return;
     }
-    setDevTapCount(next);
+
+    const next = envTapCount + 1;
+    if (next >= 7) {
+      setEnvTapCount(0);
+      (async () => {
+        try {
+          const wasStaging = await isStagingModeEnabled();
+          console.log('[ProfileScreen] Toggling environment from:', wasStaging);
+          await setStagingModeEnabled(!wasStaging);
+          const apiBase = await getResolvedApiBaseUrl();
+          setActiveApiBase(apiBase);
+          const newStaging = !wasStaging;
+          setUseStaging(newStaging);
+          console.log('[ProfileScreen] Environment toggled to:', newStaging);
+          pushToast(
+            'success',
+            'Environment Switched',
+            `Now using ${wasStaging ? 'PRODUCTION' : 'STAGING'} API.`
+          );
+        } catch {
+          pushToast('error', 'Error', 'Failed to switch environment. Please try again.');
+        }
+      })();
+      return;
+    }
+    setEnvTapCount(next);
   };
 
   const handleFirebaseEmulatorToggle = async (enabled: boolean) => {
@@ -290,6 +335,21 @@ export default function ProfileScreen({ navigation }: any) {
       <View style={[styles.card, { backgroundColor: c.surface }]}>
         <Text style={[styles.cardTitle, { color: c.text }]}>Profile</Text>
         <Text style={[styles.cardSub, { color: c.muted }]}>{profile?.email || user?.email || ''}</Text>
+        
+        {/* Environment indicator - only show when in staging */}
+        {(() => {
+          console.log('[ProfileScreen] Rendering env indicator, useStaging:', useStaging);
+          return useStaging ? (
+            <Text style={[styles.envIndicator, { color: c.warning }]}>
+              (Staging)
+            </Text>
+          ) : (
+            <Text style={[styles.envIndicator, { color: c.muted, fontSize: 10 }]}>
+              {/* Debug: Always show current env - remove this later */}
+              (Production)
+            </Text>
+          );
+        })()}
 
         <Text style={[styles.label, { color: c.textSecondary }]}>Display Name</Text>
         <TextInput
@@ -541,24 +601,24 @@ export default function ProfileScreen({ navigation }: any) {
               style={[
                 styles.chip,
                 { borderColor: c.border, backgroundColor: c.surface },
-                tier === 'free' && { borderColor: c.primary, backgroundColor: c.primary + '15' },
+                !isPro && { borderColor: c.primary, backgroundColor: c.primary + '15' },
               ]}
               onPress={() => handleSwitchTier('free')}
               disabled={tierSwitching}
             >
-              <Text style={[styles.chipText, { color: tier === 'free' ? c.primary : c.text }]}>FREE</Text>
+              <Text style={[styles.chipText, { color: !isPro ? c.primary : c.text }]}>FREE</Text>
             </TouchableOpacity>
             <TouchableOpacity
               testID="profile-tier-pro"
               style={[
                 styles.chip,
                 { borderColor: c.border, backgroundColor: c.surface },
-                tier === 'pro' && { borderColor: c.primary, backgroundColor: c.primary + '15' },
+                isPro && { borderColor: c.primary, backgroundColor: c.primary + '15' },
               ]}
               onPress={() => handleSwitchTier('pro')}
               disabled={tierSwitching}
             >
-              <Text style={[styles.chipText, { color: tier === 'pro' ? c.primary : c.text }]}>PRO</Text>
+              <Text style={[styles.chipText, { color: isPro ? c.primary : c.text }]}>PRO</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -717,6 +777,12 @@ const styles = StyleSheet.create({
   },
   deleteAccountText: { fontSize: fontSizes.md, fontWeight: '600' },
   version: { textAlign: 'center', fontSize: fontSizes.xs, marginTop: spacing.md },
+  envIndicator: {
+    fontSize: fontSizes.sm,
+    fontWeight: '600',
+    marginTop: spacing.xs,
+    fontStyle: 'italic',
+  },
 
   // Pro upgrade card
   proCard: {

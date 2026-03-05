@@ -165,7 +165,8 @@ fi
 # Allow runtime SA to read secrets
 gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" \
   --member="serviceAccount:${RUNTIME_SA_EMAIL}" \
-  --role="roles/secretmanager.secretAccessor" >/dev/null
+  --role="roles/secretmanager.secretAccessor" \
+  --condition="expression=request.auth != null,title=authenticated-access,description=Only authenticated users can access the API" >/dev/null
 
 # ---- Upsert secrets ----
 TMP_KEY_FILE="$(mktemp)"

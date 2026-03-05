@@ -8,7 +8,7 @@
  * - Web (Node.js, environment variables)
  * - Mobile (Node.js, Android SDK, keystore, Firebase, etc.)
  * 
- * Usage: node common/scripts/doctor.js [environment]
+ * Usage: node tools/doctor-tool/scripts/doctor.js [environment]
  * Environments: local, staging, production
  */
 
@@ -226,7 +226,7 @@ class TraxettleDoctor {
 
     // Check Rush
     try {
-      const rushVersion = execSync('node common/scripts/install-run-rush.js --version', { 
+      const rushVersion = execSync('node tools/doctor-tool/scripts/install-run-rush.js --version', { 
         encoding: 'utf8', 
         cwd: process.cwd(),
         stdio: 'pipe'
@@ -621,13 +621,15 @@ class TraxettleDoctor {
 
     // Test mobile build (Android only if Android SDK available)
     if (process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT) {
-      colorLog('cyan', 'Testing mobile Android build...');
+      colorLog('cyan', 'Testing mobile Android build (single bundle)...');
       try {
-        execSync('cd apps/mobile && bash scripts/build-android.sh debug:staging', { 
+        execSync('cd apps/mobile && bash scripts/build-android.sh production', { 
           stdio: 'ignore',
           timeout: 300000 // 5 minute timeout
         });
-        colorLog('green', '✅ Mobile Android builds successfully');
+        colorLog('green', '✅ Mobile Android single bundle builds successfully');
+        colorLog('cyan', 'ℹ️  Single bundle works for both staging and production');
+        colorLog('cyan', 'ℹ️  Use developer options to switch environments at runtime');
       } catch {
         colorLog('red', '❌ Mobile Android build failed');
         this.errors.push('Mobile Android build failed');

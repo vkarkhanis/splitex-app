@@ -100,6 +100,39 @@ app.get('/auth/email-link', (req, res) => {
 app.use('/api/billing', billingRoutes);
 app.use('/api/internal/entitlements', internalEntitlementRoutes);
 
+// Runtime configuration endpoint
+app.get('/api/config', (req, res) => {
+  const env = process.env.NODE_ENV || 'development';
+  // Dynamically determine the API URL from the request
+  const protocol = req.get('x-forwarded-proto') || req.protocol;
+  const host = req.get('host');
+  const apiUrl = `${protocol}://${host}`;
+  
+  // Firebase configuration based on environment
+  const firebaseConfig = {
+    projectId: process.env.FIREBASE_PROJECT_ID || 'traxettle-staging',
+    // Add other Firebase config as needed
+  };
+
+  // RevenueCat configuration based on environment
+  const revenueCatConfig = {
+    googleApiKey: process.env.REVENUECAT_GOOGLE_API_KEY || '',
+    appleApiKey: process.env.REVENUECAT_APPLE_API_KEY || '',
+    proEntitlement: process.env.REVENUECAT_PRO_ENTITLEMENT_ID || 'pro',
+    offering: process.env.REVENUECAT_OFFERING_ID || 'default'
+  };
+
+  res.status(200).json({
+    success: true,
+    data: {
+      env,
+      apiUrl,
+      firebaseConfig,
+      revenueCatConfig
+    }
+  });
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });

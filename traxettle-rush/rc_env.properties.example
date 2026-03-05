@@ -1,7 +1,7 @@
 # Copy this template to:
 # - rc_local.properties
 # - rc_staging.properties
-# - rc_prod.properties
+# - rc_production.properties
 #
 # These files are gitignored and loaded automatically by:
 # - apps/mobile/scripts/build-android.sh

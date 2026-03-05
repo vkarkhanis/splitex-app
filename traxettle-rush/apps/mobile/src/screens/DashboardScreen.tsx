@@ -133,7 +133,7 @@ export default function DashboardScreen({ navigation }: any) {
       <View style={styles.topBar}>
         <View style={styles.topLeft}>
           <Text style={[styles.greeting, { color: c.text }]} numberOfLines={1}>Hello, {user?.displayName || 'User'}</Text>
-          <Text style={[styles.tierBadge, { color: c.primary }]}>{tier === 'pro' ? '⭐ Pro' : 'Free'}</Text>
+          <Text style={[styles.tierBadge, { color: c.primary }]}>{isPro ? '⭐ Pro' : 'Free'}</Text>
         </View>
         <TouchableOpacity
           testID="dashboard-avatar-menu"

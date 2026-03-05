@@ -46,11 +46,12 @@ describe('RevenueCatService', () => {
     expect(secureService.validateWebhookSecret('nope')).toBe(false);
   });
 
-  it('resolves user id from aliases fallback', () => {
+  it('resolves user id from aliases fallback', async () => {
     const event = service.parseEvent({
       event: { aliases: ['alias-user-1'] },
     });
-    expect(service.resolveUserId(event)).toBe('alias-user-1');
+    const resolvedUserId = await service.resolveUserId(event);
+    expect(resolvedUserId).toBe('alias-user-1');
   });
 
   it('maps billing issue to billing_retry and expiry from ms timestamp', () => {

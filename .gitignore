@@ -9,3 +9,8 @@ Thumbs.db
 *.swp
 *.swo
 .vercel
+
+# service account
+*sa*.json
+fb-service-accounts/
+**/fb-service-accounts/

@@ -29,7 +29,7 @@ run_rushx() {
   local project_dir="$1"
   local script_name="$2"
   cd "$project_dir"
-  node "$ROOT_DIR/common/scripts/install-run-rushx.js" "$script_name"
+  node "$ROOT_DIR/tools/doctor-tool/scripts/install-run-rushx.js" "$script_name"
 }
 
 cleanup() {

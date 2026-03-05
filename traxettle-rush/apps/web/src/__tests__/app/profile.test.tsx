@@ -56,22 +56,31 @@ describe('Profile page notifications toggle', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-    (global as any).fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        success: true,
-        data: {
-          userId: 'u1',
-          displayName: 'Test User',
-          email: 'test@example.com',
-          tier: 'free',
-          preferences: {
-            notifications: true,
-            currency: 'USD',
-            timezone: 'UTC',
-          },
-        },
-      }),
+    (global as any).fetch = jest.fn().mockImplementation((url: string) => {
+      if (url.includes('/api/users/profile')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            data: {
+              userId: 'u1',
+              displayName: 'Test User',
+              email: 'test@example.com',
+              tier: 'free',
+              preferences: {
+                notifications: true,
+                currency: 'USD',
+                timezone: 'UTC',
+              },
+              paymentMethods: [],
+            },
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ success: true }),
+      });
     });
   });
 

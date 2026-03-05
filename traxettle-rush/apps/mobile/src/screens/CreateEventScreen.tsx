@@ -16,6 +16,7 @@ import { spacing, radii, fontSizes } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { api, ApiRequestError } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { usePurchase } from '../context/PurchaseContext';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
 
@@ -23,6 +24,7 @@ export default function CreateEventScreen({ navigation }: any) {
   const { theme } = useTheme();
   const colors = theme.colors;
   const { tier, capabilities } = useAuth();
+  const { isPro } = usePurchase();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'event' | 'trip'>('event');
@@ -74,7 +76,7 @@ export default function CreateEventScreen({ navigation }: any) {
   };
 
   const needsFx = settlementCurrency && settlementCurrency !== currency;
-  const isFxProFeature = needsFx && !capabilities.multiCurrencySettlement;
+  const isFxProFeature = needsFx && !isPro;
 
   const handleSubmit = async () => {
     if (!name.trim()) {
@@ -97,7 +99,7 @@ export default function CreateEventScreen({ navigation }: any) {
 
     setLoading(true);
     try {
-      if (tier === 'free') {
+      if (!isPro) {
         const events = await api.get<any[]>('/api/events');
         const activeOrClosedCount = (events.data || []).filter(
           (evt: any) => evt?.status === 'active' || evt?.status === 'closed'
@@ -229,7 +231,7 @@ export default function CreateEventScreen({ navigation }: any) {
       {/* Settlement Currency */}
       <Text style={[styles.label, { color: colors.textSecondary }]}>
         Settlement Currency (optional)
-        {tier === 'free' && <Text style={[styles.proBadge, { color: colors.warning }]}> PRO</Text>}
+        {!isPro && <Text style={[styles.proBadge, { color: colors.warning }]}> PRO</Text>}
       </Text>
       <View style={styles.chipRow}>
         <TouchableOpacity

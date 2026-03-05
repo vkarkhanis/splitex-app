@@ -7,4 +7,4 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Run the doctor script with all arguments
-node "$SCRIPT_DIR/../common/scripts/doctor.js" "$@"
+node "$SCRIPT_DIR/../tools/doctor-tool/scripts/doctor.js" "$@"
