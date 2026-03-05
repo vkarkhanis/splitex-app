@@ -21,13 +21,18 @@ fi
 
 case "$RC_ENV_RAW" in
   local|staging|prod) RC_ENV="$RC_ENV_RAW" ;;
-  production) RC_ENV="prod" ;;
+  production) RC_ENV="production" ;;
   *) echo "Unsupported environment: $RC_ENV_RAW (expected local|staging|prod)" ; return 1 ;;
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 RC_FILE="${ROOT_DIR}/rc_${RC_ENV}.properties"
+
+# Backward compatibility: allow legacy rc_prod.properties.
+if [[ "$RC_ENV" == "production" && ! -f "$RC_FILE" && -f "${ROOT_DIR}/rc_prod.properties" ]]; then
+  RC_FILE="${ROOT_DIR}/rc_prod.properties"
+fi
 
 if [[ ! -f "$RC_FILE" ]]; then
   echo "Missing RevenueCat properties file: $RC_FILE"

@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users can read/write their own data
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Events: comprehensive access control
+    match /events/{eventId} {
+      // Create: any authenticated user can create events
+      allow create: if request.auth != null;
+      
+      // Read/Update/Delete: participants or admins
+      allow read, update, delete: if request.auth != null && (
+        // User is a participant
+        resource.data.participants.keys().hasAll([request.auth.uid]) ||
+        // User is an admin
+        resource.data.participants[request.auth.uid].role == 'admin'
+      );
+    }
+    
+    // Expenses: event participants or admins
+    match /expenses/{expenseId} {
+      allow read, write: if request.auth != null && 
+        firestore.get(/databases/$(database)/documents/events/$(resource.data.eventId))
+        .data.participants.keys().hasAll([request.auth.uid]);
+    }
+    
+    // Groups: group members or representatives
+    match /groups/{groupId} {
+      allow read, write: if request.auth != null && (
+        resource.data.members.hasAny([request.auth.uid]) ||
+        resource.data.representative == request.auth.uid ||
+        resource.data.createdBy == request.auth.uid
+      );
+    }
+    
+    // Settlements: event participants only
+    match /settlements/{settlementId} {
+      allow read, write: if request.auth != null && 
+        firestore.get(/databases/$(database)/documents/events/$(resource.data.eventId))
+        .data.participants.keys().hasAll([request.auth.uid]);
+    }
+    
+    // Invitations: recipient or event admin
+    match /invitations/{invitationId} {
+      allow read, write: if request.auth != null && (
+        resource.data.email == request.auth.token.email ||
+        firestore.get(/databases/$(database)/documents/events/$(resource.data.eventId))
+        .data.participants[request.auth.uid].role == 'admin'
+      );
+    }
+  }
+}

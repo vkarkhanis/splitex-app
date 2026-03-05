@@ -15,7 +15,7 @@ fi
 echo "[local-dev] mode=real-firebase+mobile tier=$DEV_TIER real_payments=$DEV_REAL_PAYMENTS"
 
 # ── Bootstrap: validate & copy Firebase config files ──
-sh "$ROOT_DIR/scripts/local-dev/bootstrap.sh" staging
+sh "$ROOT_DIR/scripts/local-dev/bootstrap.sh" local
 
 [ -f "$RC_LOADER" ] || { echo "[local-dev] Missing RevenueCat loader: $RC_LOADER"; exit 1; }
 source "$RC_LOADER" local
@@ -30,7 +30,7 @@ run_rushx() {
   local project_dir="$1"
   local script_name="$2"
   cd "$project_dir"
-  node "$ROOT_DIR/common/scripts/install-run-rushx.js" "$script_name"
+  node "$ROOT_DIR/tools/doctor-tool/scripts/install-run-rushx.js" "$script_name"
 }
 
 cleanup() {
@@ -41,11 +41,14 @@ trap cleanup EXIT INT TERM
 (
   APP_ENV=local \
   PORT=3001 \
+  JWT_SECRET="${JWT_SECRET:-local-dev-jwt-secret-change-me}" \
+  JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-local-dev-jwt-refresh-secret-change-me}" \
   INTERNAL_TIER_SWITCH_ENABLED=true \
   PAYMENT_ALLOW_REAL_IN_NON_PROD="$DEV_REAL_PAYMENTS" \
   REVENUECAT_WEBHOOK_SECRET="${REVENUECAT_WEBHOOK_SECRET:-}" \
   REVENUECAT_PRO_ENTITLEMENT_ID="${REVENUECAT_PRO_ENTITLEMENT_ID:-pro}" \
   FIREBASE_USE_EMULATOR=false \
+  FIREBASE_PROJECT_ID=traxettle-test \
   run_rushx "$ROOT_DIR/apps/api" dev
 ) &
 

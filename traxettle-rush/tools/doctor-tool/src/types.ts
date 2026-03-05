@@ -1,5 +1,5 @@
 export type Platform = 'mobile' | 'web';
-export type Environment = 'local' | 'staging' | 'production';
+export type Environment = 'prerequisites' | 'utility' | 'local' | 'staging' | 'production';
 
 export type StepKind = 'action' | 'verify';
 

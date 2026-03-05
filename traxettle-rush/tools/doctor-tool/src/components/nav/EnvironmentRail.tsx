@@ -5,15 +5,19 @@ import { RotateCcw, SkipForward } from 'lucide-react';
 import styled from 'styled-components';
 import type { Environment, EnvState } from '@/types';
 
-const ENVS: Environment[] = ['local', 'staging', 'production'];
+const ENVS: Environment[] = ['prerequisites', 'utility', 'local', 'staging', 'production'];
 
 function envLabel(env: Environment): string {
-  if (env === 'local') return 'Local';
-  if (env === 'staging') return 'Staging';
-  return 'Production';
+  if (env === 'prerequisites') return '📋 Prerequisites';
+  if (env === 'utility') return '🛠️ Utility';
+  if (env === 'local') return '🏠 Local';
+  if (env === 'staging') return '🔧 Staging';
+  return '🚀 Production';
 }
 
 function envIcon(env: Environment): string {
+  if (env === 'prerequisites') return '📋';
+  if (env === 'utility') return '🛠️';
   if (env === 'local') return '🏠';
   if (env === 'staging') return '🔧';
   return '🚀';

@@ -209,7 +209,7 @@ scripts/local-dev/.bootstrap.env
 # RevenueCat per-environment local secrets
 rc_local.properties
 rc_staging.properties
-rc_prod.properties
+rc_production.properties
 
 # SMTP deploy wrapper local secrets
 scripts/api-deployment/smtp_*.local.properties

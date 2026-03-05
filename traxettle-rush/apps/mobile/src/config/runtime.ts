@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api } from '../api';
+import { ENV, getApiUrl as getApiUrlFromEnv, isLocalLikeEnv } from './env';
 
 export interface RuntimeConfig {
   env: string;
@@ -84,10 +84,32 @@ export class RuntimeConfigManager {
   private async fetchConfig(): Promise<RuntimeConfig> {
     // Check if developer mode is enabled for staging
     const useStaging = await this.isStagingModeEnabled();
-    
-    // Production API URL
-    const prodApiUrl = 'https://traxettle-api-prod-943648574702.us-central1.run.app/api/config';
-    const stagingApiUrl = 'https://traxettle-api-staging-943648574702.us-central1.run.app/api/config';
+
+    // In local-like environments, always use the locally configured API base.
+    // This avoids attempting production/staging Cloud Run endpoints during local dev.
+    if (isLocalLikeEnv()) {
+      const apiBase = getApiUrlFromEnv();
+      const apiUrl = `${apiBase}/api/config`;
+      console.log(`[RuntimeConfig] Fetching config from: ${apiUrl} (local)`);
+
+      const response = await this.fetchWithTimeout(apiUrl);
+      if (!response.ok) {
+        throw new Error(`API responded with status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.data) {
+        throw new Error('No configuration data received');
+      }
+
+      console.log(`[RuntimeConfig] Success with API: ${apiUrl}`);
+      console.log(`[RuntimeConfig] Environment: ${data.data.env}`);
+      return data.data;
+    }
+
+    // Production/Staging API URL (non-local builds)
+    const prodApiUrl = `${ENV.PROD_API_URL}/api/config`;
+    const stagingApiUrl = `${ENV.STAGING_API_URL}/api/config`;
     
     let apiUrl: string;
     let environment: string;

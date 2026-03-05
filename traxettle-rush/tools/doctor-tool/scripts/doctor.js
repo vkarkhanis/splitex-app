@@ -8,7 +8,7 @@
  * - Web (Node.js, environment variables)
  * - Mobile (Node.js, Android SDK, keystore, Firebase, etc.)
  * 
- * Usage: node common/scripts/doctor.js [environment]
+ * Usage: node tools/doctor-tool/scripts/doctor.js [environment]
  * Environments: local, staging, production
  */
 
@@ -226,7 +226,7 @@ class TraxettleDoctor {
 
     // Check Rush
     try {
-      const rushVersion = execSync('node common/scripts/install-run-rush.js --version', { 
+      const rushVersion = execSync('node tools/doctor-tool/scripts/install-run-rush.js --version', { 
         encoding: 'utf8', 
         cwd: process.cwd(),
         stdio: 'pipe'

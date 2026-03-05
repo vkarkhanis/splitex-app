@@ -9,10 +9,12 @@ const STORAGE_KEY = 'traxettle_doctor_state_v1';
 function makeDefaultState(): DoctorState {
   return {
     platform: 'mobile',
-    environment: 'local',
+    environment: 'prerequisites',
     stepStatus: {},
     envStatus: {
-      local: 'in_progress',
+      prerequisites: 'in_progress',
+      utility: 'todo',
+      local: 'todo',
       staging: 'todo',
       production: 'todo',
     },
@@ -35,7 +37,7 @@ export function useDoctorState() {
     const wf = getWorkflow(draft.platform);
     const nextEnvStatus: Record<Environment, EnvState> = { ...draft.envStatus };
 
-    (['local', 'staging', 'production'] as Environment[]).forEach(env => {
+    (['prerequisites', 'utility', 'local', 'staging', 'production'] as Environment[]).forEach(env => {
       const steps = wf.steps.filter(s => s.environment === env);
       if (steps.length === 0) return;
 
@@ -104,7 +106,7 @@ export function useDoctorState() {
       }
 
       const nextEnvStatus: Record<Environment, EnvState> = { ...prev.envStatus };
-      nextEnvStatus[env] = env === 'local' ? 'in_progress' : 'todo';
+      nextEnvStatus[env] = env === 'prerequisites' || env === 'utility' ? 'in_progress' : 'todo';
 
       return recomputeEnvStatus({ ...prev, stepStatus: nextStepStatus, envStatus: nextEnvStatus });
     });

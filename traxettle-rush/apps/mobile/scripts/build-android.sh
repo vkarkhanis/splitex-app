@@ -63,7 +63,7 @@ esac
 case "$PROFILE" in
   debug) RC_ENV="local" ;;
   staging|debug:staging) RC_ENV="staging" ;;
-  production) RC_ENV="prod" ;;
+  production) RC_ENV="production" ;;
 esac
 
 echo ""

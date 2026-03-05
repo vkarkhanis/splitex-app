@@ -92,13 +92,16 @@ android {
         applicationId 'com.traxettle.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 17
-        versionName "1.0.16"
+        versionCode 18
+        versionName "1.0.17"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
     signingConfigs {
         debug {
+            // Always use debug keystore for debug builds.
+            // This is required for consistent Google Sign-In (Developer Error 10)
+            // and for local dev scripts that copy env-specific debug.keystore files.
             storeFile file('debug.keystore')
             storePassword 'android'
             keyAlias 'androiddebugkey'

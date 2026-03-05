@@ -2,64 +2,64 @@
 
 This document is mapped to your current code in `traxettle-rush` and is written for minimal structural change.
 
-## 1) Files to modify
+## Files to modify
 
-## A. Shared types
-1. `traxettle-rush/libraries/shared/src/index.ts`
+### Shared types
+- `traxettle-rush/libraries/shared/src/index.ts`
 - Extend `Settlement` model with:
   - `checkoutUrl?: string`
   - `providerStatus?: 'created' | 'processing' | 'succeeded' | 'failed' | 'cancelled'`
   - `providerRawEventId?: string`
 - Keep existing `status: 'pending' | 'initiated' | 'completed'` unchanged to avoid broad UI impact.
 
-## B. API dependencies
-1. `traxettle-rush/apps/api/package.json`
+### API dependencies
+- `traxettle-rush/apps/api/package.json`
 - Add:
   - `razorpay`
   - `stripe`
 
-## C. API service layer (new files)
-1. `traxettle-rush/apps/api/src/services/payment-gateway/types.ts`
+### API service layer (new files)
+- `traxettle-rush/apps/api/src/services/payment-gateway/types.ts`
 - Add interfaces:
   - `GatewayCheckoutRequest`
   - `GatewayCheckoutResponse`
   - `NormalizedWebhookEvent`
   - `PaymentGateway`
 
-2. `traxettle-rush/apps/api/src/services/payment-gateway/razorpay.gateway.ts`
+- `traxettle-rush/apps/api/src/services/payment-gateway/razorpay.gateway.ts`
 - Implement Razorpay payment-link based flow for INR.
 - Method `createCheckout(...)` returns `short_url` as `checkoutUrl`.
 - Method `verifyWebhook(...)` validates HMAC and normalizes event.
 
-3. `traxettle-rush/apps/api/src/services/payment-gateway/stripe.gateway.ts`
+- `traxettle-rush/apps/api/src/services/payment-gateway/stripe.gateway.ts`
 - Implement Stripe Checkout Session flow for non-INR.
 - Method `createCheckout(...)` returns `session.url` as `checkoutUrl`.
 - Method `verifyWebhook(...)` with `stripe.webhooks.constructEvent`.
 
-4. `traxettle-rush/apps/api/src/services/payment-gateway/payment-gateway.factory.ts`
+- `traxettle-rush/apps/api/src/services/payment-gateway/payment-gateway.factory.ts`
 - Provider selection:
   - `INR => RazorpayGateway`
   - otherwise `StripeGateway`
 
-## D. API existing services
-1. `traxettle-rush/apps/api/src/services/fx-rate.service.ts`
+### API existing services
+- `traxettle-rush/apps/api/src/services/fx-rate.service.ts`
 - Keep `getPaymentProvider` behavior as-is (already aligned).
 - Optional: return `PaymentProvider` enum from shared types for consistency.
 
-2. `traxettle-rush/apps/api/src/services/settlement.service.ts`
+- `traxettle-rush/apps/api/src/services/settlement.service.ts`
 - Replace mock implementation in `initiatePayment(settlementId, userId)`.
 - New behavior:
-  1. Load settlement and auth check (existing).
-  2. Resolve settlement currency (`settlementCurrency || currency`).
-  3. Build checkout request.
-  4. Use gateway factory to create checkout.
-  5. Persist:
+  - Load settlement and auth check (existing).
+  - Resolve settlement currency (`settlementCurrency || currency`).
+  - Build checkout request.
+  - Use gateway factory to create checkout.
+  - Persist:
      - `status = 'initiated'`
      - `paymentMethod = provider`
      - `paymentId = providerPaymentId`
      - `checkoutUrl`
      - `providerStatus = 'created'`
-  6. Return settlement + checkoutUrl.
+  - Return settlement + checkoutUrl.
 
 - Add new method:
   - `markPaymentCompletedByProvider(paymentId: string, provider: string, providerEventId: string)`

@@ -1,6 +1,6 @@
 {
   "name": "@traxettle/mobile",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "Traxettle mobile app — iOS & Android",
   "main": "index.js",
   "scripts": {
@@ -15,8 +15,8 @@
     "clean": "rm -rf dist node_modules/.cache .expo",
     "prebuild:ios": "expo prebuild --platform ios --clean",
     "prebuild:android": "expo prebuild --platform android --clean",
-    "prebuild:ios:safe": "bash ../../common/scripts/safe-prebuild.sh ios",
-    "prebuild:android:safe": "bash ../../common/scripts/safe-prebuild.sh android",
+    "prebuild:ios:safe": "bash ../../tools/doctor-tool/scripts/safe-prebuild.sh ios",
+    "prebuild:android:safe": "bash ../../tools/doctor-tool/scripts/safe-prebuild.sh android",
     "build:ios": "eas build --platform ios --profile development",
     "build:android:dev": "eas build --platform android --profile development",
     "build:android": "bash scripts/build-android.sh production",

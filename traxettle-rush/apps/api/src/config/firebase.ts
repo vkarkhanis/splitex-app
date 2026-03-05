@@ -3,6 +3,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getStorage } from 'firebase-admin/storage';
 import dotenv from 'dotenv';
+import fs from 'fs';
 import path from 'path';
 
 // Load environment variables — check root .env.local first, then local .env
@@ -10,13 +11,38 @@ dotenv.config({ path: path.resolve(__dirname, '../../../../.env.local') });
 dotenv.config();
 
 // Initialize Firebase Admin SDK
+type ServiceAccountJson = {
+  project_id?: string;
+  client_email?: string;
+  private_key?: string;
+};
+
+function loadServiceAccountJson(): ServiceAccountJson | null {
+  const keyFile = process.env.FIREBASE_PRIVATE_KEY_FILE || process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (!keyFile) return null;
+  try {
+    const absPath = path.isAbsolute(keyFile) ? keyFile : path.resolve(process.cwd(), keyFile);
+    const raw = fs.readFileSync(absPath, 'utf8');
+    return JSON.parse(raw) as ServiceAccountJson;
+  } catch (error) {
+    console.warn('⚠️ Failed to read FIREBASE_PRIVATE_KEY_FILE / GOOGLE_APPLICATION_CREDENTIALS:', error);
+    return null;
+  }
+}
+
+const serviceAccount = loadServiceAccountJson();
+
+const firebaseProjectId = process.env.FIREBASE_PROJECT_ID || serviceAccount?.project_id;
+const firebaseClientEmail = process.env.FIREBASE_CLIENT_EMAIL || serviceAccount?.client_email;
+const firebasePrivateKey = (process.env.FIREBASE_PRIVATE_KEY || serviceAccount?.private_key)?.replace(/\\n/g, '\n');
+
 const firebaseConfig = {
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-  privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+  projectId: firebaseProjectId,
+  clientEmail: firebaseClientEmail,
+  privateKey: firebasePrivateKey,
   storageBucket:
     process.env.FIREBASE_STORAGE_BUCKET ||
-    (process.env.FIREBASE_PROJECT_ID ? `${process.env.FIREBASE_PROJECT_ID}.appspot.com` : undefined),
+    (firebaseProjectId ? `${firebaseProjectId}.appspot.com` : undefined),
 };
 
 const useFirebaseEmulator = process.env.FIREBASE_USE_EMULATOR === 'true';
