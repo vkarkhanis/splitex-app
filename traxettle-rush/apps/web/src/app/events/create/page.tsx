@@ -125,6 +125,7 @@ export default function CreateEventPage() {
 
   const needsFx = form.settlementCurrency && form.settlementCurrency !== form.currency;
   const canUseFx = Boolean(profile?.capabilities?.multiCurrencySettlement || profile?.tier === 'pro');
+  const proBlocked = Boolean(needsFx && !canUseFx);
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -195,7 +196,7 @@ export default function CreateEventPage() {
     } catch (err: any) {
       if (String(err?.message || '').includes('FEATURE_REQUIRES_PRO') || String(err?.message || '').includes('requires Pro')) {
         setError('Multi-currency settlement requires Pro.');
-        pushToast({ type: 'error', title: 'Pro Feature', message: 'Upgrade to Pro to use multi-currency settlement.' });
+        pushToast({ type: 'error', title: 'Pro Feature', message: 'Upgrade to Pro in the mobile app to use multi-currency settlement.' });
         return;
       }
       setError(err.message || 'Failed to create event');
@@ -307,7 +308,6 @@ export default function CreateEventPage() {
             <Row>
               <Field>
                 <Label htmlFor="settlement-currency">Settlement Currency (optional)</Label>
-                {!canUseFx && <ErrorText>PRO feature</ErrorText>}
                 <Select
                   id="settlement-currency"
                   data-testid="settlement-currency-select"
@@ -335,8 +335,18 @@ export default function CreateEventPage() {
                   Expenses will be recorded in {form.currency} but settlements will happen in {form.settlementCurrency}.
                   Choose how the conversion rate is determined.
                 </FxInfo>
-                {!canUseFx && (
-                  <ErrorText>Multi-currency settlement requires Pro.</ErrorText>
+                {proBlocked && (
+                  <>
+                    <ErrorText>Multi-currency settlement requires Pro.</ErrorText>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      <Button type="button" $variant="primary" onClick={() => router.push('/pro')}>
+                        Subscribe on Mobile
+                      </Button>
+                      <Button type="button" $variant="outline" onClick={() => router.push('/pro')}>
+                        Learn More
+                      </Button>
+                    </div>
+                  </>
                 )}
                 <Field>
                   <Label>FX Rate Mode</Label>
@@ -400,7 +410,7 @@ export default function CreateEventPage() {
               <Button
                 type="submit"
                 $variant="primary"
-                disabled={loading || !form.name.trim() || !form.startDate}
+                disabled={loading || !form.name.trim() || !form.startDate || proBlocked}
                 data-testid="create-event-submit"
               >
                 {loading ? 'Creating...' : 'Create Event'}

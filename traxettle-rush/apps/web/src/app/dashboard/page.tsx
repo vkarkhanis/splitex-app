@@ -124,6 +124,7 @@ export default function DashboardPage() {
   const [events, setEvents] = useState<TraxettleEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [unsettledSummary, setUnsettledSummary] = useState<{ pendingCount: number; eventCount: number } | null>(null);
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
@@ -142,6 +143,19 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchEvents();
   }, [fetchEvents]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get<{ pendingCount: number; eventCount: number }>('/api/settlements/unsettled-payments/summary')
+      .then((res) => {
+        if (cancelled) return;
+        setUnsettledSummary(res.data || { pendingCount: 0, eventCount: 0 });
+      })
+      .catch(() => {
+        // best-effort: don't block dashboard
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // Subscribe to real-time updates for all visible events
   const eventIds = useMemo(() => events.map(e => e.id), [events]);
@@ -177,6 +191,29 @@ export default function DashboardPage() {
           </Button>
         </Link>
       </TopBar>
+
+      {!!unsettledSummary?.pendingCount && unsettledSummary.pendingCount > 0 && (
+        <Card style={{ marginBottom: 16 }} data-testid="unsettled-payments-card">
+          <CardHeader>
+            <CardTitle>Unsettled Payments</CardTitle>
+            <CardSubtitle>
+              You have {unsettledSummary.pendingCount} pending payment(s) across {unsettledSummary.eventCount} event(s).
+            </CardSubtitle>
+          </CardHeader>
+          <CardBody>
+            <Button $variant="primary" onClick={() => router.push('/unsettled-payments')}>
+              View Unsettled Payments
+            </Button>
+            <Button
+              $variant="outline"
+              style={{ marginLeft: 10 }}
+              onClick={() => pushToast({ type: 'info', title: 'Unsettled payments', message: 'These are payments owed to you that have not been initiated by the payer yet.' })}
+            >
+              What is this?
+            </Button>
+          </CardBody>
+        </Card>
+      )}
 
       {loading ? (
         <SkeletonGrid>

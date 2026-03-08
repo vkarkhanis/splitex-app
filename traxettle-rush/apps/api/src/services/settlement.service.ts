@@ -14,6 +14,93 @@ export class SettlementService {
   private paymentService = new PaymentService();
   private eventService = new EventService();
 
+  private async resolveUserLabel(userId: string): Promise<string> {
+    try {
+      const snap = await db.collection('users').doc(userId).get();
+      if (snap.exists) {
+        const data = snap.data() || {};
+        return (data as any).displayName || (data as any).email || userId;
+      }
+    } catch {
+      // ignore
+    }
+    return userId;
+  }
+
+  /**
+   * "Unsettled payments" for a payee are settlement legs where the payer has not
+   * initiated payment yet (status === 'pending').
+   */
+  async getUnsettledPaymentsForPayee(payeeUserId: string): Promise<Array<{
+    eventId: string;
+    eventName: string;
+    lastSettlementGeneratedAt: string | null;
+    pending: Array<{
+      settlementId: string;
+      payerUserId: string;
+      payerName: string;
+      amount: number;
+      currency: string;
+    }>;
+  }>> {
+    const snap = await db.collection(this.collection).where('toUserId', '==', payeeUserId).get();
+    if (snap.empty) return [];
+
+    const pendingSettlements = snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as any) }))
+      .filter((s) => s && s.status === 'pending');
+
+    if (pendingSettlements.length === 0) return [];
+
+    const byEvent: Record<string, any[]> = {};
+    for (const s of pendingSettlements) {
+      const eid = String(s.eventId || '');
+      if (!eid) continue;
+      (byEvent[eid] ||= []).push(s);
+    }
+
+    const eventIds = Object.keys(byEvent);
+    const eventDocs = await Promise.all(
+      eventIds.map(async (eventId) => {
+        const doc = await db.collection('events').doc(eventId).get();
+        return { eventId, data: doc.exists ? (doc.data() as any) : null };
+      }),
+    );
+    const eventMap = new Map(eventDocs.map((e) => [e.eventId, e.data]));
+
+    const payerIds = Array.from(new Set(pendingSettlements.map((s) => String(s.fromUserId || '')).filter(Boolean)));
+    const payerLabels = await Promise.all(payerIds.map(async (uid) => ({ uid, label: await this.resolveUserLabel(uid) })));
+    const payerMap = new Map(payerLabels.map((p) => [p.uid, p.label]));
+
+    const rows = eventIds.map((eventId) => {
+      const e = eventMap.get(eventId) || {};
+      const eventName = typeof e?.name === 'string' ? e.name : eventId;
+      const lastGenerated =
+        typeof e?.lastSettlementGeneratedAt === 'string'
+          ? e.lastSettlementGeneratedAt
+          : typeof e?.updatedAt === 'string'
+            ? e.updatedAt
+            : null;
+
+      const pending = (byEvent[eventId] || []).map((s) => {
+        const payerUserId = String(s.fromUserId || '');
+        const payerName = payerMap.get(payerUserId) || payerUserId || 'Unknown';
+        const currency = String(s.settlementCurrency || s.currency || '');
+        const amount = typeof s.settlementAmount === 'number' ? s.settlementAmount : Number(s.amount || 0);
+        return { settlementId: s.id, payerUserId, payerName, amount, currency };
+      });
+
+      return { eventId, eventName, lastSettlementGeneratedAt: lastGenerated, pending };
+    });
+
+    return rows.sort((a, b) => {
+      const at = a.lastSettlementGeneratedAt ? Date.parse(a.lastSettlementGeneratedAt) : 0;
+      const bt = b.lastSettlementGeneratedAt ? Date.parse(b.lastSettlementGeneratedAt) : 0;
+      if (at !== bt) return bt - at;
+      return a.eventName.localeCompare(b.eventName);
+    });
+  }
+
   private async getActivePaymentMethodsForUser(userId: string, currency?: string): Promise<any[]> {
     try {
       const userDoc = await db.collection('users').doc(userId).get();
@@ -323,14 +410,14 @@ export class SettlementService {
     // Otherwise, enter 'review' mode with approvals
     if (plan.settlements.length === 0) {
       await db.collection('events').doc(eventId).set(
-        { status: 'settled', updatedAt: now, settlementApprovals: {}, settlementStale: false },
+        { status: 'settled', updatedAt: now, lastSettlementGeneratedAt: now, settlementApprovals: {}, settlementStale: false },
         { merge: true }
       );
     } else {
       // Build approvals map: every participant entity needs to approve
       const approvals = await this.buildApprovalsMap(eventId, groups);
       await db.collection('events').doc(eventId).set(
-        { status: 'review', updatedAt: now, settlementApprovals: approvals, settlementStale: false },
+        { status: 'review', updatedAt: now, lastSettlementGeneratedAt: now, settlementApprovals: approvals, settlementStale: false },
         { merge: true }
       );
     }
@@ -604,7 +691,7 @@ export class SettlementService {
 
     if (plan.settlements.length === 0) {
       await db.collection('events').doc(eventId).set(
-        { status: 'settled', updatedAt: now, settlementApprovals: {}, settlementStale: false },
+        { status: 'settled', updatedAt: now, lastSettlementGeneratedAt: now, settlementApprovals: {}, settlementStale: false },
         { merge: true }
       );
     } else {
@@ -612,7 +699,7 @@ export class SettlementService {
       const allApproved = Object.values(newApprovals).every(a => a.approved);
       const newStatus = allApproved ? 'payment' : 'review';
       await db.collection('events').doc(eventId).set(
-        { status: newStatus, updatedAt: now, settlementApprovals: newApprovals, settlementStale: false },
+        { status: newStatus, updatedAt: now, lastSettlementGeneratedAt: now, settlementApprovals: newApprovals, settlementStale: false },
         { merge: true }
       );
     }

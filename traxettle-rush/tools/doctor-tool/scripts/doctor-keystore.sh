@@ -2,7 +2,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # doctor-keystore.sh — Android Keystore & SHA Management for Traxettle
 #
-# Usage: ./common/scripts/doctor-keystore.sh
+# Usage: bash tools/doctor-tool/scripts/doctor-keystore.sh
 #
 # This script provides step-by-step instructions for:
 # - Creating Android keystore for app signing
@@ -178,8 +178,8 @@ warn "CRITICAL: Expo prebuild DELETES android/ and ios/ directories!"
 echo ""
 echo "Use the automated safe prebuild script:"
 echo ""
-echo "  ./common/scripts/safe-prebuild.sh android"
-echo "  ./common/scripts/safe-prebuild.sh ios"
+echo "  bash tools/doctor-tool/scripts/safe-prebuild.sh android"
+echo "  bash tools/doctor-tool/scripts/safe-prebuild.sh ios"
 echo ""
 echo "This script automatically:"
 echo "  1. Backs up gradle.properties.local before prebuild"

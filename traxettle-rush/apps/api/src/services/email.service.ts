@@ -25,6 +25,8 @@ export interface NotificationEmailData {
 export class EmailService {
   private transporter: nodemailer.Transporter;
   private fromAddress: string;
+  private fromHeader: string;
+  private replyToHeader?: string;
   private appUrl: string;
   private mobileScheme: string;
   private isEtherealHost: boolean;
@@ -33,6 +35,12 @@ export class EmailService {
     this.appUrl = process.env.APP_URL || 'http://localhost:3000';
     this.mobileScheme = process.env.MOBILE_APP_SCHEME || 'com.traxettle.app';
     this.fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@traxettle.app';
+    // Allow SMTP_FROM to be either a raw address ("noreply@...") or a full RFC5322 mailbox
+    // ("Traxettle (KarkhanisLabs) <noreply@...>").
+    const rawFrom = (process.env.SMTP_FROM || '').trim();
+    this.fromHeader = rawFrom && rawFrom.includes('<') && rawFrom.includes('>') ? rawFrom : `"Traxettle" <${this.fromAddress}>`;
+    const replyTo = (process.env.SMTP_REPLY_TO || '').trim();
+    this.replyToHeader = replyTo || undefined;
     // Support both SMTP_PASS and SMTP_PASSWORD env var names
     const smtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '';
     const smtpHost = process.env.SMTP_HOST || '';
@@ -106,7 +114,8 @@ export class EmailService {
 
     try {
       const info = await this.transporter.sendMail({
-        from: `"Traxettle" <${this.fromAddress}>`,
+        from: this.fromHeader,
+        replyTo: this.replyToHeader,
         to: data.inviteeEmail,
         subject,
         text,
@@ -177,7 +186,8 @@ export class EmailService {
 
     try {
       const info = await this.transporter.sendMail({
-        from: `"Traxettle" <${this.fromAddress}>`,
+        from: this.fromHeader,
+        replyTo: this.replyToHeader,
         to: recipientEmail,
         subject,
         text,
@@ -257,7 +267,7 @@ export class EmailService {
           </p>
           <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
           <p style="color: #94a3b8; font-size: 12px; text-align: center;">
-            You received this because you are a participant in "${data.eventName}".<br/>
+            You received this because you are a participant in, or have been invited to, "${data.eventName}".<br/>
             <a href="${this.appUrl}" style="color: #3b82f6;">traxettle.app</a>
           </p>
         </div>
@@ -268,7 +278,8 @@ export class EmailService {
 
     try {
       const info = await this.transporter.sendMail({
-        from: `"Traxettle" <${this.fromAddress}>`,
+        from: this.fromHeader,
+        replyTo: this.replyToHeader,
         to: data.recipientEmail,
         subject,
         text,

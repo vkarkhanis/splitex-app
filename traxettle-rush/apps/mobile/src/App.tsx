@@ -40,6 +40,7 @@ import AllEventsScreen from './screens/AllEventsScreen';
 import ClosedEventsScreen from './screens/ClosedEventsScreen';
 import HelpScreen from './screens/HelpScreen';
 import AnalyticsScreen from './screens/AnalyticsScreen';
+import UnsettledPaymentsScreen from './screens/UnsettledPaymentsScreen';
 
 const Stack = createNativeStackNavigator();
 const CAMERA_PERMISSION_BOOTSTRAP_KEY = '@traxettle_camera_permission_prompted';
@@ -125,6 +126,11 @@ function AppStack() {
         name="Analytics"
         component={AnalyticsScreen}
         options={{ title: 'Analytics' }}
+      />
+      <Stack.Screen
+        name="UnsettledPayments"
+        component={UnsettledPaymentsScreen}
+        options={{ title: 'Unsettled Payments' }}
       />
     </Stack.Navigator>
   );

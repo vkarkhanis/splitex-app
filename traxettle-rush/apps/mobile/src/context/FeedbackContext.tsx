@@ -150,19 +150,15 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
       <FeedbackContext.Provider value={{ pushToast }}>
       {children}
 
-      {Platform.OS === 'android' ? (
-        <Modal
-          visible={toasts.length > 0}
-          transparent
-          statusBarTranslucent
-          presentationStyle="fullScreen"
-          animationType="fade"
-        >
-          {toastLayer}
-        </Modal>
-      ) : (
-        toasts.length > 0 ? toastLayer : null
-      )}
+      <Modal
+        visible={toasts.length > 0}
+        transparent
+        statusBarTranslucent
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : 'fullScreen'}
+        animationType="fade"
+      >
+        {toastLayer}
+      </Modal>
 
       <Modal visible={confirm.visible} transparent animationType="fade" onRequestClose={() => setConfirm((s) => ({ ...s, visible: false }))}>
         <View style={styles.modalOverlay}>

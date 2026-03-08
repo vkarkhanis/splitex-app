@@ -153,6 +153,22 @@ export default function ProfileScreen({ navigation }: any) {
     }
   };
 
+  const handleToggleNotifications = async (next: boolean) => {
+    // Persist immediately so backend email gating takes effect without requiring an explicit "Save".
+    setNotifications(next);
+    try {
+      await api.put('/api/users/profile', {
+        preferences: { notifications: next },
+      });
+      await refreshProfile();
+      Alert.alert('Success', `Notifications ${next ? 'enabled' : 'disabled'}.`);
+    } catch (err: any) {
+      // Revert the UI if persistence fails.
+      setNotifications((prev) => !prev);
+      Alert.alert('Error', err.message || 'Failed to update notifications setting');
+    }
+  };
+
   const handleAddPaymentMethod = async () => {
     const label = methodLabel.trim();
     const details = methodDetails.trim();
@@ -403,7 +419,7 @@ export default function ProfileScreen({ navigation }: any) {
 
         <View style={styles.toggleRow}>
           <Text style={[styles.toggleLabel, { color: c.text }]}>Notifications</Text>
-          <Switch value={notifications} onValueChange={setNotifications} trackColor={{ true: c.primary }} />
+          <Switch value={notifications} onValueChange={handleToggleNotifications} trackColor={{ true: c.primary }} />
         </View>
       </View>
 

@@ -7,7 +7,7 @@ import type { StepState, WorkflowStep } from '@/types';
 import { ScriptBlock } from '@/components/steps/ScriptBlock';
 
 const Card = styled.div`
-  border-radius: 8px;
+  border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(17, 31, 58, 0.4);
   overflow: hidden;
@@ -38,11 +38,26 @@ const Left = styled.div`
   flex: 1;
 `;
 
+const StepNo = styled.div`
+  min-width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  font-weight: 800;
+  margin-top: 2px;
+`;
+
 const TitleRow = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 4px;
+  flex-wrap: wrap;
 `;
 
 const Title = styled.div`
@@ -103,9 +118,9 @@ const SectionTitle = styled.div`
   color: #ffffff;
 `;
 
-const List = styled.ol`
+const List = styled.ul`
   margin: 0;
-  padding-left: 20px;
+  padding-left: 18px;
   color: rgba(255, 255, 255, 0.8);
   font-size: 13px;
   line-height: 1.5;
@@ -189,11 +204,10 @@ export function StepCard(props: {
       <Top type="button" onClick={onToggle}>
         <Left>
           <Icon size={18} />
+          <StepNo aria-label={`Step ${index + 1}`}>{index + 1}</StepNo>
           <div>
             <TitleRow>
-              <Title>
-                {index + 1}. {step.title}
-              </Title>
+              <Title>{step.title}</Title>
               <Badge $state={state}>{stateLabel(state)}</Badge>
               <Kind>{step.kind.toUpperCase()}</Kind>
             </TitleRow>
@@ -209,9 +223,12 @@ export function StepCard(props: {
           <Section>
             <SectionTitle>Do this</SectionTitle>
             <List>
-              {step.instructions.map((t, i) => (
-                <li key={i}>{t}</li>
-              ))}
+              {step.instructions
+                .map(t => t.trimEnd())
+                .filter(t => t.trim().length > 0)
+                .map((t, i) => (
+                  <li key={i}>{t}</li>
+                ))}
             </List>
           </Section>
 
@@ -229,7 +246,7 @@ export function StepCard(props: {
           {step.expected && step.expected.length > 0 && (
             <Section>
               <SectionTitle>Expected</SectionTitle>
-              <List as="ul">
+              <List>
                 {step.expected.map((t, i) => (
                   <li key={i}>{t}</li>
                 ))}

@@ -2,7 +2,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # safe-prebuild.sh - Safe Expo Prebuild with Keystore Protection
 #
-# Usage: ./common/scripts/safe-prebuild.sh android|ios
+# Usage: bash tools/doctor-tool/scripts/safe-prebuild.sh android|ios
 #
 # This script automates prebuild while protecting keystore configuration.
 # ──────────────────────────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ if [ "$PLATFORM" = "android" ]; then
             ok "Keystore file exists"
         else
             warn "Keystore file not found at apps/mobile/keystore/traxettle-release-key.keystore"
-            warn "Run ./common/scripts/doctor-keystore.sh to create keystore"
+        warn "Run bash tools/doctor-tool/scripts/doctor-keystore.sh to create keystore"
         fi
     else
         fail "gradle.properties.local not found after restore"

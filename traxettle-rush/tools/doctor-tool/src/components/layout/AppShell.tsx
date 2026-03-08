@@ -32,7 +32,7 @@ const Subtitle = styled.div`
 
 const Main = styled.main`
   width: 100%;
-  max-width: 980px;
+  max-width: 1180px;
   margin: 0 auto;
   padding: 20px;
   display: flex;

@@ -7,25 +7,25 @@ set -euo pipefail
 # ==============================
 
 # ---- Required placeholders ----
-GCP_PROJECT_ID="traxettle-staging"
-REGION="us-central1"
-SERVICE_NAME="traxettle-api-staging"
-RUNTIME_SA_NAME="traxettle-api-staging-runtime"
-DOMAIN_NAME="CHANGE_ME_OPTIONAL_DOMAIN_OR_LEAVE_EMPTY"
+GCP_PROJECT_ID="${GCP_PROJECT_ID:-traxettle-staging}"
+REGION="${REGION:-us-central1}"
+SERVICE_NAME="${SERVICE_NAME:-traxettle-api-staging}"
+RUNTIME_SA_NAME="${RUNTIME_SA_NAME:-traxettle-api-staging-runtime}"
+DOMAIN_NAME="${DOMAIN_NAME:-}"
 
-APP_URL=""
-NODE_ENV_VALUE="staging"
-MIN_INSTANCES="0"
+APP_URL="${APP_URL:-}"
+NODE_ENV_VALUE="${NODE_ENV_VALUE:-staging}"
+MIN_INSTANCES="${MIN_INSTANCES:-0}"
 
 # Firebase Admin (staging)
-FIREBASE_PROJECT_ID="traxettle-staging"
-FIREBASE_CLIENT_EMAIL="firebase-adminsdk-fbsvc@traxettle-staging.iam.gserviceaccount.com"
-FIREBASE_STORAGE_BUCKET="traxettle-staging.firebasestorage.app"
-FIREBASE_PRIVATE_KEY_FILE="/Users/vkarkhanis/workspace/misc/service-api-private-key.json"
+FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-traxettle-staging}"
+FIREBASE_CLIENT_EMAIL="${FIREBASE_CLIENT_EMAIL:-CHANGE_ME_STAGING_FIREBASE_CLIENT_EMAIL}"
+FIREBASE_STORAGE_BUCKET="${FIREBASE_STORAGE_BUCKET:-traxettle-staging.firebasestorage.app}"
+FIREBASE_PRIVATE_KEY_FILE="${FIREBASE_PRIVATE_KEY_FILE:-CHANGE_ME_ABSOLUTE_PATH_TO_STAGING_FIREBASE_PRIVATE_KEY_PEM_OR_JSON}"
 
 # JWT (staging)
-JWT_SECRET="lU4CM38gTdgniwELfn4PX2gdl4w0YbkvXZzicluCBJm3DtaYxaNFFO8DNMnJXAyD"
-JWT_REFRESH_SECRET="YE1AoQkOHiyJt1qdVFO6g1sM79kbLj1jCJNMUQhVlQfD9u8bqMEDR1qv"
+JWT_SECRET="${JWT_SECRET:-CHANGE_ME_STAGING_JWT_SECRET}"
+JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-CHANGE_ME_STAGING_JWT_REFRESH_SECRET}"
 
 # Optional (required only for email-link passwordless sign-in)
 FIREBASE_WEB_API_KEY=""
@@ -52,6 +52,15 @@ SMTP_FROM="Traxettle Admin <traxettleapp@gmail.com>"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../traxettle-rush" && pwd)"
 RC_LOADER="$REPO_ROOT/scripts/revenuecat/load-rc-config.sh"
+
+# Optional config file (created by scripts/api-deployment/configure-staging.sh)
+CONFIG_FILE="${REPO_ROOT}/.traxettle/api-staging.env"
+if [[ -f "$CONFIG_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+  set +a
+fi
 
 SECRET_FIREBASE_PROJECT_ID="traxettle-stg-firebase-project-id"
 SECRET_FIREBASE_CLIENT_EMAIL="traxettle-stg-firebase-client-email"
@@ -145,7 +154,10 @@ require_not_placeholder "JWT_REFRESH_SECRET" "$JWT_REFRESH_SECRET"
 require_not_placeholder "REVENUECAT_WEBHOOK_SECRET" "${REVENUECAT_WEBHOOK_SECRET:-}"
 if [[ -n "$SMTP_SERVICE" ]]; then
   require_not_placeholder "SMTP_USER" "$SMTP_USER"
-  [[ -n "$SMTP_PASS" ]] || fail "Set SMTP_PASS before running (Gmail app password)"
+  if [[ -z "${SMTP_PASS:-}" ]]; then
+    echo "NOTE: SMTP_PASS is empty. Deploying without SMTP (email features disabled)."
+    SMTP_SERVICE=""
+  fi
 fi
 
 [[ -f "$REPO_ROOT/Dockerfile" ]] || fail "Missing $REPO_ROOT/Dockerfile"

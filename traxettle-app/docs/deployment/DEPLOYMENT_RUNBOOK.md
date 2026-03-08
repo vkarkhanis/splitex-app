@@ -213,39 +213,35 @@ Scripts:
 - `scripts/api-deployment/deploy-prod.sh`
 - `scripts/api-deployment/deploy-staging-gmail.sh`
 - `scripts/api-deployment/deploy-prod-gmail.sh`
+- `scripts/api-deployment/configure-staging.sh`
+- `scripts/api-deployment/configure-prod.sh`
 
-### 5.1 Fill staging script placeholders
+### 5.1 Configure staging (no script edits)
 
-Edit `scripts/api-deployment/deploy-staging.sh` and set:
-- `GCP_PROJECT_ID=traxettle-staging`
-- `FIREBASE_PROJECT_ID=traxettle-staging`
-- `FIREBASE_CLIENT_EMAIL`
-- `FIREBASE_STORAGE_BUCKET`
-- `FIREBASE_PRIVATE_KEY_FILE` (absolute path to service-account JSON)
-- `JWT_SECRET`
-- `JWT_REFRESH_SECRET`
+Run the guided configure script (it asks questions and saves a local gitignored file):
 
-Optional email-link vars (if enabled):
+```bash
+bash scripts/api-deployment/configure-staging.sh
+```
+
+This creates:
+- `.traxettle/api-staging.env` (gitignored)
+- Optionally `scripts/api-deployment/smtp_staging.local.properties` (gitignored, for the Gmail wrapper)
+
+If you enable email-link/passwordless sign-in, the configure script will also ask for:
 - `FIREBASE_WEB_API_KEY`
 - `AUTH_EMAIL_LINK_CONTINUE_URL`
-- `AUTH_ANDROID_PACKAGE_NAME=com.traxettle.app`
-- `AUTH_IOS_BUNDLE_ID=com.traxettle.app`
-
-For staging continue URL, use:
-- `https://traxettle-api-staging-862789756309.us-central1.run.app/auth/email-link`
-
-Optional SMTP (Gmail example):
-- `SMTP_HOST=smtp.gmail.com`
-- `SMTP_PORT=465`
-- `SMTP_SECURE=true`
-- `SMTP_USER=<gmail_address>`
-- `SMTP_PASS=<gmail_app_password>`
-- `SMTP_FROM=<gmail_address>`
+- `AUTH_ANDROID_PACKAGE_NAME`
+- `AUTH_IOS_BUNDLE_ID`
 
 ### 5.2 Deploy staging API
 
 ```bash
-bash scripts/api-deployment/deploy-staging.sh
+# With Gmail SMTP (recommended if you want emails)
+bash scripts/api-deployment/deploy-staging-gmail.sh
+
+# Without SMTP (email features disabled)
+# bash scripts/api-deployment/deploy-staging.sh
 ```
 
 ### 5.3 Verify staging API
@@ -256,10 +252,20 @@ curl https://traxettle-api-staging-862789756309.us-central1.run.app/health
 
 ### 5.4 Deploy production API
 
-Edit placeholders in `scripts/api-deployment/deploy-prod.sh` then run:
+Run the guided configure script once, then deploy:
 
 ```bash
-bash scripts/api-deployment/deploy-prod.sh
+bash scripts/api-deployment/configure-prod.sh
+```
+
+Then:
+
+```bash
+# With Gmail SMTP (recommended if you want emails)
+bash scripts/api-deployment/deploy-prod-gmail.sh
+
+# Without SMTP
+# bash scripts/api-deployment/deploy-prod.sh
 ```
 
 ## 6) Local app vs staging vs production mapping
@@ -409,21 +415,14 @@ Firebase App Hosting buildpack often installs with `npm` from `apps/web` root an
 
 ### 11.3 Staging web deploy (one command)
 
-1. Edit placeholders in:
-   - `scripts/web-deployment/deploy-web-staging.sh`
-2. Ensure web source files are tracked in git (important):
+1. Ensure web source files are tracked in git (important):
 
 ```bash
 git ls-files -- traxettle-rush/apps/web/src/lib/StyledComponentsRegistry.tsx
 ```
 
 If empty, add/fix and push branch before deploy.
-3. Ensure Hosting site exists (or script creates it):
-
-```bash
-firebase hosting:sites:create <HOSTING_SITE_ID> --project traxettle-staging
-```
-4. Run:
+2. Run:
 
 ```bash
 bash scripts/web-deployment/deploy-web-staging.sh
@@ -431,14 +430,13 @@ bash scripts/web-deployment/deploy-web-staging.sh
 
 ### 11.4 Production web deploy (one command)
 
-1. Edit placeholders in:
-   - `scripts/web-deployment/deploy-web-prod.sh`
-2. Ensure Hosting site exists:
+1. Configure production values (no script edits):
 
 ```bash
-firebase hosting:sites:create <HOSTING_SITE_ID> --project traxettle-prod
+bash scripts/web-deployment/configure-prod.sh
 ```
-3. Run:
+
+2. Run:
 
 ```bash
 bash scripts/web-deployment/deploy-web-prod.sh

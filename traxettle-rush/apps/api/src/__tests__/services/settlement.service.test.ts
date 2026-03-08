@@ -434,6 +434,61 @@ describe('SettlementService', () => {
     });
   });
 
+  describe('getUnsettledPaymentsForPayee', () => {
+    it('should return empty when no settlements exist', async () => {
+      await expect(service.getUnsettledPaymentsForPayee('payee-1')).resolves.toEqual([]);
+    });
+
+    it('should return only pending legs where current user is payee, grouped by event', async () => {
+      // Event metadata
+      mockEvents['evt-1'] = { name: 'Goa Trip', updatedAt: '2026-03-07T10:00:00.000Z', lastSettlementGeneratedAt: '2026-03-07T09:00:00.000Z' };
+      mockEvents['evt-2'] = { name: 'Roommates', updatedAt: '2026-03-06T10:00:00.000Z' };
+
+      // Users
+      // resolveUserLabel reads users collection; this test harness stores users nowhere, so it will fall back to userId.
+
+      // Settlements
+      mockSettlements['s1'] = { eventId: 'evt-1', toUserId: 'payee-1', fromUserId: 'payer-A', amount: 100, currency: 'INR', status: 'pending' };
+      mockSettlements['s2'] = { eventId: 'evt-1', toUserId: 'payee-1', fromUserId: 'payer-B', amount: 200, currency: 'INR', status: 'initiated' }; // not pending
+      mockSettlements['s3'] = { eventId: 'evt-2', toUserId: 'payee-1', fromUserId: 'payer-A', amount: 50, currency: 'USD', status: 'pending' };
+      mockSettlements['s4'] = { eventId: 'evt-2', toUserId: 'someone-else', fromUserId: 'payer-A', amount: 70, currency: 'USD', status: 'pending' }; // not payee
+
+      const rows = await service.getUnsettledPaymentsForPayee('payee-1');
+      expect(rows.length).toBe(2);
+
+      const goa = rows.find(r => r.eventId === 'evt-1')!;
+      expect(goa.eventName).toBe('Goa Trip');
+      expect(goa.lastSettlementGeneratedAt).toBe('2026-03-07T09:00:00.000Z');
+      expect(goa.pending).toEqual([
+        expect.objectContaining({ payerUserId: 'payer-A', payerName: 'payer-A', amount: 100, currency: 'INR' }),
+      ]);
+
+      const room = rows.find(r => r.eventId === 'evt-2')!;
+      expect(room.eventName).toBe('Roommates');
+      // falls back to updatedAt when lastSettlementGeneratedAt missing
+      expect(room.lastSettlementGeneratedAt).toBe('2026-03-06T10:00:00.000Z');
+      expect(room.pending.length).toBe(1);
+      expect(room.pending[0]).toEqual(expect.objectContaining({ payerUserId: 'payer-A', amount: 50, currency: 'USD' }));
+    });
+
+    it('should use settlementAmount/settlementCurrency when present', async () => {
+      mockEvents['evt-1'] = { name: 'FX Event', updatedAt: '2026-03-07T10:00:00.000Z' };
+      mockSettlements['s1'] = {
+        eventId: 'evt-1',
+        toUserId: 'payee-1',
+        fromUserId: 'payer-A',
+        amount: 1,
+        currency: 'USD',
+        settlementAmount: 83.5,
+        settlementCurrency: 'INR',
+        status: 'pending',
+      };
+
+      const rows = await service.getUnsettledPaymentsForPayee('payee-1');
+      expect(rows[0].pending[0]).toEqual(expect.objectContaining({ amount: 83.5, currency: 'INR' }));
+    });
+  });
+
   describe('calculateSettlementPlan', () => {
     it('should return empty plan for zero balances', () => {
       const plan = service.calculateSettlementPlan([], 'evt-1', 'USD');
@@ -1323,7 +1378,7 @@ describe('SettlementService', () => {
         currency: 'USD',
         settlementCurrency: 'EUR',
         fxRateMode: 'predefined',
-        predefinedFxRates: { 'USD/EUR': 0.85 },
+        predefinedFxRates: { 'USD_EUR': 0.85 },
       };
 
       mockSubcollections['evt-fx/participants'] = {

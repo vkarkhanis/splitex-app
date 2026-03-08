@@ -2,7 +2,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # doctor-apple-team.sh — Apple Team ID Setup for Traxettle
 #
-# Usage: ./common/scripts/doctor-apple-team.sh
+# Usage: bash tools/doctor-tool/scripts/doctor-apple-team.sh
 #
 # This script provides step-by-step instructions for:
 # - Finding Apple Team ID from Developer Portal
@@ -225,7 +225,7 @@ else
     echo ""
     echo "When ready:"
     echo "  1. Get Apple Developer Account: https://developer.apple.com/programs/"
-    echo "  2. Run this script again: ./common/scripts/doctor-apple-team.sh"
+    echo "  2. Run this script again: bash tools/doctor-tool/scripts/doctor-apple-team.sh"
     echo "  3. Continue with Firebase setup"
     echo ""
 fi

@@ -23,7 +23,8 @@ A guided UI workflow that walks you through setting up Traxettle environments (L
 ### 1) Install dependencies (run this from the repo root)
 
 ```bash
-rush install
+cd traxettle-rush
+node tools/doctor-tool/scripts/install-run-rush.js install
 ```
 
 ### 2) Start the Doctor Tool UI
@@ -63,8 +64,8 @@ Edit the workflow definition files:
 - `src/workflows/webSteps.ts` — Web-specific steps.
 
 Each step includes:
-- `title`, `kind` (`action` | `verify`), `environment`, `whyThisMatters`.
-- `instructions` array.
+- `section` (used for grouping), `title`, `kind` (`action` | `verify`), `environment`, `whyThisMatters`.
+- `instructions` (small, copy-ready bullet steps).
 - Optional `scripts` with `label` and `command`.
 - Optional `expected` outcomes.
 - `skippable` flag.

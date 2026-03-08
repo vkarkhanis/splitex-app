@@ -10,13 +10,13 @@ This document covers the **6 local run modes** for Traxettle. Each mode is a sin
 |------|---------|-------|
 | Node.js | ≥ 24 | `node -v` |
 | Java (JDK) | ≥ 21 | `java -version` (emulator modes only) |
-| Rush | latest | `rush --version` (installed via `npm i -g @microsoft/rush`) |
+| Rush | auto-managed | Use the provided installer script (no global install required) |
 | Firebase CLI | latest | `firebase --version` (or auto-installed via `npx`) |
 
 **One-time setup:**
 ```bash
-rush install
-rush build
+node tools/doctor-tool/scripts/install-run-rush.js install
+node tools/doctor-tool/scripts/install-run-rush.js build
 ```
 
 ---

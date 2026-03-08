@@ -67,6 +67,30 @@ router.get('/event/:eventId/pending-total', requireAuth, async (req: Authenticat
   }
 });
 
+// "Unsettled Payments" for payees: legs where payers haven't initiated payment yet.
+router.get('/unsettled-payments/summary', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const rows = await settlementService.getUnsettledPaymentsForPayee(uid);
+    const pendingCount = rows.reduce((sum, r) => sum + (r.pending?.length || 0), 0);
+    return res.json({ success: true, data: { pendingCount, eventCount: rows.length } } as ApiResponse);
+  } catch (err: any) {
+    console.error('GET /settlements/unsettled-payments/summary error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to load unsettled payments summary' } as ApiResponse);
+  }
+});
+
+router.get('/unsettled-payments', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const rows = await settlementService.getUnsettledPaymentsForPayee(uid);
+    return res.json({ success: true, data: rows } as ApiResponse);
+  } catch (err: any) {
+    console.error('GET /settlements/unsettled-payments error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to load unsettled payments' } as ApiResponse);
+  }
+});
+
 // Generate settlement plan (admin only)
 router.post('/event/:eventId/generate', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {

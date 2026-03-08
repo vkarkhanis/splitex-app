@@ -2,7 +2,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # doctor-firebase-prod.sh — Firebase Production Setup Guide
 #
-# Usage: ./common/scripts/doctor-firebase-prod.sh
+# Usage: bash tools/doctor-tool/scripts/doctor-firebase-prod.sh
 #
 # This script provides step-by-step instructions for setting up the
 # production Firebase project for Traxettle.
@@ -56,7 +56,7 @@ else
     warn "Keystore not found at: $KEYSTORE_FILE"
     echo ""
     echo "Please run the keystore setup first:"
-    echo "  ./common/scripts/doctor-keystore.sh"
+    echo "  bash tools/doctor-tool/scripts/doctor-keystore.sh"
     echo ""
     read -p "Continue anyway? (y/n): " -n 1 -r
     echo
@@ -74,7 +74,7 @@ echo ""
 echo "For iOS app support, you need Apple Team ID:"
 echo ""
 echo "1. If you have Apple Developer Account:"
-echo "   ./common/scripts/doctor-apple-team.sh"
+echo "   bash tools/doctor-tool/scripts/doctor-apple-team.sh"
 echo ""
 echo "2. If you don't have developer account:"
 echo "   - You can proceed without Team ID (Android only)"
@@ -85,7 +85,7 @@ echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo ""
     info "Run Apple Team ID setup when ready:"
-    echo "  ./common/scripts/doctor-apple-team.sh"
+    echo "  bash tools/doctor-tool/scripts/doctor-apple-team.sh"
     echo ""
     read -p "Continue with Android-only setup? (y/n): " -n 1 -r
     echo
@@ -167,7 +167,7 @@ warn "CRITICAL: Both Firebase projects must have the SAME SHA-1 fingerprints!"
 echo "This allows the same app to work in both environments."
 echo ""
 echo "For detailed SHA-1 instructions:"
-echo "  ./common/scripts/doctor-keystore.sh"
+echo "  bash tools/doctor-tool/scripts/doctor-keystore.sh"
 echo "  (See Step 3: Generate SHA-1 Fingerprints)"
 echo ""
 
@@ -176,7 +176,7 @@ header "Step 4: Add iOS App to Firebase"
 echo ""
 
 echo "1. First, setup Apple Team ID (if not done already):"
-echo "   ./common/scripts/doctor-apple-team.sh"
+echo "   bash tools/doctor-tool/scripts/doctor-apple-team.sh"
 echo "   - This script helps you find your Apple Team ID"
 echo "   - Adds Team ID to both Firebase projects"
 echo "   - Downloads updated iOS config files"
@@ -215,13 +215,13 @@ echo "  # Update STORE_FILE path to: ../../keystore/traxettle-release-key.keysto
 echo ""
 echo "For automated prebuild (recommended):"
 echo "  rushx prebuild:android:safe"
-echo "  # OR: ./common/scripts/safe-prebuild.sh android"
+echo "  # OR: bash tools/doctor-tool/scripts/safe-prebuild.sh android"
 echo ""
 warn "IMPORTANT: Never commit gradle.properties.local to Git!"
 echo "This file contains your keystore passwords."
 echo ""
 echo "For complete keystore and Gradle setup:"
-echo "  ./common/scripts/doctor-keystore.sh"
+echo "  bash tools/doctor-tool/scripts/doctor-keystore.sh"
 echo "  (See Steps 4-5 for Gradle and Play Console setup)"
 echo ""
 
