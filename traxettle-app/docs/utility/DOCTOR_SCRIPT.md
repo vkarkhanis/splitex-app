@@ -143,8 +143,8 @@ Environment: PRODUCTION
   • Node.js v24+ required
 
 📚 Setup Resources:
-General Setup: https://github.com/traxettle/traxettle/blob/main/docs/SETUP.md
-Environment Variables: https://github.com/traxettle/traxettle/blob/main/docs/ENVIRONMENT_SETUP.md
+General Setup: traxettle-app/docs/utility/SETUP.md
+Environment Variables: traxettle-app/docs/utility/ENVIRONMENT_SETUP.md
 
 ❌ Please fix all errors before proceeding with builds.
 Run the doctor script again after fixing issues.

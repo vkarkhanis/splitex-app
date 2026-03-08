@@ -234,10 +234,21 @@ export function StepCard(props: {
 
           {step.scripts && step.scripts.length > 0 && (
             <Section>
-              <SectionTitle>Commands</SectionTitle>
+              <SectionTitle>Run in Terminal</SectionTitle>
               <Scripts>
                 {step.scripts.map(s => (
                   <ScriptBlock key={s.label} label={s.label} command={s.command} />
+                ))}
+              </Scripts>
+            </Section>
+          )}
+
+          {step.snippets && step.snippets.length > 0 && (
+            <Section>
+              <SectionTitle>Copy / Paste</SectionTitle>
+              <Scripts>
+                {step.snippets.map(s => (
+                  <ScriptBlock key={s.label} label={s.label} command={s.text} />
                 ))}
               </Scripts>
             </Section>

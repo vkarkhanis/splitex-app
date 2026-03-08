@@ -8,6 +8,11 @@ export interface WorkflowScript {
   command: string;
 }
 
+export interface WorkflowSnippet {
+  label: string;
+  text: string;
+}
+
 export interface WorkflowStep {
   id: string;
   platform: Platform;
@@ -22,6 +27,7 @@ export interface WorkflowStep {
   kind: StepKind;
   instructions: string[];
   scripts?: WorkflowScript[];
+  snippets?: WorkflowSnippet[];
   expected?: string[];
   skippable: boolean;
 }

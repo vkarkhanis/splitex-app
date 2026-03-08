@@ -69,7 +69,7 @@ The doctor script checks:
 - ✅ RevenueCat, email, and environment variables
 - ✅ Final build verification
 
-**First-time setup?** See [Complete Setup Guide](docs/SETUP.md)
+**First-time setup?** See [Complete Setup Guide](../traxettle-app/docs/utility/SETUP.md)
 
 ## Zero-Lock Quick Start (Recommended)
 Use the atomic scripts when Rush lock contention is a problem.

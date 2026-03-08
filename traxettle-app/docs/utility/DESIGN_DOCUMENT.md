@@ -991,7 +991,7 @@ This design document provides a comprehensive foundation for building the Traxet
 - RevenueCat webhook endpoint updates entitlement state idempotently.
 - Replay-safe event handling stores processed webhook IDs.
 - Runbook/scripts:
-  - `traxettle-rush/docs/REVENUECAT_INTEGRATION_RUNBOOK.md`
+  - `traxettle-app/docs/utility/REVENUECAT_INTEGRATION_RUNBOOK.md`
   - `traxettle-rush/scripts/revenuecat/bootstrap.sh`
   - `traxettle-rush/scripts/revenuecat/check-config.sh`
   - `traxettle-rush/scripts/revenuecat/smoke-webhook.sh`

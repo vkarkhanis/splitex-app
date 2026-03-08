@@ -1,4 +1,8 @@
 import type { WorkflowStep } from '@/types';
+import { firebaseUtilitySteps } from '@/workflows/shared/firebaseUtilitySteps';
+import { revenueCatUtilitySteps } from '@/workflows/shared/revenuecatUtilitySteps';
+import { cloudUtilitySteps } from '@/workflows/shared/cloudUtilitySteps';
+import { storeUtilitySteps } from '@/workflows/shared/storeUtilitySteps';
 
 /**
  * Mobile workflow goals:
@@ -146,39 +150,10 @@ export const mobileSteps: WorkflowStep[] = [
   // ────────────────────────────────────────────────────────────────────────────
   // UTILITIES
   // ────────────────────────────────────────────────────────────────────────────
-  {
-    id: 'm-util-firebase-files',
-    platform: 'mobile',
-    environment: 'utility',
-    section: 'Firebase',
-    title: 'Download Firebase config files into apps/mobile/',
-    whyThisMatters:
-      'Mobile build scripts automatically pick per-environment Firebase configs from apps/mobile/ (gitignored).',
-    kind: 'action',
-    skippable: false,
-    instructions: [
-      'You will download these files from Firebase Console → Project Settings → Your apps:',
-      '',
-      'LOCAL (Firebase project: traxettle-test or local emulator):',
-      '- apps/mobile/google-services.local.json',
-      '- apps/mobile/GoogleService-Info.local.plist',
-      '',
-      'STAGING (Firebase project: traxettle-staging):',
-      '- apps/mobile/google-services.staging.json',
-      '- apps/mobile/GoogleService-Info.staging.plist',
-      '',
-      'PRODUCTION (Firebase project: traxettle-prod):',
-      '- apps/mobile/google-services.prod.json',
-      '- apps/mobile/GoogleService-Info.prod.plist',
-      '',
-      'After placing files, run the bootstrap check (next command).',
-    ],
-    scripts: [
-      { label: 'Bootstrap (local)', command: 'sh scripts/local-dev/bootstrap.sh local' },
-      { label: 'Bootstrap (staging)', command: 'sh scripts/local-dev/bootstrap.sh staging' },
-    ],
-    expected: ['Bootstrap prints ✅ for copied files.', 'If SHA-1 mismatch is shown, re-download google-services.json after adding SHA fingerprints.'],
-  },
+  ...firebaseUtilitySteps('mobile'),
+  ...revenueCatUtilitySteps('mobile'),
+  ...cloudUtilitySteps('mobile'),
+  ...storeUtilitySteps('mobile'),
   {
     id: 'm-util-keystore',
     platform: 'mobile',
@@ -211,27 +186,6 @@ export const mobileSteps: WorkflowStep[] = [
     scripts: [{ label: 'Apple Team ID setup', command: 'bash tools/doctor-tool/scripts/doctor-apple-team.sh' }],
     expected: ['You know your Apple Team ID and Firebase iOS app settings are updated.'],
   },
-  {
-    id: 'm-util-revenuecat',
-    platform: 'mobile',
-    environment: 'utility',
-    section: 'RevenueCat',
-    title: 'Create RevenueCat config files (local/staging/production)',
-    whyThisMatters: 'Mobile build scripts require rc_<env>.properties (gitignored) for RevenueCat keys.',
-    kind: 'action',
-    skippable: true,
-    instructions: [
-      'Run the configure script once per environment you plan to use.',
-      'It will ask you questions and create rc_*.properties files.',
-    ],
-    scripts: [
-      { label: 'Configure local', command: 'bash scripts/revenuecat/configure.sh local' },
-      { label: 'Configure staging', command: 'bash scripts/revenuecat/configure.sh staging' },
-      { label: 'Configure production', command: 'bash scripts/revenuecat/configure.sh production' },
-    ],
-    expected: ['rc_local.properties / rc_staging.properties / rc_production.properties exist (gitignored).'],
-  },
-
   // ────────────────────────────────────────────────────────────────────────────
   // LOCAL
   // ────────────────────────────────────────────────────────────────────────────
@@ -349,4 +303,3 @@ export const mobileSteps: WorkflowStep[] = [
     expected: ['EAS prints a build URL and status.'],
   },
 ];
-

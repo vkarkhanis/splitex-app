@@ -1,4 +1,7 @@
 import type { WorkflowStep } from '@/types';
+import { firebaseUtilitySteps } from '@/workflows/shared/firebaseUtilitySteps';
+import { revenueCatUtilitySteps } from '@/workflows/shared/revenuecatUtilitySteps';
+import { cloudUtilitySteps } from '@/workflows/shared/cloudUtilitySteps';
 
 /**
  * Web workflow goals:
@@ -95,74 +98,31 @@ export const webSteps: WorkflowStep[] = [
   // UTILITIES (shared building blocks)
   // ────────────────────────────────────────────────────────────────────────────
   {
-    id: 'w-util-java-firebase-cli',
+    id: 'u-firebase-cli-java',
     platform: 'web',
     environment: 'utility',
     section: 'Firebase',
-    title: 'Install Java (JDK 21+) and Firebase CLI (for local emulators)',
+    title: 'Install Java (JDK 21+) and Firebase CLI',
     whyThisMatters:
-      'Firebase emulators require Java 21+. The local “emulator modes” use Firebase emulators for safe testing.',
+      'Firebase emulators require Java 21+. Firebase CLI is needed for Hosting deploys and some Firebase operations.',
     kind: 'action',
-    skippable: true,
+    skippable: false,
     instructions: [
-      'If you only want STAGING/PROD deploys and never run local emulators, you can skip this.',
-      'Otherwise:',
       '1) Install Java (JDK 21 or newer)',
-      '2) Install Firebase CLI (either globally, or you can rely on npx/pnpm-dlx in scripts)',
-      '3) Run the checks below',
+      '2) Install Firebase CLI (firebase-tools)',
+      '3) Login: firebase login',
+      '4) Run the checks below',
     ],
     scripts: [
       { label: 'Check Java', command: 'java -version || echo "Java not found"' },
-      { label: 'Check Firebase CLI (optional)', command: 'firebase --version || echo "firebase CLI not found (ok if you rely on npx)"' },
+      { label: 'Check Firebase CLI', command: 'firebase --version || echo "firebase not found"' },
+      { label: 'Firebase login', command: 'firebase login' },
     ],
-    expected: ['Java version shows 21+.', 'Firebase CLI prints a version (optional).'],
+    expected: ['Java prints a version (21+ recommended).', 'firebase prints a version.', 'firebase login succeeds.'],
   },
-  {
-    id: 'w-util-revenuecat-config',
-    platform: 'web',
-    environment: 'utility',
-    section: 'RevenueCat',
-    title: 'Create RevenueCat config files (local/staging/production)',
-    whyThisMatters:
-      'Web deploy scripts pull RevenueCat public keys + webhook secret from rc_<env>.properties (gitignored).',
-    kind: 'action',
-    skippable: true,
-    instructions: [
-      'Run the configure script once per environment you plan to use.',
-      'It will ask you questions and create files like rc_staging.properties.',
-    ],
-    scripts: [
-      { label: 'Configure local', command: 'bash scripts/revenuecat/configure.sh local' },
-      { label: 'Configure staging', command: 'bash scripts/revenuecat/configure.sh staging' },
-      { label: 'Configure production', command: 'bash scripts/revenuecat/configure.sh production' },
-    ],
-    expected: ['You have rc_local.properties / rc_staging.properties / rc_production.properties in the repo root (gitignored).'],
-  },
-  {
-    id: 'w-util-gcloud-firebase-login',
-    platform: 'web',
-    environment: 'utility',
-    section: 'Cloud',
-    title: 'Install and login to Google Cloud + Firebase (for staging/prod deploy)',
-    whyThisMatters: 'Staging/production deployments require access to Google Cloud Run and Firebase Hosting.',
-    kind: 'action',
-    skippable: true,
-    instructions: [
-      'If you only want LOCAL development, you can skip this.',
-      'Otherwise:',
-      '1) Install Google Cloud CLI (gcloud)',
-      '2) Login: gcloud auth login',
-      '3) Login: firebase login',
-      '4) Verify versions with the commands below',
-    ],
-    scripts: [
-      { label: 'Check gcloud', command: 'gcloud --version || echo "gcloud not found"' },
-      { label: 'Check firebase', command: 'firebase --version || echo "firebase CLI not found"' },
-      { label: 'Login to gcloud', command: 'gcloud auth login' },
-      { label: 'Login to Firebase', command: 'firebase login' },
-    ],
-    expected: ['gcloud prints a version.', 'firebase prints a version.', 'Logins succeed.'],
-  },
+  ...firebaseUtilitySteps('web'),
+  ...revenueCatUtilitySteps('web'),
+  ...cloudUtilitySteps('web'),
 
   // ────────────────────────────────────────────────────────────────────────────
   // LOCAL
@@ -292,4 +252,3 @@ export const webSteps: WorkflowStep[] = [
     expected: ['A Firebase Hosting URL is printed (…web.app) or your custom domain loads.'],
   },
 ];
-
