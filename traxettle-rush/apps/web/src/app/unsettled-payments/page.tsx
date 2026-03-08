@@ -54,7 +54,7 @@ const Table = styled.table`
     vertical-align: top;
   }
   th {
-    background: ${(p) => p.theme.colors.surfaceAlt};
+    background: ${(p) => p.theme.colors.surfaceHover};
     text-align: left;
     font-size: 12px;
     color: ${(p) => p.theme.colors.muted};
@@ -71,7 +71,7 @@ function yyyyMmDd(iso: string | null) {
 }
 
 export default function UnsettledPaymentsPage() {
-  const { pushToast } = useToast();
+  const { push: pushToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<UnsettledEventRow[]>([]);
   const [openEventId, setOpenEventId] = useState<string | null>(null);
@@ -204,4 +204,3 @@ export default function UnsettledPaymentsPage() {
     </Page>
   );
 }
-

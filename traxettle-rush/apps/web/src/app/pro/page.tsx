@@ -28,7 +28,7 @@ const Note = styled.div`
 const Callout = styled.div`
   margin-top: 14px;
   border: 1px solid ${(p) => p.theme.colors.border};
-  background: ${(p) => p.theme.colors.surfaceAlt};
+  background: ${(p) => p.theme.colors.surfaceHover};
   border-radius: 10px;
   padding: 12px 12px;
   font-size: 13px;
@@ -37,7 +37,7 @@ const Callout = styled.div`
 
 export default function ProPage() {
   const router = useRouter();
-  const { pushToast } = useToast();
+  const { push: pushToast } = useToast();
   const { playStoreUrl, appStoreUrl } = getMobileSubscribeLinks();
 
   return (
@@ -84,4 +84,3 @@ export default function ProPage() {
     </Page>
   );
 }
-
