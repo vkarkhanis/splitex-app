@@ -217,10 +217,13 @@ export default function DashboardScreen({ navigation }: any) {
             <TouchableOpacity
               testID="menu-analytics"
               style={styles.menuItem}
-              onPress={() => { setMenuVisible(false); navigation.navigate('Analytics'); }}
+              onPress={() => {
+                setMenuVisible(false);
+                Alert.alert('Coming soon', 'Analytics will return in a future major release.');
+              }}
             >
               <Text style={styles.menuIcon}>📊</Text>
-              <Text style={[styles.menuItemText, { color: c.text }]}>Analytics</Text>
+              <Text style={[styles.menuItemText, { color: c.text }]}>Analytics (Coming soon)</Text>
             </TouchableOpacity>
 
             {!!unsettledSummary?.pendingCount && unsettledSummary.pendingCount > 0 && (

@@ -239,7 +239,7 @@ export class EmailService {
 
   async sendNotificationEmail(data: NotificationEmailData): Promise<{ success: boolean; messageId?: string; error?: string }> {
     const eventUrl = `${this.appUrl}/events/${data.eventId}`;
-    const mobileDeepLink = `${this.mobileScheme}://events/${data.eventId}`;
+    const openUrl = `${this.appUrl}/open/event/${data.eventId}`;
     const subject = this.getNotificationSubject(data);
     const detailsHtml = this.getNotificationBody(data);
 
@@ -258,12 +258,12 @@ export class EmailService {
             ${detailsHtml}
           </div>
           <div style="text-align: center; margin: 24px 0;">
-            <a href="${mobileDeepLink}" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
-              Open in App
+            <a href="${openUrl}" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+              Open Event
             </a>
           </div>
           <p style="color: #94a3b8; font-size: 13px; text-align: center; margin-bottom: 16px;">
-            Don't have the app? <a href="${eventUrl}" style="color: #3b82f6;">View on web</a>
+            Prefer web? <a href="${eventUrl}" style="color: #3b82f6;">View on web</a>
           </p>
           <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
           <p style="color: #94a3b8; font-size: 12px; text-align: center;">
@@ -301,6 +301,41 @@ export class EmailService {
       return { success: true, messageId: info.messageId };
     } catch (err: any) {
       console.error(`📧 Notification email failed (${data.type}):`, err.message);
+      return { success: false, error: err.message };
+    }
+  }
+
+  async sendUserReportEmail(params: {
+    recipientEmail: string;
+    subject: string;
+    html: string;
+    text: string;
+  }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    try {
+      const info = await this.transporter.sendMail({
+        from: this.fromHeader,
+        replyTo: this.replyToHeader,
+        to: params.recipientEmail,
+        subject: params.subject,
+        text: params.text,
+        html: params.html,
+      });
+
+      if (this.isEtherealHost) {
+        const previewUrl = nodemailer.getTestMessageUrl(info);
+        console.log(`📧 [ETHEREAL] Report to: ${params.recipientEmail} | ${params.subject}`);
+        if (previewUrl) console.log(`📧 [ETHEREAL] Preview: ${previewUrl}`);
+        return { success: true, messageId: info.messageId || `ethereal-${Date.now()}` };
+      }
+
+      if (!process.env.SMTP_HOST) {
+        console.log(`📧 [MOCK] Report to: ${params.recipientEmail} | ${params.subject}`);
+        return { success: true, messageId: `mock-${Date.now()}` };
+      }
+
+      return { success: true, messageId: info.messageId };
+    } catch (err: any) {
+      console.error(`📧 Report email failed (${params.subject}):`, err.message);
       return { success: false, error: err.message };
     }
   }

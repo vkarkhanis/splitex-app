@@ -2,10 +2,16 @@ export type UnsettledEventRow = {
   eventId: string;
   eventName: string;
   lastSettlementGeneratedAt: string | null;
+  eventStatus?: string;
+  eventType?: string;
+  eventCurrency?: string;
+  eventStartDate?: string | null;
+  eventEndDate?: string | null;
   pending: Array<{
     settlementId: string;
     payerUserId: string;
     payerName: string;
+    payerEmail?: string;
     amount: number;
     currency: string;
   }>;
@@ -21,13 +27,15 @@ export function buildUnsettledPaymentsCsv(rows: UnsettledEventRow[]) {
   const lines: string[] = [];
   for (const ev of rows) {
     lines.push(csvEscape(`Event: ${ev.eventName}`));
-    lines.push(['Date', 'Payer Name', 'Amount', 'Currency'].map(csvEscape).join(','));
+    lines.push(['Date', 'Payer Name', 'Payer Email', 'Settlement ID', 'Amount', 'Currency'].map(csvEscape).join(','));
     const date = ev.lastSettlementGeneratedAt ? new Date(ev.lastSettlementGeneratedAt).toISOString().slice(0, 10) : '';
     for (const p of ev.pending) {
       lines.push(
         [
           date,
           p.payerName,
+          p.payerEmail || '',
+          p.settlementId,
           Number.isFinite(p.amount) ? p.amount.toFixed(2) : '',
           p.currency,
         ].map((c) => csvEscape(String(c))).join(','),
@@ -48,6 +56,8 @@ export function buildUnsettledPaymentsPrintHtml(rows: UnsettledEventRow[]) {
       <tr>
         <td>${fmtDate(ev.lastSettlementGeneratedAt)}</td>
         <td>${esc(p.payerName)}</td>
+        <td>${esc(p.payerEmail || '')}</td>
+        <td>${esc(p.settlementId)}</td>
         <td style="text-align:right">${Number.isFinite(p.amount) ? p.amount.toFixed(2) : ''}</td>
         <td>${esc(p.currency)}</td>
       </tr>
@@ -61,11 +71,13 @@ export function buildUnsettledPaymentsPrintHtml(rows: UnsettledEventRow[]) {
             <tr>
               <th>Date</th>
               <th>Payer Name</th>
+              <th>Payer Email</th>
+              <th>Settlement ID</th>
               <th style="text-align:right">Amount</th>
               <th>Currency</th>
             </tr>
           </thead>
-          <tbody>${tr || '<tr><td colspan="4" class="muted">No pending payments.</td></tr>'}</tbody>
+          <tbody>${tr || '<tr><td colspan="6" class="muted">No pending payments.</td></tr>'}</tbody>
         </table>
       </section>
     `;
@@ -97,7 +109,14 @@ export function buildUnsettledPaymentsPrintHtml(rows: UnsettledEventRow[]) {
         <div class="muted">Export date: ${esc(today)}</div>
       </header>
       ${sections || '<div class="muted">No unsettled payments.</div>'}
+      <script>
+        window.addEventListener('load', function () {
+          setTimeout(function () {
+            try { window.focus(); } catch (e) {}
+            try { window.print(); } catch (e) {}
+          }, 250);
+        });
+      </script>
     </body>
   </html>`;
 }
-

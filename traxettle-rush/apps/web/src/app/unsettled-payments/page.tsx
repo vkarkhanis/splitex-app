@@ -70,6 +70,12 @@ function yyyyMmDd(iso: string | null) {
   return new Date(t).toISOString().slice(0, 10);
 }
 
+function shortId(id: string) {
+  const s = String(id || '');
+  if (s.length <= 10) return s;
+  return `${s.slice(0, 6)}…${s.slice(-4)}`;
+}
+
 export default function UnsettledPaymentsPage() {
   const { push: pushToast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -112,16 +118,16 @@ export default function UnsettledPaymentsPage() {
 
   const exportPdf = () => {
     const html = buildUnsettledPaymentsPrintHtml(rows);
-    const w = window.open('', '_blank', 'noopener,noreferrer');
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const w = window.open(url, '_blank');
     if (!w) {
+      URL.revokeObjectURL(url);
       pushToast({ type: 'error', title: 'Popup blocked', message: 'Please allow popups to export PDF.' });
       return;
     }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    // Give the browser a tick to layout before printing.
-    w.setTimeout(() => w.print(), 250);
+    // Revoke the blob URL after the tab is created.
+    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
   };
 
   return (
@@ -153,6 +159,14 @@ export default function UnsettledPaymentsPage() {
               <EventList>
                 {rows.map((ev) => {
                   const open = openEventId === ev.eventId;
+                  const totals = ev.pending.reduce<Record<string, number>>((acc, p) => {
+                    const k = String(p.currency || '').toUpperCase() || '—';
+                    acc[k] = (acc[k] || 0) + (Number.isFinite(p.amount) ? p.amount : 0);
+                    return acc;
+                  }, {});
+                  const totalText = Object.entries(totals)
+                    .map(([cur, amt]) => `${amt.toFixed(2)} ${cur}`)
+                    .join(' + ');
                   return (
                     <Card key={ev.eventId}>
                       <CardBody>
@@ -164,7 +178,9 @@ export default function UnsettledPaymentsPage() {
                           <div>
                             <div style={{ fontWeight: 800, fontSize: 14 }}>{ev.eventName}</div>
                             <EventMeta>
-                              Settlement date: {yyyyMmDd(ev.lastSettlementGeneratedAt) || '—'} · Pending: {ev.pending.length}
+                              Settlement date: {yyyyMmDd(ev.lastSettlementGeneratedAt) || '—'}
+                              {ev.eventStatus ? ` · Status: ${ev.eventStatus}` : ''}
+                              {totalText ? ` · Total: ${totalText}` : ` · Pending: ${ev.pending.length}`}
                             </EventMeta>
                           </div>
                           <div style={{ fontSize: 12, opacity: 0.75 }}>{open ? 'Hide' : 'View'}</div>
@@ -175,7 +191,8 @@ export default function UnsettledPaymentsPage() {
                             <thead>
                               <tr>
                                 <th style={{ width: 120 }}>Date</th>
-                                <th>Payer Name</th>
+                                <th>Payer</th>
+                                <th style={{ width: 170 }}>Details</th>
                                 <th style={{ width: 140 }}>Amount</th>
                                 <th style={{ width: 90 }}>Currency</th>
                               </tr>
@@ -184,7 +201,13 @@ export default function UnsettledPaymentsPage() {
                               {ev.pending.map((p) => (
                                 <tr key={p.settlementId}>
                                   <td>{yyyyMmDd(ev.lastSettlementGeneratedAt) || '—'}</td>
-                                  <td>{p.payerName}</td>
+                                  <td>
+                                    <div style={{ fontWeight: 700 }}>{p.payerName}</div>
+                                    {p.payerEmail ? <div style={{ fontSize: 12, opacity: 0.75 }}>{p.payerEmail}</div> : null}
+                                  </td>
+                                  <td>
+                                    <div style={{ fontSize: 12, opacity: 0.85 }}>Settlement ID: {shortId(p.settlementId)}</div>
+                                  </td>
                                   <td className="num">{Number.isFinite(p.amount) ? p.amount.toFixed(2) : ''}</td>
                                   <td>{p.currency}</td>
                                 </tr>

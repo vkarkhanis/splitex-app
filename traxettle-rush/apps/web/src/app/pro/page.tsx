@@ -3,12 +3,13 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import styled from 'styled-components';
-import { Button, Card, CardBody, CardHeader, CardSubtitle, CardTitle, useToast } from '@traxettle/ui';
-import { getMobileSubscribeLinks, openMobileAppOrStore } from '../../utils/mobile-subscribe';
+import { Badge, Button, Card, CardBody, CardHeader, CardSubtitle, CardTitle } from '@traxettle/ui';
+import { getMobileSubscribeLinks } from '../../utils/mobile-subscribe';
 
 const Page = styled.div`
   width: 100%;
-  max-width: 720px;
+  max-width: 920px;
+  animation: fadeIn 0.3s ease;
 `;
 
 const Actions = styled.div`
@@ -26,7 +27,7 @@ const Note = styled.div`
 `;
 
 const Callout = styled.div`
-  margin-top: 14px;
+  margin-top: 12px;
   border: 1px solid ${(p) => p.theme.colors.border};
   background: ${(p) => p.theme.colors.surfaceHover};
   border-radius: 10px;
@@ -35,52 +36,99 @@ const Callout = styled.div`
   line-height: 1.6;
 `;
 
+const Grid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 14px;
+`;
+
+const Col = styled.div<{ $span?: number }>`
+  grid-column: span ${(p) => p.$span || 12};
+  @media (max-width: 920px) {
+    grid-column: span 12;
+  }
+`;
+
+const List = styled.ul`
+  margin: 0;
+  padding-left: 18px;
+  color: ${(p) => p.theme.colors.textSecondary};
+  font-size: 13px;
+  line-height: 1.65;
+`;
+
 export default function ProPage() {
   const router = useRouter();
-  const { push: pushToast } = useToast();
   const { playStoreUrl, appStoreUrl } = getMobileSubscribeLinks();
 
   return (
     <Page data-testid="pro-page">
-      <Card>
-        <CardHeader>
-          <CardTitle>Upgrade to Pro</CardTitle>
-          <CardSubtitle>Subscriptions are purchased in the mobile app.</CardSubtitle>
-        </CardHeader>
-        <CardBody>
-          <Callout>
-            Traxettle Pro is purchased via Google Play / App Store. This keeps billing secure, avoids duplicate subscriptions,
-            and makes restorations work reliably across devices.
-          </Callout>
+      <Grid>
+        <Col $span={7}>
+          <Card>
+            <CardHeader>
+              <CardTitle>Pro</CardTitle>
+              <CardSubtitle>Learn how to get Pro (purchased in the mobile app).</CardSubtitle>
+            </CardHeader>
+            <CardBody>
+              <Callout>
+                Pro is purchased via Google Play / App Store. This keeps billing secure, avoids duplicate subscriptions, and makes restorations work across devices.
+              </Callout>
 
-          <Actions>
-            <Button
-              type="button"
-              $variant="primary"
-              onClick={() => {
-                pushToast({ type: 'info', title: 'Opening mobile app…', message: 'If the app is not installed, we will open the store.' });
-                openMobileAppOrStore({ path: 'pro' });
-              }}
-            >
-              Open Mobile App
-            </Button>
-            <Button type="button" $variant="outline" onClick={() => window.open(playStoreUrl, '_blank', 'noopener,noreferrer')}>
-              Google Play
-            </Button>
-            <Button type="button" $variant="outline" onClick={() => window.open(appStoreUrl, '_blank', 'noopener,noreferrer')}>
-              App Store
-            </Button>
-            <Button type="button" $variant="outline" onClick={() => router.back()}>
-              Back
-            </Button>
-          </Actions>
+              <div style={{ height: 14 }} />
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Badge $variant="warning">Multi-currency settlement</Badge>
+                <Badge $variant="warning">Advanced analytics</Badge>
+                <Badge $variant="warning">More power-user features</Badge>
+              </div>
 
-          <Note>
-            If you don’t have the app installed: the store link will open. If you already have the app installed: “Open Mobile App”
-            should switch you to Traxettle and take you to the Pro screen (best-effort, depends on browser).
-          </Note>
-        </CardBody>
-      </Card>
+              <div style={{ height: 14 }} />
+              <List>
+                <li>Install the Traxettle mobile app</li>
+                <li>Sign in with the <strong>same account</strong> you use on web</li>
+                <li>Open <strong>Upgrade to Pro</strong> in the mobile app and subscribe</li>
+                <li>Come back to the web app (your plan updates automatically)</li>
+              </List>
+
+              <Actions>
+                <Button type="button" $variant="primary" onClick={() => window.open(playStoreUrl, '_blank', 'noopener,noreferrer')}>
+                  Open Google Play
+                </Button>
+                <Button type="button" $variant="outline" onClick={() => window.open(appStoreUrl, '_blank', 'noopener,noreferrer')}>
+                  Open App Store
+                </Button>
+                <Button type="button" $variant="outline" onClick={() => router.back()}>
+                  Back
+                </Button>
+              </Actions>
+
+              <Note>
+                If you already have the app installed, open it and go to the Pro screen to subscribe.
+              </Note>
+            </CardBody>
+          </Card>
+        </Col>
+
+        <Col $span={5}>
+          <Card>
+            <CardHeader>
+              <CardTitle>Good to know</CardTitle>
+              <CardSubtitle>How web and mobile stay in sync.</CardSubtitle>
+            </CardHeader>
+            <CardBody>
+              <List>
+                <li>Pro status is linked to your Traxettle account</li>
+                <li>After subscribing, refresh the web page if needed</li>
+                <li>If you used a different login method on mobile, Pro won’t match — use the same account</li>
+              </List>
+              <div style={{ height: 12 }} />
+              <Button type="button" $variant="outline" onClick={() => router.push('/help')}>
+                Help & Features
+              </Button>
+            </CardBody>
+          </Card>
+        </Col>
+      </Grid>
     </Page>
   );
 }

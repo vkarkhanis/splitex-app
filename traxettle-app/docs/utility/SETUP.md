@@ -158,23 +158,19 @@ For each project, generate a service account key:
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can read/write their own documents
-    match /users/{userId} {
+    // Traxettle clients (web/mobile) should NOT talk to Firestore directly.
+    // The Traxettle API uses the Firebase Admin SDK and is NOT restricted by rules.
+    //
+    // Lock down client access to prevent accidental data exposure.
+
+    // Allow a signed-in user to read/write only their own user document subtree.
+    match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
-    
-    // Event participants can read events they're part of
-    match /events/{eventId} {
-      allow read: if request.auth != null && 
-        resource.data.participants.any(p => p.userId == request.auth.uid);
-      allow write: if request.auth != null && 
-        resource.data.participants.any(p => p.userId == request.auth.uid && p.role == 'admin');
-    }
-    
-    // Expense rules (similar to events)
-    match /events/{eventId}/expenses/{expenseId} {
-      allow read: if request.auth != null && 
-        resource.data.participants.any(p => p.userId == request.auth.uid);
+
+    // Everything else is blocked from client access by default.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

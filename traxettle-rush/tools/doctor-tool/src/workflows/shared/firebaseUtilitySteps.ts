@@ -1,26 +1,39 @@
 import type { Platform, WorkflowStep } from '@/types';
 
-const FIRESTORE_RULES_AUTH_ONLY = `rules_version = '2';
+const FIRESTORE_RULES_LOCKED_DOWN = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can only read/write their own data
-    match /users/{userId} {
+    // Traxettle clients (web/mobile) should NOT talk to Firestore directly.
+    // The Traxettle API uses the Firebase Admin SDK and is NOT restricted by rules.
+    //
+    // This ruleset is intentionally strict to prevent data leakage if someone
+    // extracts the public Firebase config from the web app.
+
+    // Allow a signed-in user to read/write only their own user document subtree.
+    match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Minimal baseline: authenticated users only
+    // Everything else is blocked from client access.
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }`;
 
-const STORAGE_RULES_USER_ONLY = `rules_version = '2';
+const STORAGE_RULES_LOCKED_DOWN = `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Users can only access their own files
+    // Same philosophy as Firestore: prefer API-controlled access.
+
+    // If you ever allow direct client uploads/downloads, confine them to /users/<uid>/...
     match /users/{userId}/{allPaths=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Everything else is blocked from client access.
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }`;
@@ -255,8 +268,8 @@ export function firebaseUtilitySteps(platform: Platform): WorkflowStep[] {
         'Note: If your product needs different rules, update them with your developer later.',
       ],
       snippets: [
-        { label: 'Firestore rules (auth-only baseline)', text: FIRESTORE_RULES_AUTH_ONLY },
-        { label: 'Storage rules (user-only baseline)', text: STORAGE_RULES_USER_ONLY },
+        { label: 'Firestore rules (locked down baseline)', text: FIRESTORE_RULES_LOCKED_DOWN },
+        { label: 'Storage rules (locked down baseline)', text: STORAGE_RULES_LOCKED_DOWN },
       ],
       expected: ['Firestore rules and Storage rules are published (no errors).'],
     },
@@ -280,6 +293,39 @@ export function firebaseUtilitySteps(platform: Platform): WorkflowStep[] {
         '   - bash scripts/api-deployment/configure-prod.sh',
       ],
       expected: ['You have JSON key files saved locally for staging and production.'],
+    },
+    {
+      id: 'u-firebase-values-for-configure-scripts',
+      platform,
+      environment: 'utility',
+      section: 'Firebase',
+      title: 'Find the exact values needed by the configure scripts',
+      whyThisMatters:
+        'The guided configure scripts ask for specific IDs and emails. This step tells you exactly where to copy them from (no guessing).',
+      kind: 'action',
+      skippable: false,
+      instructions: [
+        'When `configure-staging.sh` / `configure-prod.sh` asks for these values:',
+        '',
+        'A) GCP project id / Firebase project id',
+        '   - Firebase Console → Project Settings → General → Project ID',
+        '   - Google Cloud Console → Project picker → Project ID',
+        '   - For a Firebase project, these are normally the SAME value.',
+        '',
+        'B) Firebase storage bucket',
+        '   - Firebase Console → Project Settings → General → Storage bucket',
+        '   - It often looks like: <project-id>.firebasestorage.app',
+        '',
+        'C) Firebase service-account client_email (and client_id if needed)',
+        '   - Open the JSON file you downloaded in the previous step',
+        '   - Copy the value from the JSON key: `client_email`',
+        '   - If someone asks for “client id”, copy JSON key: `client_id`',
+        '',
+        'D) Firebase private key file path',
+        '   - Use the absolute path to that downloaded JSON file',
+        '   - Example: /Users/<you>/Downloads/<project>-firebase-adminsdk-xxxxx.json',
+      ],
+      expected: ['You can answer every prompt in the configure scripts without searching.'],
     },
   ];
 }

@@ -1,5 +1,5 @@
 import { Event, CreateEventDto, UpdateEventDto, EventParticipant, ApiResponse } from '@traxettle/shared';
-import { db } from '../config/firebase';
+import { auth, db } from '../config/firebase';
 
 export class EventService {
   private collection = 'events';
@@ -304,6 +304,17 @@ export class EventService {
             const userData = userDoc.data();
             p.displayName = userData?.displayName || userData?.email || p.userId;
             p.email = userData?.email;
+            return p;
+          }
+          // If user doc doesn't exist yet, try Firebase Auth lookup (best-effort)
+          try {
+            const firebaseUser = await auth.getUser(p.userId);
+            const email = firebaseUser.email || undefined;
+            const name = firebaseUser.displayName || undefined;
+            p.displayName = name || email || p.userId;
+            p.email = email;
+          } catch {
+            // ignore
           }
         } catch {
           // If user lookup fails, keep userId as fallback

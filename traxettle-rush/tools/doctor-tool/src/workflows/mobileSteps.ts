@@ -3,6 +3,7 @@ import { firebaseUtilitySteps } from '@/workflows/shared/firebaseUtilitySteps';
 import { revenueCatUtilitySteps } from '@/workflows/shared/revenuecatUtilitySteps';
 import { cloudUtilitySteps } from '@/workflows/shared/cloudUtilitySteps';
 import { storeUtilitySteps } from '@/workflows/shared/storeUtilitySteps';
+import { securityUtilitySteps } from '@/workflows/shared/securityUtilitySteps';
 
 /**
  * Mobile workflow goals:
@@ -151,6 +152,7 @@ export const mobileSteps: WorkflowStep[] = [
   // UTILITIES
   // ────────────────────────────────────────────────────────────────────────────
   ...firebaseUtilitySteps('mobile'),
+  ...securityUtilitySteps('mobile'),
   ...revenueCatUtilitySteps('mobile'),
   ...cloudUtilitySteps('mobile'),
   ...storeUtilitySteps('mobile'),

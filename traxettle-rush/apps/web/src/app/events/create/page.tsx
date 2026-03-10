@@ -339,11 +339,8 @@ export default function CreateEventPage() {
                   <>
                     <ErrorText>Multi-currency settlement requires Pro.</ErrorText>
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                      <Button type="button" $variant="primary" onClick={() => router.push('/pro')}>
-                        Subscribe on Mobile
-                      </Button>
                       <Button type="button" $variant="outline" onClick={() => router.push('/pro')}>
-                        Learn More
+                        Learn how to get Pro
                       </Button>
                     </div>
                   </>

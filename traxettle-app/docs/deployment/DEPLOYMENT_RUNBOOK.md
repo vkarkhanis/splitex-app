@@ -182,6 +182,9 @@ Firestore rules:
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
     match /{document=**} {
       allow read, write: if false;
     }
@@ -195,6 +198,9 @@ Storage rules:
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    match /users/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
     match /{allPaths=**} {
       allow read, write: if false;
     }

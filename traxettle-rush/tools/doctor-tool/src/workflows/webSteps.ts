@@ -2,6 +2,7 @@ import type { WorkflowStep } from '@/types';
 import { firebaseUtilitySteps } from '@/workflows/shared/firebaseUtilitySteps';
 import { revenueCatUtilitySteps } from '@/workflows/shared/revenuecatUtilitySteps';
 import { cloudUtilitySteps } from '@/workflows/shared/cloudUtilitySteps';
+import { securityUtilitySteps } from '@/workflows/shared/securityUtilitySteps';
 
 /**
  * Web workflow goals:
@@ -121,6 +122,7 @@ export const webSteps: WorkflowStep[] = [
     expected: ['Java prints a version (21+ recommended).', 'firebase prints a version.', 'firebase login succeeds.'],
   },
   ...firebaseUtilitySteps('web'),
+  ...securityUtilitySteps('web'),
   ...revenueCatUtilitySteps('web'),
   ...cloudUtilitySteps('web'),
 
@@ -170,6 +172,24 @@ export const webSteps: WorkflowStep[] = [
   // STAGING
   // ────────────────────────────────────────────────────────────────────────────
   {
+    id: 'w-staging-configure',
+    platform: 'web',
+    environment: 'staging',
+    section: 'Configure',
+    title: 'Create staging config (one-time, recommended)',
+    whyThisMatters:
+      'Staging deploy scripts can load your saved values from .traxettle/api-staging.env so you don’t have to edit scripts or remember secrets.',
+    kind: 'action',
+    skippable: true,
+    instructions: [
+      'Run the guided script below once.',
+      'It will ask you for: GCP project id, Firebase project id, service-account email + key file path, JWT secrets, RevenueCat webhook secret.',
+      'Tip: Utilities → Firebase has a step called “Find the exact values needed by the configure scripts”.',
+    ],
+    scripts: [{ label: 'Configure staging API', command: 'bash scripts/api-deployment/configure-staging.sh' }],
+    expected: ['.traxettle/api-staging.env exists (gitignored).'],
+  },
+  {
     id: 'w-staging-deploy-api',
     platform: 'web',
     environment: 'staging',
@@ -180,10 +200,15 @@ export const webSteps: WorkflowStep[] = [
     skippable: true,
     instructions: [
       'Make sure you completed Utilities → Cloud (gcloud + firebase login).',
-      'Then run the deploy script. It will ask you for anything missing.',
+      'Then run ONE deploy script:',
+      '- Without SMTP (simpler): deploy-staging.sh',
+      '- With Gmail SMTP: deploy-staging-gmail.sh (requires smtp_staging.local.properties; created by configure-staging.sh if you choose Gmail)',
       'If you are not authorized for the staging project, this step will fail (ask your admin).',
     ],
-    scripts: [{ label: 'Deploy staging API', command: 'bash scripts/api-deployment/deploy-staging-gmail.sh' }],
+    scripts: [
+      { label: 'Deploy staging API (no SMTP)', command: 'bash scripts/api-deployment/deploy-staging.sh' },
+      { label: 'Deploy staging API (Gmail SMTP)', command: 'bash scripts/api-deployment/deploy-staging-gmail.sh' },
+    ],
     expected: ['A Cloud Run URL is printed.', 'Health endpoint returns OK.'],
   },
   {

@@ -39,6 +39,26 @@ async function getUserEmail(userId: string): Promise<string | undefined> {
   return undefined;
 }
 
+async function isEmailOptedOut(email: string): Promise<boolean> {
+  const raw = (email || '').trim();
+  const e = raw.toLowerCase();
+  if (!raw) return false;
+  try {
+    const tryEmails = raw === e ? [raw] : [raw, e];
+    for (const candidate of tryEmails) {
+      const snap = await db.collection('users').where('email', '==', candidate).limit(1).get();
+      if (snap.empty) continue;
+      const data = snap.docs[0].data() as any;
+      const prefs = data?.preferences;
+      return prefs?.notifications === false;
+    }
+    return false;
+  } catch {
+    // If we can't determine preference, default to sending
+    return false;
+  }
+}
+
 /**
  * Send notification emails to all participants of an event (excluding the actor).
  * This is fire-and-forget — it does not block the API response.
@@ -110,19 +130,23 @@ export async function notifyEventParticipants(
       const deduped = Array.from(new Set(inviteeEmails.map((e) => e.toLowerCase()))).map((e) => inviteeEmails.find((x) => x.toLowerCase() === e)!).filter(Boolean);
 
       if (deduped.length > 0) {
-        // Fire-and-forget external notifications (no preference doc exists yet).
-        Promise.allSettled(
-          deduped.map((email) =>
-            emailService.sendNotificationEmail({
+        // Fire-and-forget external notifications.
+        // If the email belongs to a registered user who has disabled notifications,
+        // respect their preference and skip.
+        await Promise.allSettled(
+          deduped.map(async (email) => {
+            const optedOut = await isEmailOptedOut(email);
+            if (optedOut) return;
+            await emailService.sendNotificationEmail({
               recipientEmail: email,
               eventName: event.name,
               eventId,
               actorName,
               type,
               details,
-            }),
-          ),
-        ).catch(() => { /* ignore */ });
+            });
+          }),
+        );
       }
     }
   } catch (err) {

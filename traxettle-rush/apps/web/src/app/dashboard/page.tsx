@@ -125,20 +125,24 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [unsettledSummary, setUnsettledSummary] = useState<{ pendingCount: number; eventCount: number } | null>(null);
+  const [mode, setMode] = useState<'latest' | 'active'>('latest');
 
-  const fetchEvents = useCallback(async () => {
+  const fetchEvents = useCallback(async (nextMode: 'latest' | 'active' = mode) => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get<TraxettleEvent[]>('/api/events');
-      // Hide closed events from the dashboard
-      setEvents((res.data || []).filter(e => e.status !== 'closed'));
+      const url = nextMode === 'active'
+        ? '/api/events?filter=active'
+        : '/api/events?filter=active&limit=5';
+      const res = await api.get<TraxettleEvent[]>(url);
+      setEvents(res.data || []);
+      setMode(nextMode);
     } catch (err: any) {
       setError(err.message || 'Failed to load events');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     fetchEvents();
@@ -181,15 +185,32 @@ export default function DashboardPage() {
     }
   }, []));
 
+  const emailHistory = async () => {
+    try {
+      await api.post('/api/events/history-email', {});
+      pushToast({ type: 'success', title: 'Email sent', message: 'Your closed event history has been emailed to you.' });
+    } catch (err: any) {
+      pushToast({ type: 'error', title: 'Email failed', message: err.message || 'Unable to email event history.' });
+    }
+  };
+
   return (
     <Page data-testid="dashboard-page">
       <TopBar>
         <PageTitle>My Events</PageTitle>
-        <Link href="/events/create">
-          <Button $variant="primary" data-testid="create-event-btn">
-            + New Event
-          </Button>
-        </Link>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {mode !== 'active' ? (
+            <Button type="button" $variant="outline" onClick={() => fetchEvents('active')}>See all active events</Button>
+          ) : (
+            <Button type="button" $variant="outline" onClick={() => fetchEvents('latest')}>Back to latest 5</Button>
+          )}
+          <Button type="button" $variant="outline" onClick={emailHistory}>View history (email me)</Button>
+          <Link href="/events/create">
+            <Button $variant="primary" data-testid="create-event-btn">
+              + New Event
+            </Button>
+          </Link>
+        </div>
       </TopBar>
 
       {!!unsettledSummary?.pendingCount && unsettledSummary.pendingCount > 0 && (
@@ -229,7 +250,7 @@ export default function DashboardPage() {
         <>
           <ErrorText>{error}</ErrorText>
           <div style={{ textAlign: 'center' }}>
-            <Button $variant="outline" onClick={fetchEvents}>Retry</Button>
+            <Button $variant="outline" onClick={() => fetchEvents()}>Retry</Button>
           </div>
         </>
       ) : events.length === 0 ? (

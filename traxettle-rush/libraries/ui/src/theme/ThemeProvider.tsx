@@ -30,6 +30,26 @@ export function useTraxettleTheme(): ThemeContextValue {
 const GlobalStyle = createGlobalStyle<{ $t: TraxettleTheme }>`
   :root {
     color-scheme: ${(p) => (p.$t.name === 'light' ? 'light' : 'dark')};
+    --color-primary: ${(p) => p.$t.colors.primary};
+    --color-primary-hover: ${(p) => p.$t.colors.primaryHover};
+    --color-secondary: ${(p) => p.$t.colors.secondary};
+    --color-background: ${(p) => p.$t.colors.background};
+    --color-surface: ${(p) => p.$t.colors.surface};
+    --color-surface-hover: ${(p) => p.$t.colors.surfaceHover};
+    --color-text: ${(p) => p.$t.colors.text};
+    --color-text-secondary: ${(p) => p.$t.colors.textSecondary};
+    --color-border: ${(p) => p.$t.colors.border};
+    --color-border-hover: ${(p) => p.$t.colors.borderHover};
+    --color-muted: ${(p) => p.$t.colors.muted};
+    --color-accent: ${(p) => p.$t.colors.accent};
+    --color-error: ${(p) => p.$t.colors.error};
+    --color-error-bg: ${(p) => p.$t.colors.errorBg};
+    --color-success: ${(p) => p.$t.colors.success};
+    --color-success-bg: ${(p) => p.$t.colors.successBg};
+    --color-warning: ${(p) => p.$t.colors.warning};
+    --color-warning-bg: ${(p) => p.$t.colors.warningBg};
+    --color-info: ${(p) => p.$t.colors.info};
+    --color-info-bg: ${(p) => p.$t.colors.infoBg};
   }
 
   html {
@@ -113,7 +133,14 @@ export function TraxettleThemeProvider(props: { children: React.ReactNode; defau
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('traxettle.theme', themeName);
-      document.cookie = `traxettle.theme=${encodeURIComponent(themeName)}; path=/; max-age=31536000; samesite=lax`;
+      const parts = [
+        `traxettle.theme=${encodeURIComponent(themeName)}`,
+        'Path=/',
+        'Max-Age=31536000',
+        'SameSite=Lax',
+      ];
+      if (window.location?.protocol === 'https:') parts.push('Secure');
+      document.cookie = parts.join('; ');
     }
   }, [themeName]);
 

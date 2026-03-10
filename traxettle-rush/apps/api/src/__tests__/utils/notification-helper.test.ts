@@ -4,6 +4,7 @@ const getParticipantsMock = jest.fn();
 const sendBulkNotificationsMock = jest.fn();
 const sendNotificationEmailMock = jest.fn();
 const invitationsGetMock = jest.fn();
+const usersWhereGetMock = jest.fn();
 
 jest.mock('../../config/firebase', () => ({
   db: {
@@ -12,6 +13,11 @@ jest.mock('../../config/firebase', () => ({
         return {
           doc: (id: string) => ({
             get: () => getDocMock(id),
+          }),
+          where: () => ({
+            limit: () => ({
+              get: () => usersWhereGetMock(),
+            }),
           }),
         };
       }
@@ -53,6 +59,7 @@ describe('notification-helper', () => {
     sendBulkNotificationsMock.mockReset();
     sendNotificationEmailMock.mockReset();
     invitationsGetMock.mockReset();
+    usersWhereGetMock.mockReset();
   });
 
   it('getUserDisplayName prefers displayName then email then userId', async () => {
@@ -82,6 +89,7 @@ describe('notification-helper', () => {
       .mockResolvedValueOnce({ exists: true, data: () => ({ displayName: 'Actor' }) })
       .mockResolvedValueOnce({ exists: true, data: () => ({ email: 'actor@test.com' }) });
     invitationsGetMock.mockResolvedValueOnce({ empty: true, docs: [] });
+    usersWhereGetMock.mockResolvedValueOnce({ empty: true, docs: [] });
 
     await notifyEventParticipants('e1', 'actor-id', 'event_updated', { Name: 'Trip' });
 
@@ -132,6 +140,7 @@ describe('notification-helper', () => {
         { data: () => ({ inviteeEmail: 'ACTOR@test.com', expiresAt: new Date(Date.now() + 60_000).toISOString() }) }, // actor
       ],
     });
+    usersWhereGetMock.mockResolvedValueOnce({ empty: true, docs: [] });
 
     await notifyEventParticipants('e1', 'actor-id', 'event_updated', { Name: 'Trip' });
 
@@ -146,5 +155,31 @@ describe('notification-helper', () => {
         type: 'event_updated',
       }),
     );
+  });
+
+  it('notifyEventParticipants skips pending invitee emails when the user opted out of notifications', async () => {
+    getEventMock.mockResolvedValueOnce({ id: 'e1', name: 'Trip' });
+    getParticipantsMock.mockResolvedValueOnce([{ userId: 'u1', email: 'u1@test.com' }]);
+    getDocMock
+      .mockResolvedValueOnce({ exists: true, data: () => ({ displayName: 'Actor' }) })
+      .mockResolvedValueOnce({ exists: true, data: () => ({ email: 'actor@test.com' }) });
+
+    invitationsGetMock.mockResolvedValueOnce({
+      empty: false,
+      docs: [
+        { data: () => ({ inviteeEmail: 'optout@test.com', expiresAt: new Date(Date.now() + 60_000).toISOString() }) },
+      ],
+    });
+
+    // user lookup finds a matching user doc with notifications disabled
+    usersWhereGetMock.mockResolvedValueOnce({
+      empty: false,
+      docs: [{ data: () => ({ preferences: { notifications: false } }) }],
+    });
+
+    await notifyEventParticipants('e1', 'actor-id', 'event_updated', { Name: 'Trip' });
+
+    expect(sendBulkNotificationsMock).toHaveBeenCalledTimes(1);
+    expect(sendNotificationEmailMock).not.toHaveBeenCalled();
   });
 });

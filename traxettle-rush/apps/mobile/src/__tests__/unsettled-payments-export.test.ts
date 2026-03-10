@@ -18,11 +18,11 @@ function buildCsvContent(rows: any[]) {
   const lines: string[] = [];
   for (const ev of rows) {
     lines.push(csvEscape(`Event: ${ev.eventName}`));
-    lines.push(['Date', 'Payer Name', 'Amount', 'Currency'].map(csvEscape).join(','));
+    lines.push(['Date', 'Payer Name', 'Payer Email', 'Settlement ID', 'Amount', 'Currency'].map(csvEscape).join(','));
     const date = yyyyMmDd(ev.lastSettlementGeneratedAt);
     for (const p of ev.pending) {
       lines.push(
-        [date, p.payerName, Number(p.amount).toFixed(2), p.currency].map((c) => csvEscape(String(c))).join(','),
+        [date, p.payerName, p.payerEmail || '', p.settlementId || '', Number(p.amount).toFixed(2), p.currency].map((c) => csvEscape(String(c))).join(','),
       );
     }
     lines.push('');
@@ -41,8 +41,7 @@ describe('Unsettled Payments export', () => {
     ]);
 
     expect(csv).toContain('Event: Goa Trip');
-    expect(csv).toContain('Date,Payer Name,Amount,Currency');
-    expect(csv).toContain('2026-03-08,Bob,100.00,INR');
+    expect(csv).toContain('Date,Payer Name,Payer Email,Settlement ID,Amount,Currency');
+    expect(csv).toContain('2026-03-08,Bob,,,100.00,INR');
   });
 });
-

@@ -27,6 +27,21 @@ export class SettlementService {
     return userId;
   }
 
+  private async resolveUserSummary(userId: string): Promise<{ label: string; email?: string }> {
+    try {
+      const snap = await db.collection('users').doc(userId).get();
+      if (snap.exists) {
+        const data = snap.data() || {};
+        const email = typeof (data as any).email === 'string' ? (data as any).email : undefined;
+        const label = (data as any).displayName || email || userId;
+        return { label, email };
+      }
+    } catch {
+      // ignore
+    }
+    return { label: userId };
+  }
+
   /**
    * "Unsettled payments" for a payee are settlement legs where the payer has not
    * initiated payment yet (status === 'pending').
@@ -35,20 +50,56 @@ export class SettlementService {
     eventId: string;
     eventName: string;
     lastSettlementGeneratedAt: string | null;
+    eventStatus?: string;
+    eventType?: string;
+    eventCurrency?: string;
+    eventStartDate?: string | null;
+    eventEndDate?: string | null;
     pending: Array<{
       settlementId: string;
       payerUserId: string;
       payerName: string;
+      payerEmail?: string;
       amount: number;
       currency: string;
     }>;
   }>> {
-    const snap = await db.collection(this.collection).where('toUserId', '==', payeeUserId).get();
-    if (snap.empty) return [];
+    const settlementDocs: Array<{ id: string; data: any }> = [];
 
-    const pendingSettlements = snap.docs
-      .map((d) => ({ id: d.id, ...(d.data() as any) }))
-      .filter((s) => s && s.status === 'pending');
+    // 1) Direct payee legs (toUserId === uid)
+    const snap = await db.collection(this.collection).where('toUserId', '==', payeeUserId).get();
+    if (!snap.empty) {
+      for (const d of snap.docs) settlementDocs.push({ id: d.id, data: d.data() });
+    }
+
+    // 2) Group payee legs (toEntityId is a group where user is representative)
+    // This supports older data where group payee legs accidentally stored toUserId=payerUserId.
+    try {
+      const groupSnap = await db.collection('groups').where('representative', '==', payeeUserId).get();
+      const groupIds = groupSnap.docs.map((d) => d.id).filter(Boolean);
+      for (let i = 0; i < groupIds.length; i += 30) {
+        const chunk = groupIds.slice(i, i + 30);
+        if (chunk.length === 0) continue;
+        const s = await db.collection(this.collection).where('toEntityId', 'in', chunk).get();
+        for (const d of s.docs) settlementDocs.push({ id: d.id, data: d.data() });
+      }
+    } catch {
+      // best-effort
+    }
+
+    if (settlementDocs.length === 0) return [];
+
+    const dedup = new Map<string, any>();
+    for (const { id, data } of settlementDocs) {
+      if (!dedup.has(id)) dedup.set(id, { id, ...(data as any) });
+    }
+
+    const pendingSettlements = Array.from(dedup.values())
+      .filter((s) => s && s.status === 'pending')
+      .filter((s) => {
+        if (String(s.toUserId || '') === payeeUserId) return true;
+        return String(s.toEntityType || '') === 'group';
+      });
 
     if (pendingSettlements.length === 0) return [];
 
@@ -69,8 +120,8 @@ export class SettlementService {
     const eventMap = new Map(eventDocs.map((e) => [e.eventId, e.data]));
 
     const payerIds = Array.from(new Set(pendingSettlements.map((s) => String(s.fromUserId || '')).filter(Boolean)));
-    const payerLabels = await Promise.all(payerIds.map(async (uid) => ({ uid, label: await this.resolveUserLabel(uid) })));
-    const payerMap = new Map(payerLabels.map((p) => [p.uid, p.label]));
+    const payerSummaries = await Promise.all(payerIds.map(async (uid) => ({ uid, summary: await this.resolveUserSummary(uid) })));
+    const payerMap = new Map(payerSummaries.map((p) => [p.uid, p.summary]));
 
     const rows = eventIds.map((eventId) => {
       const e = eventMap.get(eventId) || {};
@@ -84,13 +135,25 @@ export class SettlementService {
 
       const pending = (byEvent[eventId] || []).map((s) => {
         const payerUserId = String(s.fromUserId || '');
-        const payerName = payerMap.get(payerUserId) || payerUserId || 'Unknown';
+        const payerSummary = payerMap.get(payerUserId);
+        const payerName = payerSummary?.label || payerUserId || 'Unknown';
+        const payerEmail = payerSummary?.email;
         const currency = String(s.settlementCurrency || s.currency || '');
         const amount = typeof s.settlementAmount === 'number' ? s.settlementAmount : Number(s.amount || 0);
-        return { settlementId: s.id, payerUserId, payerName, amount, currency };
+        return { settlementId: s.id, payerUserId, payerName, payerEmail, amount, currency };
       });
 
-      return { eventId, eventName, lastSettlementGeneratedAt: lastGenerated, pending };
+      return {
+        eventId,
+        eventName,
+        lastSettlementGeneratedAt: lastGenerated,
+        eventStatus: typeof e?.status === 'string' ? e.status : undefined,
+        eventType: typeof e?.type === 'string' ? e.type : undefined,
+        eventCurrency: typeof e?.currency === 'string' ? e.currency : undefined,
+        eventStartDate: typeof e?.startDate === 'string' ? e.startDate : null,
+        eventEndDate: typeof e?.endDate === 'string' ? e.endDate : null,
+        pending,
+      };
     });
 
     return rows.sort((a, b) => {
@@ -252,6 +315,17 @@ export class SettlementService {
   }
 
   /**
+   * Resolve the userId that should act as the "payee" for an entity.
+   * For groups, this is the group's representative (fallback to payerUserId).
+   * For individuals, this is the entityId itself.
+   */
+  private resolvePayeeUserId(entityId: string, entityType: 'user' | 'group', groups: Group[]): string {
+    if (entityType === 'user') return entityId;
+    const group = groups.find(g => g.id === entityId);
+    return group?.representative || group?.payerUserId || entityId;
+  }
+
+  /**
    * Greedy settlement algorithm: minimize number of transactions.
    * Positive balance = entity is owed money (creditor).
    * Negative balance = entity owes money (debtor).
@@ -296,7 +370,7 @@ export class SettlementService {
           toEntityId: creditor.entityId,
           toEntityType: creditor.entityType,
           fromUserId: this.resolvePayerUserId(debtor.entityId, debtor.entityType, groups),
-          toUserId: this.resolvePayerUserId(creditor.entityId, creditor.entityType, groups),
+          toUserId: this.resolvePayeeUserId(creditor.entityId, creditor.entityType, groups),
           amount: settlementAmount,
           currency,
           status: 'pending',
@@ -906,12 +980,26 @@ export class SettlementService {
    * Only the toUserId (payee) can approve.
    * When all transactions for the event are completed, auto-mark event as 'settled'.
    */
+  private async canActAsPayee(settlementData: any, userId: string): Promise<boolean> {
+    if (!userId) return false;
+    if (String(settlementData?.toUserId || '') === userId) return true;
+
+    if (String(settlementData?.toEntityType || '') === 'group') {
+      const groupId = String(settlementData?.toEntityId || '');
+      if (!groupId) return false;
+      const group = await this.groupService.getGroup(groupId);
+      return Boolean(group && group.representative === userId);
+    }
+
+    return false;
+  }
+
   async approvePayment(settlementId: string, userId: string): Promise<{ settlement: Settlement; allComplete: boolean }> {
     const doc = await db.collection(this.collection).doc(settlementId).get();
     if (!doc.exists) throw new Error('Settlement not found');
 
     const data = doc.data()!;
-    if (data.toUserId !== userId) {
+    if (!await this.canActAsPayee(data, userId)) {
       throw new Error('Forbidden: Only the payee can approve payment');
     }
     if (data.status !== 'initiated') {
@@ -926,6 +1014,9 @@ export class SettlementService {
       statusTo: 'completed',
     });
     const nextAuditTrail = this.appendAuditTrail(data.auditTrail, confirmAudit);
+    const payeeFix = String(data.toEntityType || '') === 'group' && String(data.toUserId || '') !== userId
+      ? { toUserId: userId }
+      : {};
     await db.collection(this.collection).doc(settlementId).set(
       {
         status: 'completed',
@@ -934,6 +1025,7 @@ export class SettlementService {
         rejectionReason: null,
         rejectedAt: null,
         auditTrail: nextAuditTrail,
+        ...payeeFix,
       },
       { merge: true }
     );
@@ -974,7 +1066,7 @@ export class SettlementService {
     if (!doc.exists) throw new Error('Settlement not found');
 
     const data = doc.data()!;
-    if (data.toUserId !== userId) {
+    if (!await this.canActAsPayee(data, userId)) {
       throw new Error('Forbidden: Only the payee can reject payment');
     }
     if (data.status !== 'initiated') {
@@ -991,6 +1083,9 @@ export class SettlementService {
       statusTo: 'pending',
     });
     const nextAuditTrail = this.appendAuditTrail(data.auditTrail, rejectAudit);
+    const payeeFix = String(data.toEntityType || '') === 'group' && String(data.toUserId || '') !== userId
+      ? { toUserId: userId }
+      : {};
     await db.collection(this.collection).doc(settlementId).set(
       {
         status: 'pending',
@@ -998,6 +1093,7 @@ export class SettlementService {
         rejectionReason,
         rejectedAt: now,
         auditTrail: nextAuditTrail,
+        ...payeeFix,
       },
       { merge: true }
     );
@@ -1022,7 +1118,7 @@ export class SettlementService {
     if (!doc.exists) throw new Error('Settlement not found');
 
     const data = doc.data()!;
-    if (data.toUserId !== userId) {
+    if (!await this.canActAsPayee(data, userId)) {
       throw new Error('Forbidden: Only the payee can mark this as paid');
     }
     if (data.status === 'completed') {
@@ -1038,6 +1134,9 @@ export class SettlementService {
       statusTo: 'completed',
     });
     const nextAuditTrail = this.appendAuditTrail(data.auditTrail, confirmAudit);
+    const payeeFix = String(data.toEntityType || '') === 'group' && String(data.toUserId || '') !== userId
+      ? { toUserId: userId }
+      : {};
     await db.collection(this.collection).doc(settlementId).set(
       {
         status: 'completed',
@@ -1047,6 +1146,7 @@ export class SettlementService {
         rejectedAt: null,
         failureReason: null,
         auditTrail: nextAuditTrail,
+        ...payeeFix,
       },
       { merge: true }
     );
@@ -1085,11 +1185,25 @@ export class SettlementService {
 
     if (snap.empty) return [];
 
+    const groupRepCache = new Map<string, string>();
+    const resolvePayeeUserIdForData = async (data: any): Promise<string> => {
+      const direct = String(data?.toUserId || '');
+      if (String(data?.toEntityType || '') !== 'group') return direct;
+      const groupId = String(data?.toEntityId || '');
+      if (!groupId) return direct;
+      if (groupRepCache.has(groupId)) return groupRepCache.get(groupId)!;
+      const group = await this.groupService.getGroup(groupId);
+      const rep = group?.representative || direct;
+      groupRepCache.set(groupId, rep);
+      return rep;
+    };
+
     const settlements = await Promise.all(snap.docs.map(async (doc) => {
       const data = doc.data();
       const targetCurrency = (data.settlementCurrency || data.currency || '').toString().toUpperCase();
-      const payeePaymentMethods = data.toUserId
-        ? await this.getActivePaymentMethodsForUser(String(data.toUserId), targetCurrency)
+      const resolvedPayeeUserId = await resolvePayeeUserIdForData(data);
+      const payeePaymentMethods = resolvedPayeeUserId
+        ? await this.getActivePaymentMethodsForUser(String(resolvedPayeeUserId), targetCurrency)
         : [];
       return {
         id: doc.id,
@@ -1099,7 +1213,7 @@ export class SettlementService {
         toEntityId: data.toEntityId,
         toEntityType: data.toEntityType,
         fromUserId: data.fromUserId || '',
-        toUserId: data.toUserId || '',
+        toUserId: resolvedPayeeUserId || '',
         amount: data.amount,
         currency: data.currency,
         settlementAmount: data.settlementAmount,

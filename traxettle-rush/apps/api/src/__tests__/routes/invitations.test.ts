@@ -565,8 +565,34 @@ describe('POST /api/invitations/:invitationId/accept', () => {
     const res = await request(app)
       .post('/api/invitations/inv-accepted/accept')
       .set('Authorization', 'Bearer mock-user-1');
+    // Idempotent/self-healing: re-accepting an already accepted invite for the same user returns 200.
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.status).toBe('accepted');
+  });
+
+  it('should return 400 if invitation already accepted by another user', async () => {
+    mockInvitations['inv-accepted-other'] = {
+      eventId: 'evt-1',
+      invitedBy: 'other',
+      inviteeEmail: null,
+      inviteeUserId: 'mock-user-2',
+      inviteePhone: null,
+      role: 'member',
+      status: 'accepted',
+      token: 'tok-acc-2',
+      message: null,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      respondedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/invitations/inv-accepted-other/accept')
+      .set('Authorization', 'Bearer mock-user-1');
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain('already been');
+    expect(res.body.error).toContain('another user');
   });
 
   it('should accept invitation and add participant', async () => {

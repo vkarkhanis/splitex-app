@@ -22,10 +22,16 @@ type UnsettledEventRow = {
   eventId: string;
   eventName: string;
   lastSettlementGeneratedAt: string | null;
+  eventStatus?: string;
+  eventType?: string;
+  eventCurrency?: string;
+  eventStartDate?: string | null;
+  eventEndDate?: string | null;
   pending: Array<{
     settlementId: string;
     payerUserId: string;
     payerName: string;
+    payerEmail?: string;
     amount: number;
     currency: string;
   }>;
@@ -38,6 +44,12 @@ function yyyyMmDd(iso: string | null) {
   return new Date(t).toISOString().slice(0, 10);
 }
 
+function shortId(id: string) {
+  const s = String(id || '');
+  if (s.length <= 10) return s;
+  return `${s.slice(0, 6)}…${s.slice(-4)}`;
+}
+
 function csvEscape(value: string) {
   const v = String(value ?? '');
   if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
@@ -48,13 +60,15 @@ function buildCsvContent(rows: UnsettledEventRow[]) {
   const lines: string[] = [];
   for (const ev of rows) {
     lines.push(csvEscape(`Event: ${ev.eventName}`));
-    lines.push(['Date', 'Payer Name', 'Amount', 'Currency'].map(csvEscape).join(','));
+    lines.push(['Date', 'Payer Name', 'Payer Email', 'Settlement ID', 'Amount', 'Currency'].map(csvEscape).join(','));
     const date = yyyyMmDd(ev.lastSettlementGeneratedAt);
     for (const p of ev.pending) {
       lines.push(
         [
           date,
           p.payerName,
+          p.payerEmail || '',
+          p.settlementId,
           Number.isFinite(p.amount) ? p.amount.toFixed(2) : '',
           p.currency,
         ].map((c) => csvEscape(String(c))).join(','),
@@ -76,6 +90,8 @@ function buildPdfHtml(rows: UnsettledEventRow[]) {
       <tr>
         <td>${escHtml(yyyyMmDd(ev.lastSettlementGeneratedAt))}</td>
         <td>${escHtml(p.payerName)}</td>
+        <td>${escHtml(p.payerEmail || '')}</td>
+        <td>${escHtml(p.settlementId)}</td>
         <td style="text-align:right">${Number.isFinite(p.amount) ? p.amount.toFixed(2) : ''}</td>
         <td>${escHtml(p.currency)}</td>
       </tr>
@@ -88,11 +104,13 @@ function buildPdfHtml(rows: UnsettledEventRow[]) {
             <tr>
               <th>Date</th>
               <th>Payer Name</th>
+              <th>Payer Email</th>
+              <th>Settlement ID</th>
               <th style="text-align:right">Amount</th>
               <th>Currency</th>
             </tr>
           </thead>
-          <tbody>${tr || '<tr><td colspan="4" class="muted">No pending payments.</td></tr>'}</tbody>
+          <tbody>${tr || '<tr><td colspan="6" class="muted">No pending payments.</td></tr>'}</tbody>
         </table>
       </section>
     `;
@@ -213,6 +231,14 @@ export default function UnsettledPaymentsScreen() {
 
   const renderEvent = ({ item }: { item: UnsettledEventRow }) => {
     const open = openEventId === item.eventId;
+    const totals = item.pending.reduce<Record<string, number>>((acc, p) => {
+      const k = String(p.currency || '').toUpperCase() || '—';
+      acc[k] = (acc[k] || 0) + (Number.isFinite(p.amount) ? p.amount : 0);
+      return acc;
+    }, {});
+    const totalText = Object.entries(totals)
+      .map(([cur, amt]) => `${amt.toFixed(2)} ${cur}`)
+      .join(' + ');
     return (
       <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
         <TouchableOpacity
@@ -223,7 +249,9 @@ export default function UnsettledPaymentsScreen() {
           <View style={{ flex: 1 }}>
             <Text style={[styles.cardTitle, { color: c.text }]} numberOfLines={1}>{item.eventName}</Text>
             <Text style={[styles.cardMeta, { color: c.muted }]} numberOfLines={1}>
-              Settlement date: {yyyyMmDd(item.lastSettlementGeneratedAt) || '—'} · Pending: {item.pending.length}
+              Settlement date: {yyyyMmDd(item.lastSettlementGeneratedAt) || '—'}
+              {item.eventStatus ? ` · Status: ${item.eventStatus}` : ''}
+              {totalText ? ` · Total: ${totalText}` : ` · Pending: ${item.pending.length}`}
             </Text>
           </View>
           <Text style={[styles.toggle, { color: c.primary }]}>{open ? 'Hide' : 'View'}</Text>
@@ -240,7 +268,13 @@ export default function UnsettledPaymentsScreen() {
             {item.pending.map((p) => (
               <View key={p.settlementId} style={[styles.tableRow, { borderColor: c.border }]}>
                 <Text style={[styles.td, { color: c.textSecondary, width: 88 }]}>{yyyyMmDd(item.lastSettlementGeneratedAt) || '—'}</Text>
-                <Text style={[styles.td, { color: c.text, flex: 1 }]} numberOfLines={1}>{p.payerName}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.td, { color: c.text }]} numberOfLines={1}>{p.payerName}</Text>
+                  {p.payerEmail ? (
+                    <Text style={[styles.tdSmall, { color: c.textSecondary }]} numberOfLines={1}>{p.payerEmail}</Text>
+                  ) : null}
+                  <Text style={[styles.tdSmall, { color: c.muted }]} numberOfLines={1}>Settlement ID: {shortId(p.settlementId)}</Text>
+                </View>
                 <Text style={[styles.td, { color: c.text, width: 110, textAlign: 'right' }]}>{Number.isFinite(p.amount) ? p.amount.toFixed(2) : ''}</Text>
                 <Text style={[styles.td, { color: c.textSecondary, width: 72, textAlign: 'right' }]}>{p.currency}</Text>
               </View>
@@ -350,9 +384,9 @@ const styles = StyleSheet.create({
   tableHead: { borderTopWidth: 1 },
   th: { fontSize: fontSizes.xs, fontWeight: '800' },
   td: { fontSize: fontSizes.sm },
+  tdSmall: { fontSize: fontSizes.xs, marginTop: 2 },
   empty: { alignItems: 'center', paddingHorizontal: spacing.xl, paddingTop: spacing.xxxl },
   emptyIcon: { fontSize: 44, marginBottom: spacing.md },
   emptyTitle: { fontSize: fontSizes.lg, fontWeight: '800', marginBottom: spacing.sm },
   emptyDesc: { fontSize: fontSizes.sm, textAlign: 'center' },
 });
-

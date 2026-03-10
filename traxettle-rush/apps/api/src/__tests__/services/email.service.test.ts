@@ -316,6 +316,7 @@ describe('EmailService', () => {
       await service.sendNotificationEmail(sampleNotification);
 
       const callArgs = sendMailMock.mock.calls[0][0];
+      expect(callArgs.html).toContain('/open/event/event123');
       expect(callArgs.html).toContain('/events/event123');
       expect(callArgs.text).toContain('/events/event123');
     });

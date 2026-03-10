@@ -101,29 +101,19 @@ Once your project is created, enable these services:
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can read/write their own data
-    match /users/{userId} {
+    // Traxettle clients (web/mobile) should NOT talk to Firestore directly.
+    // The Traxettle API uses the Firebase Admin SDK and is NOT restricted by rules.
+    //
+    // Lock down client access to prevent accidental data exposure.
+
+    // Allow a signed-in user to read/write only their own user document subtree.
+    match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
-    
-    // Events: users can read events they're part of
-    match /events/{eventId} {
-      allow read, write: if request.auth != null && 
-        resource.data.participants.keys().hasAll([request.auth.uid]);
-    }
-    
-    // Expenses: users can read/write expenses for events they're part of
-    match /expenses/{expenseId} {
-      allow read, write: if request.auth != null && 
-        firestore.get(/databases/$(database)/documents/events/$(resource.data.eventId))
-        .data.participants.keys().hasAll([request.auth.uid]);
-    }
-    
-    // Settlements: similar to expenses
-    match /settlements/{settlementId} {
-      allow read, write: if request.auth != null && 
-        firestore.get(/databases/$(database)/documents/events/$(resource.data.eventId))
-        .data.participants.keys().hasAll([request.auth.uid]);
+
+    // Everything else is blocked from client access by default.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
@@ -146,16 +136,16 @@ The application will automatically create required indexes as needed. You'll see
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Users can upload to their own folder
+    // Same philosophy as Firestore: prefer API-controlled access.
+
+    // If you ever allow direct client uploads/downloads, confine them to /users/<uid>/...
     match /users/{userId}/{allPaths=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
-    
-    // Event-related files (receipts, etc.)
-    match /events/{eventId}/{allPaths=**} {
-      allow read, write: if request.auth != null && 
-        firestore.get(/databases/$(database)/documents/events/$(eventId))
-        .data.participants.keys().hasAll([request.auth.uid]);
+
+    // Everything else is blocked from client access by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }

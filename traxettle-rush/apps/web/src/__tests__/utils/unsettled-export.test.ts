@@ -22,10 +22,9 @@ describe('unsettled-export', () => {
     ]);
 
     expect(csv).toContain('Event: Goa Trip');
-    expect(csv).toContain('Date,Payer Name,Amount,Currency');
-    expect(csv).toContain('2026-03-08,Bob,100.00,INR');
+    expect(csv).toContain('Date,Payer Name,Payer Email,Settlement ID,Amount,Currency');
+    expect(csv).toContain('2026-03-08,Bob,,s1,100.00,INR');
     expect(csv).toContain('Event: Roommates');
-    expect(csv).toContain(',Alice,50.50,USD');
+    expect(csv).toContain(',Alice,,s2,50.50,USD');
   });
 });
-
