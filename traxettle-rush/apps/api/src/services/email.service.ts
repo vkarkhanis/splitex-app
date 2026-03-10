@@ -31,8 +31,25 @@ export class EmailService {
   private mobileScheme: string;
   private isEtherealHost: boolean;
 
+  private resolveAppUrl(): string {
+    const explicit = (process.env.APP_URL || '').trim();
+    if (explicit) return explicit.replace(/\/$/, '');
+
+    const env = (process.env.APP_ENV || process.env.RUNTIME_ENV || process.env.NODE_ENV || '').toLowerCase();
+    const projectId = (process.env.FIREBASE_PROJECT_ID || '').toLowerCase();
+
+    const looksStaging = env.includes('staging') || projectId.includes('staging');
+    const looksProd = env === 'production' || env === 'prod' || projectId.includes('production') || projectId.includes('prod');
+
+    if (looksStaging) return 'https://traxettle-staging.web.app';
+    if (looksProd) return 'https://traxettle-production.web.app';
+    // If we're running against a real Firebase project (non-local), never default to localhost.
+    if (projectId && !projectId.includes('local')) return 'https://traxettle-production.web.app';
+    return 'http://localhost:3000';
+  }
+
   constructor() {
-    this.appUrl = process.env.APP_URL || 'http://localhost:3000';
+    this.appUrl = this.resolveAppUrl();
     this.mobileScheme = process.env.MOBILE_APP_SCHEME || 'com.traxettle.app';
     this.fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@traxettle.app';
     // Allow SMTP_FROM to be either a raw address ("noreply@...") or a full RFC5322 mailbox

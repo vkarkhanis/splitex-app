@@ -56,6 +56,8 @@ prompt FIREBASE_CLIENT_EMAIL "Firebase service-account client_email" ""
 prompt FIREBASE_STORAGE_BUCKET "Firebase storage bucket" "traxettle-staging.firebasestorage.app"
 prompt FIREBASE_PRIVATE_KEY_FILE "Absolute path to Firebase service-account key (.json or .pem)" ""
 
+prompt APP_URL "Web URL for STAGING (APP_URL — used in emails)" "https://traxettle-staging.web.app"
+
 prompt JWT_SECRET "JWT secret" "" true
 prompt JWT_REFRESH_SECRET "JWT refresh secret" "" true
 
@@ -83,7 +85,7 @@ SERVICE_NAME='traxettle-api-staging'
 RUNTIME_SA_NAME='traxettle-api-staging-runtime'
 DOMAIN_NAME=''
 
-APP_URL=''
+APP_URL='$(escape_sq "$APP_URL")'
 NODE_ENV_VALUE='staging'
 MIN_INSTANCES='0'
 

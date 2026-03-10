@@ -212,6 +212,23 @@ export const webSteps: WorkflowStep[] = [
     expected: ['A Cloud Run URL is printed.', 'Health endpoint returns OK.'],
   },
   {
+    id: 'w-staging-verify-api-email-links',
+    platform: 'web',
+    environment: 'staging',
+    section: 'Verify',
+    title: 'Verify staging emails will NOT open localhost',
+    whyThisMatters:
+      'If the API is misconfigured, “View Event” emails can point to http://localhost:3000 (which will not work for testers). This check makes sure the deployed API has APP_URL set correctly OR FIREBASE_PROJECT_ID set (non-local).',
+    kind: 'verify',
+    skippable: false,
+    instructions: [
+      'Run the single command below.',
+      'If it says “NOT OK”, follow the exact fix steps it prints, then rerun this verification.',
+    ],
+    scripts: [{ label: 'Verify deployed staging API env', command: 'bash scripts/api-deployment/verify-deployed-api-env.sh staging' }],
+    expected: ['Result: ✅ OK — this deployed API should NOT generate localhost links in emails.'],
+  },
+  {
     id: 'w-staging-deploy-web',
     platform: 'web',
     environment: 'staging',
@@ -262,6 +279,23 @@ export const webSteps: WorkflowStep[] = [
     instructions: ['Run the script below. If you configured production already, it should not require edits.'],
     scripts: [{ label: 'Deploy production API', command: 'bash scripts/api-deployment/deploy-prod-gmail.sh' }],
     expected: ['A Cloud Run URL is printed.', 'Health endpoint returns OK.'],
+  },
+  {
+    id: 'w-prod-verify-api-email-links',
+    platform: 'web',
+    environment: 'production',
+    section: 'Verify',
+    title: 'Verify production emails will NOT open localhost',
+    whyThisMatters:
+      'This verifies the deployed production API is configured so emails never contain localhost links. It checks that APP_URL is set correctly OR FIREBASE_PROJECT_ID is set (non-local).',
+    kind: 'verify',
+    skippable: false,
+    instructions: [
+      'Run the single command below.',
+      'If it says “NOT OK”, follow the exact fix steps it prints, then rerun this verification.',
+    ],
+    scripts: [{ label: 'Verify deployed production API env', command: 'bash scripts/api-deployment/verify-deployed-api-env.sh production' }],
+    expected: ['Result: ✅ OK — this deployed API should NOT generate localhost links in emails.'],
   },
   {
     id: 'w-prod-deploy-web',
