@@ -67,7 +67,7 @@ Use scripts from `traxettle-rush/scripts/revenuecat`:
 4. `./scripts/revenuecat/smoke-webhook.sh`
 
 All steps are documented in:
-- `traxettle-rush/docs/REVENUECAT_INTEGRATION_RUNBOOK.md`
+- `traxettle-app/docs/utility/REVENUECAT_INTEGRATION_RUNBOOK.md`
 
 ## Local Tier Test Script
 Run:

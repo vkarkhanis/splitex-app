@@ -164,50 +164,19 @@ Apply these Firestore security rules (see [Firebase Setup](./FIREBASE_SETUP.md))
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // User documents
-    match /users/{userId} {
+    // Traxettle clients (web/mobile) should NOT talk to Firestore directly.
+    // The Traxettle API uses the Firebase Admin SDK and is NOT restricted by rules.
+    //
+    // Lock down client access to prevent accidental data exposure.
+
+    // Allow a signed-in user to read/write only their own user document subtree.
+    match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
-    
-    // Event documents
-    match /events/{eventId} {
-      allow read: if request.auth != null && 
-        resource.data.participants.any(p => p.userId == request.auth.uid);
-      allow write: if request.auth != null && 
-        resource.data.participants.any(p => p.userId == request.auth.uid && p.role == 'admin');
-      allow create: if request.auth != null;
-    }
-    
-    // Expense documents
-    match /events/{eventId}/expenses/{expenseId} {
-      allow read: if request.auth != null && 
-        resource.data.participants.any(p => p.userId == request.auth.uid);
-      allow write: if request.auth != null && 
-        resource.data.participants.any(p => p.userId == request.auth.uid && p.role == 'admin');
-      allow create: if request.auth != null;
-    }
-    
-    // Group documents
-    match /groups/{groupId} {
-      allow read, write: if request.auth != null && 
-        resource.data.members.any(m => m == request.auth.uid || 
-          (resource.data.representative == request.auth.uid) ||
-          (resource.data.createdBy == request.auth.uid));
-    }
-    
-    // Settlement documents
-    match /events/{eventId}/settlements/{settlementId} {
-      allow read: if request.auth != null && 
-        resource.data.participants.any(p => p.userId == request.auth.uid);
-      allow write: if request.auth != null && 
-        resource.data.participants.any(p => p.userId == request.auth.uid && p.role == 'admin');
-    }
-    
-    // Invitation documents
-    match /invitations/{invitationId} {
-      allow read: if request.auth != null && 
-        (resource.data.recipientEmail == request.auth.token.email ||
-         resource.data.inviterId == request.auth.uid);
+
+    // Everything else is blocked from client access by default.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
@@ -266,24 +235,16 @@ Apply these storage security rules:
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // User avatars
-    match /users/{userId}/avatar.jpg {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
+    // Same philosophy as Firestore: prefer API-controlled access.
+
+    // If you ever allow direct client uploads/downloads, confine them to /users/<uid>/...
+    match /users/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
-    
-    // Event attachments
-    match /events/{eventId}/{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && 
-        request.auth.uid == resource.metadata.createdBy;
-    }
-    
-    // Expense attachments
-    match /expenses/{expenseId}/{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && 
-        request.auth.uid == resource.metadata.createdBy;
+
+    // Everything else is blocked from client access by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }

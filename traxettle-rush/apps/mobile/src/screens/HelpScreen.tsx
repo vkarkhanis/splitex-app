@@ -67,9 +67,8 @@ const FEATURES: FeatureCard[] = [
   },
   {
     icon: '📈',
-    title: 'Advanced Analytics (Pro)',
-    desc: 'Get detailed spending breakdowns, category insights, and export your data to Excel, PDF, or CSV.',
-    tag: 'PRO',
+    title: 'Analytics (Coming soon)',
+    desc: 'We’re rebuilding analytics for a future major release to make it more accurate, more useful, and easier to understand.',
   },
   {
     icon: '⚡',

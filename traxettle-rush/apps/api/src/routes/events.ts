@@ -15,6 +15,12 @@ const router: Router = Router();
 const eventService = new EventService();
 const entitlementService = new EntitlementService();
 
+function parseLimit(v: any): number | null {
+  const n = Number.parseInt(String(v || ''), 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.min(n, 200);
+}
+
 function requiresProForFx(body: CreateEventDto | UpdateEventDto): boolean {
   const hasSettlementCurrency = typeof body.settlementCurrency === 'string' && body.settlementCurrency.trim().length > 0;
   const isDifferentCurrency = hasSettlementCurrency && typeof body.currency === 'string'
@@ -33,10 +39,82 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const uid = req.user!.uid;
     const events = await eventService.getUserEvents(uid);
-    return res.json({ success: true, data: events } as ApiResponse);
+    const filter = String(req.query.filter || 'all');
+    const limit = parseLimit(req.query.limit);
+
+    const sorted = [...(events || [])].sort((a: any, b: any) => {
+      const at = a?.updatedAt ? Date.parse(String(a.updatedAt)) : (a?.createdAt ? Date.parse(String(a.createdAt)) : 0);
+      const bt = b?.updatedAt ? Date.parse(String(b.updatedAt)) : (b?.createdAt ? Date.parse(String(b.createdAt)) : 0);
+      if (at !== bt) return bt - at;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+
+    let out = sorted;
+    if (filter === 'active') out = out.filter((e: any) => e?.status && e.status !== 'closed');
+    if (filter === 'history') out = out.filter((e: any) => e?.status === 'closed');
+    if (limit) out = out.slice(0, limit);
+
+    return res.json({ success: true, data: out } as ApiResponse);
   } catch (err) {
     console.error('GET /events error:', err);
     return res.status(500).json({ success: false, error: 'Failed to fetch events' } as ApiResponse);
+  }
+});
+
+// Email event history to the current user (ignores notification preference)
+router.post('/history-email', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.user!.uid;
+    const recipientEmail = req.user!.email;
+    if (!recipientEmail) {
+      return res.status(400).json({ success: false, error: 'No email found for this account' } as ApiResponse);
+    }
+    const events = await eventService.getUserEvents(uid);
+    const history = (events || []).filter((e: any) => e?.status === 'closed');
+    history.sort((a: any, b: any) => {
+      const at = a?.updatedAt ? Date.parse(String(a.updatedAt)) : 0;
+      const bt = b?.updatedAt ? Date.parse(String(b.updatedAt)) : 0;
+      return bt - at;
+    });
+
+    const esc = (s: any) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const rows = history.map((e: any) => {
+      return `<tr>
+        <td>${esc(e.name)}</td>
+        <td>${esc(e.type)}</td>
+        <td>${esc(e.currency)}</td>
+        <td>${esc(e.startDate || '')}</td>
+        <td>${esc(e.updatedAt || '')}</td>
+      </tr>`;
+    }).join('');
+
+    const subject = 'Your Traxettle event history';
+    const html = `<!doctype html><html><body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;margin:24px;color:#111">
+      <h1 style="margin:0 0 6px;font-size:18px">Event history (closed)</h1>
+      <div style="color:#666;font-size:12px;margin-bottom:14px">Closed events: ${history.length}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>
+          <th style="text-align:left;border:1px solid #e5e7eb;padding:8px;background:#f8fafc">Event</th>
+          <th style="text-align:left;border:1px solid #e5e7eb;padding:8px;background:#f8fafc">Type</th>
+          <th style="text-align:left;border:1px solid #e5e7eb;padding:8px;background:#f8fafc">Currency</th>
+          <th style="text-align:left;border:1px solid #e5e7eb;padding:8px;background:#f8fafc">Start</th>
+          <th style="text-align:left;border:1px solid #e5e7eb;padding:8px;background:#f8fafc">Updated</th>
+        </tr></thead>
+        <tbody>${rows || '<tr><td colspan="5" style="border:1px solid #e5e7eb;padding:8px;color:#666">No closed events.</td></tr>'}</tbody>
+      </table>
+    </body></html>`;
+    const text = `Event history (closed events: ${history.length})\n\n` + history.map((e: any) => {
+      return `- ${e.name} | ${e.type} | ${e.currency} | ${e.startDate || ''} | ${e.updatedAt || ''}`;
+    }).join('\n');
+
+    const result = await emailService.sendUserReportEmail({ recipientEmail, subject, html, text });
+    if (!result.success) {
+      return res.status(500).json({ success: false, error: result.error || 'Failed to send email' } as ApiResponse);
+    }
+    return res.json({ success: true, data: { sent: true } } as ApiResponse);
+  } catch (err: any) {
+    console.error('POST /events/history-email error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to send event history' } as ApiResponse);
   }
 });
 

@@ -31,8 +31,8 @@ const PRO_FEATURES = [
   },
   {
     icon: '📊',
-    title: 'Advanced Analytics',
-    desc: 'Detailed spending breakdowns, category insights, and export to Excel, PDF & CSV.',
+    title: 'Analytics (Coming soon)',
+    desc: 'We’re rebuilding analytics for a future major release to make it more accurate, more useful, and easier to understand.',
   },
   {
     icon: '⚡',

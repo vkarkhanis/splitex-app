@@ -29,6 +29,7 @@ export default function DashboardScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [unsettledSummary, setUnsettledSummary] = useState<{ pendingCount: number; eventCount: number } | null>(null);
 
   const MAX_DASHBOARD_EVENTS = 5;
 
@@ -79,15 +80,26 @@ export default function DashboardScreen({ navigation }: any) {
     }
   }, []);
 
+  const fetchUnsettledSummary = useCallback(async () => {
+    try {
+      const { data } = await api.get<{ pendingCount: number; eventCount: number }>('/api/settlements/unsettled-payments/summary');
+      setUnsettledSummary(data || { pendingCount: 0, eventCount: 0 });
+    } catch {
+      setUnsettledSummary(null);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       fetchEvents();
-    }, [fetchEvents])
+      fetchUnsettledSummary();
+    }, [fetchEvents, fetchUnsettledSummary])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchEvents();
+    fetchUnsettledSummary();
   };
 
   const renderEvent = ({ item }: { item: TraxettleEvent }) => {
@@ -205,11 +217,30 @@ export default function DashboardScreen({ navigation }: any) {
             <TouchableOpacity
               testID="menu-analytics"
               style={styles.menuItem}
-              onPress={() => { setMenuVisible(false); navigation.navigate('Analytics'); }}
+              onPress={() => {
+                setMenuVisible(false);
+                Alert.alert('Coming soon', 'Analytics will return in a future major release.');
+              }}
             >
               <Text style={styles.menuIcon}>📊</Text>
-              <Text style={[styles.menuItemText, { color: c.text }]}>Analytics</Text>
+              <Text style={[styles.menuItemText, { color: c.text }]}>Analytics (Coming soon)</Text>
             </TouchableOpacity>
+
+            {!!unsettledSummary?.pendingCount && unsettledSummary.pendingCount > 0 && (
+              <TouchableOpacity
+                testID="menu-unsettled-payments"
+                style={styles.menuItem}
+                onPress={() => { setMenuVisible(false); navigation.navigate('UnsettledPayments'); }}
+              >
+                <Text style={styles.menuIcon}>💸</Text>
+                <View style={styles.menuFlexRow}>
+                  <Text style={[styles.menuItemText, { color: c.text }]}>Unsettled Payments</Text>
+                  <View style={[styles.countBadge, { backgroundColor: c.warning + '20', borderColor: c.warning + '55' }]}>
+                    <Text style={[styles.countBadgeText, { color: c.warning }]}>{unsettledSummary.pendingCount}</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            )}
 
             {!isPro && (
               <TouchableOpacity
@@ -382,6 +413,15 @@ const styles = StyleSheet.create({
   },
   menuIcon: { fontSize: 18, width: 24, textAlign: 'center' },
   menuItemText: { fontSize: fontSizes.md, fontWeight: '500' },
+  menuFlexRow: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  countBadge: {
+    marginLeft: spacing.sm,
+    borderWidth: 1,
+    borderRadius: radii.full,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  countBadgeText: { fontSize: fontSizes.xs, fontWeight: '800' },
   menuDivider: { height: 1, marginHorizontal: spacing.lg, marginVertical: spacing.xs },
   themeRow: { maxHeight: 44, marginBottom: spacing.md },
   themeRowContent: { paddingHorizontal: spacing.xl, gap: spacing.sm },

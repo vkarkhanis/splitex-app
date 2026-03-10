@@ -8,15 +8,26 @@ export interface WorkflowScript {
   command: string;
 }
 
+export interface WorkflowSnippet {
+  label: string;
+  text: string;
+}
+
 export interface WorkflowStep {
   id: string;
   platform: Platform;
   environment: Environment;
+  /**
+   * Used only for UI grouping. Keep it human-friendly, short, and stable.
+   * Examples: "Install", "Accounts", "Configure", "Run", "Deploy", "Verify".
+   */
+  section: string;
   title: string;
   whyThisMatters: string;
   kind: StepKind;
   instructions: string[];
   scripts?: WorkflowScript[];
+  snippets?: WorkflowSnippet[];
   expected?: string[];
   skippable: boolean;
 }

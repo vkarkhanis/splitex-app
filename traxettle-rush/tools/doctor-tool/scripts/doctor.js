@@ -124,13 +124,13 @@ function checkEnvVar(varName, required = true) {
 
 // Documentation links
 const DOCS = {
-  SETUP: 'https://github.com/traxettle/traxettle/blob/main/docs/SETUP.md',
-  FIREBASE: 'https://github.com/traxettle/traxettle/blob/main/docs/FIREBASE_SETUP.md',
-  REVENUECAT: 'https://github.com/traxettle/traxettle/blob/main/apps/mobile/REVENUECAT_SETUP.md',
-  ANDROID: 'https://github.com/traxettle/traxettle/blob/main/docs/ANDROID_SETUP.md',
-  IOS: 'https://github.com/traxettle/traxettle/blob/main/docs/IOS_SETUP.md',
-  BACKEND: 'https://github.com/traxettle/traxettle/blob/main/docs/BACKEND_SETUP.md',
-  ENVIRONMENT: 'https://github.com/traxettle/traxettle/blob/main/docs/ENVIRONMENT_SETUP.md'
+  SETUP: '../traxettle-app/docs/utility/SETUP.md',
+  FIREBASE: '../traxettle-app/docs/utility/FIREBASE_SETUP.md',
+  REVENUECAT: '../traxettle-app/docs/utility/REVENUECAT_SETUP.md',
+  ANDROID: '../traxettle-app/docs/utility/ANDROID_SETUP.md',
+  IOS: '../traxettle-app/docs/utility/IOS_SETUP.md',
+  BACKEND: '../traxettle-app/docs/utility/BACKEND_SETUP.md',
+  ENVIRONMENT: '../traxettle-app/docs/utility/ENVIRONMENT_SETUP.md'
 };
 
 // Main doctor checks

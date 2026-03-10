@@ -87,19 +87,24 @@ export default function InvitationsPage() {
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [mode, setMode] = useState<'latest' | 'active'>('latest');
 
-  const fetchInvitations = useCallback(async () => {
+  const fetchInvitations = useCallback(async (nextMode: 'latest' | 'active' = mode) => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get<Invitation[]>('/api/invitations/my');
+      const url = nextMode === 'active'
+        ? '/api/invitations/my?filter=active'
+        : '/api/invitations/my?limit=5';
+      const res = await api.get<Invitation[]>(url);
       setInvitations(res.data || []);
+      setMode(nextMode);
     } catch (err: any) {
       setError(err.message || 'Failed to load invitations');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [mode]);
 
   useEffect(() => { fetchInvitations(); }, [fetchInvitations]);
 
@@ -127,11 +132,20 @@ export default function InvitationsPage() {
     }
   };
 
+  const emailHistory = async () => {
+    try {
+      await api.post('/api/invitations/history-email', {});
+      pushToast({ type: 'success', title: 'Email sent', message: 'Invitation history has been emailed to you.' });
+    } catch (err: any) {
+      pushToast({ type: 'error', title: 'Email failed', message: err.message || 'Unable to email invitation history.' });
+    }
+  };
+
   return (
     <Page data-testid="invitations-page">
       <CardHeader>
         <CardTitle>My Invitations</CardTitle>
-        <CardSubtitle>View and respond to event invitations.</CardSubtitle>
+        <CardSubtitle>Showing {mode === 'active' ? 'all active invitations' : 'your latest 5 invitations'}.</CardSubtitle>
       </CardHeader>
 
       {loading ? (
@@ -147,6 +161,14 @@ export default function InvitationsPage() {
       ) : (
         <Card>
           <CardBody>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+              {mode !== 'active' ? (
+                <Button type="button" $variant="outline" onClick={() => fetchInvitations('active')}>See all active invitations</Button>
+              ) : (
+                <Button type="button" $variant="outline" onClick={() => fetchInvitations('latest')}>Back to latest 5</Button>
+              )}
+              <Button type="button" $variant="outline" onClick={emailHistory}>View history (email me)</Button>
+            </div>
             {invitations.map((inv) => (
               <ListItem key={inv.id} data-testid={`invitation-row-${inv.id}`}>
                 <ListItemInfo>

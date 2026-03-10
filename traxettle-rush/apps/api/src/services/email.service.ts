@@ -25,6 +25,8 @@ export interface NotificationEmailData {
 export class EmailService {
   private transporter: nodemailer.Transporter;
   private fromAddress: string;
+  private fromHeader: string;
+  private replyToHeader?: string;
   private appUrl: string;
   private mobileScheme: string;
   private isEtherealHost: boolean;
@@ -33,6 +35,12 @@ export class EmailService {
     this.appUrl = process.env.APP_URL || 'http://localhost:3000';
     this.mobileScheme = process.env.MOBILE_APP_SCHEME || 'com.traxettle.app';
     this.fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@traxettle.app';
+    // Allow SMTP_FROM to be either a raw address ("noreply@...") or a full RFC5322 mailbox
+    // ("Traxettle (KarkhanisLabs) <noreply@...>").
+    const rawFrom = (process.env.SMTP_FROM || '').trim();
+    this.fromHeader = rawFrom && rawFrom.includes('<') && rawFrom.includes('>') ? rawFrom : `"Traxettle" <${this.fromAddress}>`;
+    const replyTo = (process.env.SMTP_REPLY_TO || '').trim();
+    this.replyToHeader = replyTo || undefined;
     // Support both SMTP_PASS and SMTP_PASSWORD env var names
     const smtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '';
     const smtpHost = process.env.SMTP_HOST || '';
@@ -106,7 +114,8 @@ export class EmailService {
 
     try {
       const info = await this.transporter.sendMail({
-        from: `"Traxettle" <${this.fromAddress}>`,
+        from: this.fromHeader,
+        replyTo: this.replyToHeader,
         to: data.inviteeEmail,
         subject,
         text,
@@ -177,7 +186,8 @@ export class EmailService {
 
     try {
       const info = await this.transporter.sendMail({
-        from: `"Traxettle" <${this.fromAddress}>`,
+        from: this.fromHeader,
+        replyTo: this.replyToHeader,
         to: recipientEmail,
         subject,
         text,
@@ -229,7 +239,7 @@ export class EmailService {
 
   async sendNotificationEmail(data: NotificationEmailData): Promise<{ success: boolean; messageId?: string; error?: string }> {
     const eventUrl = `${this.appUrl}/events/${data.eventId}`;
-    const mobileDeepLink = `${this.mobileScheme}://events/${data.eventId}`;
+    const openUrl = `${this.appUrl}/open/event/${data.eventId}`;
     const subject = this.getNotificationSubject(data);
     const detailsHtml = this.getNotificationBody(data);
 
@@ -248,16 +258,16 @@ export class EmailService {
             ${detailsHtml}
           </div>
           <div style="text-align: center; margin: 24px 0;">
-            <a href="${mobileDeepLink}" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
-              Open in App
+            <a href="${openUrl}" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+              Open Event
             </a>
           </div>
           <p style="color: #94a3b8; font-size: 13px; text-align: center; margin-bottom: 16px;">
-            Don't have the app? <a href="${eventUrl}" style="color: #3b82f6;">View on web</a>
+            Prefer web? <a href="${eventUrl}" style="color: #3b82f6;">View on web</a>
           </p>
           <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
           <p style="color: #94a3b8; font-size: 12px; text-align: center;">
-            You received this because you are a participant in "${data.eventName}".<br/>
+            You received this because you are a participant in, or have been invited to, "${data.eventName}".<br/>
             <a href="${this.appUrl}" style="color: #3b82f6;">traxettle.app</a>
           </p>
         </div>
@@ -268,7 +278,8 @@ export class EmailService {
 
     try {
       const info = await this.transporter.sendMail({
-        from: `"Traxettle" <${this.fromAddress}>`,
+        from: this.fromHeader,
+        replyTo: this.replyToHeader,
         to: data.recipientEmail,
         subject,
         text,
@@ -290,6 +301,41 @@ export class EmailService {
       return { success: true, messageId: info.messageId };
     } catch (err: any) {
       console.error(`📧 Notification email failed (${data.type}):`, err.message);
+      return { success: false, error: err.message };
+    }
+  }
+
+  async sendUserReportEmail(params: {
+    recipientEmail: string;
+    subject: string;
+    html: string;
+    text: string;
+  }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    try {
+      const info = await this.transporter.sendMail({
+        from: this.fromHeader,
+        replyTo: this.replyToHeader,
+        to: params.recipientEmail,
+        subject: params.subject,
+        text: params.text,
+        html: params.html,
+      });
+
+      if (this.isEtherealHost) {
+        const previewUrl = nodemailer.getTestMessageUrl(info);
+        console.log(`📧 [ETHEREAL] Report to: ${params.recipientEmail} | ${params.subject}`);
+        if (previewUrl) console.log(`📧 [ETHEREAL] Preview: ${previewUrl}`);
+        return { success: true, messageId: info.messageId || `ethereal-${Date.now()}` };
+      }
+
+      if (!process.env.SMTP_HOST) {
+        console.log(`📧 [MOCK] Report to: ${params.recipientEmail} | ${params.subject}`);
+        return { success: true, messageId: `mock-${Date.now()}` };
+      }
+
+      return { success: true, messageId: info.messageId };
+    } catch (err: any) {
+      console.error(`📧 Report email failed (${params.subject}):`, err.message);
       return { success: false, error: err.message };
     }
   }

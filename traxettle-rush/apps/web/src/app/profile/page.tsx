@@ -267,6 +267,35 @@ export default function ProfilePage() {
     );
   };
 
+  const persistPreferencesPatch = async (patch: Partial<UserPreferences>) => {
+    if (!isAuthenticated) throw new Error('Not authenticated');
+    const freshToken = await getFreshToken();
+    if (!freshToken) throw new Error('Not authenticated');
+
+    const resp = await fetch(`${apiBaseUrl}/api/users/profile`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${freshToken}`
+      },
+      body: JSON.stringify({ preferences: patch })
+    });
+
+    const json = (await resp.json()) as ApiResponse<UserProfile>;
+    if (!resp.ok || !json.success) throw new Error(json.error || 'Failed to save');
+    // Backend normally returns the updated profile; if it doesn't (e.g. tests/mocks),
+    // keep the optimistic UI state and rely on later refreshes.
+    if (json.data) {
+      setProfile({
+        ...json.data,
+        preferences: {
+          ...(json.data.preferences || {}),
+          ...patch,
+        },
+      });
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile || !isAuthenticated) return;
@@ -554,6 +583,16 @@ export default function ProfilePage() {
                       disabled
                       readOnly
                     />
+                    {profile.tier !== 'pro' && (
+                      <>
+                        <Helper>Upgrade is purchased in the mobile app.</Helper>
+                        <InlineActions>
+                          <Button type="button" $variant="primary" onClick={() => router.push('/pro')}>
+                            Subscribe on Mobile
+                          </Button>
+                        </InlineActions>
+                      </>
+                    )}
                   </Field>
 
                   <Field>
@@ -572,12 +611,29 @@ export default function ProfilePage() {
                       id="notifications"
                       value={profile.preferences.notifications ? 'Enabled' : 'Disabled'}
                       onClick={() => {
-                        updatePreferences({ notifications: !profile.preferences.notifications });
+                        const next = !profile.preferences.notifications;
+                        updatePreferences({ notifications: next });
+                        persistPreferencesPatch({ notifications: next })
+                          .then(() => push({ type: 'success', title: 'Notifications updated', message: `Notifications ${next ? 'enabled' : 'disabled'}.` }))
+                          .catch((e: unknown) => {
+                            // Revert in-memory toggle if persistence fails.
+                            updatePreferences({ notifications: !next });
+                            const friendly = toUserFriendlyError(e);
+                            push({ type: 'error', title: 'Update failed', message: friendly });
+                          });
                       }}
                       onKeyDown={(e) => {
                         if (e.key !== 'Enter' && e.key !== ' ') return;
                         e.preventDefault();
-                        updatePreferences({ notifications: !profile.preferences.notifications });
+                        const next = !profile.preferences.notifications;
+                        updatePreferences({ notifications: next });
+                        persistPreferencesPatch({ notifications: next })
+                          .then(() => push({ type: 'success', title: 'Notifications updated', message: `Notifications ${next ? 'enabled' : 'disabled'}.` }))
+                          .catch((err: unknown) => {
+                            updatePreferences({ notifications: !next });
+                            const friendly = toUserFriendlyError(err);
+                            push({ type: 'error', title: 'Update failed', message: friendly });
+                          });
                       }}
                       disabled={!canEdit || saving}
                       readOnly

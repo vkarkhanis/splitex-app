@@ -30,6 +30,7 @@ import {
 } from '@traxettle/ui';
 import { api } from '../../../utils/api';
 import { useEventSocket } from '../../../hooks/useSocket';
+import { getResolvedApiBaseUrl } from '../../../config/dev-options';
 import type {
   Event as TraxettleEvent,
   Expense,
@@ -484,6 +485,34 @@ const NoPaymentsDesc = styled.div`
   margin-bottom: 16px;
 `;
 
+const WarningCallout = styled.div`
+  padding: 12px 16px;
+  border-radius: ${(p) => p.theme.radii.md};
+  border: 1px solid ${(p) => `${p.theme.colors.warning}55`};
+  background: ${(p) => p.theme.colors.warningBg};
+  color: ${(p) => p.theme.colors.text};
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  strong {
+    color: ${(p) => p.theme.colors.warning};
+  }
+`;
+
+const ProofLink = styled.a`
+  color: ${(p) => p.theme.colors.primary};
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 600;
+
+  &:hover {
+    color: ${(p) => p.theme.colors.primaryHover};
+  }
+`;
+
 type ActiveTab = 'expenses' | 'participants' | 'groups' | 'invitations';
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
@@ -493,6 +522,56 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
 function formatDate(d: any): string {
   if (!d) return '';
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatYYMMDD(d: any): string {
+  const dt = d ? new Date(d) : new Date();
+  if (Number.isNaN(dt.getTime())) return 'unknown-date';
+  const yy = String(dt.getFullYear()).slice(-2);
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+function getUrlExtension(url: string): string | undefined {
+  const u = String(url || '');
+  const withoutQuery = u.split('?')[0] || '';
+  const last = withoutQuery.split('/').pop() || '';
+  const dot = last.lastIndexOf('.');
+  if (dot < 0) return undefined;
+  const ext = last.slice(dot + 1).toLowerCase();
+  if (!ext) return undefined;
+  if (ext === 'jpg') return 'jpeg';
+  return ext;
+}
+
+function resolveProofHref(proofUrl: string): string {
+  const raw = String(proofUrl || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('/')) {
+    const base = getResolvedApiBaseUrl().replace(/\/$/, '');
+    return `${base}${raw}`;
+  }
+  return raw;
+}
+
+function proofLinkLabel(proofUrl: string, createdAt: any, eventName: any): string {
+  const ext = getUrlExtension(proofUrl);
+  const safeExt = ext && ['png', 'jpeg'].includes(ext) ? ext : (ext || 'file');
+  const slug = slugifyEventName(eventName);
+  return `payment-proof-${formatYYMMDD(createdAt)}-${slug}.${safeExt}`;
+}
+
+function slugifyEventName(name: any): string {
+  const raw = String(name || '').trim().toLowerCase();
+  if (!raw) return 'event';
+  const slug = raw
+    .replace(/['"]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32);
+  return slug || 'event';
 }
 
 function statusBadgeVariant(status: string) {
@@ -522,10 +601,14 @@ export default function EventDetailPage() {
   const [error, setError] = useState('');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  // Get current user ID from Firebase auth
+  // Get current user ID from localStorage + Firebase auth (supports both JWT and Firebase auth flows)
   useEffect(() => {
     (async () => {
       try {
+        if (typeof window !== 'undefined') {
+          const fromLocal = window.localStorage.getItem('traxettle.uid');
+          if (fromLocal) setCurrentUserId(fromLocal);
+        }
         const { getAuth } = await import('firebase/auth');
         const auth = getAuth();
         if (auth.currentUser) {
@@ -536,6 +619,20 @@ export default function EventDetailPage() {
         });
       } catch { /* fallback: no user id */ }
     })();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = () => {
+      const fromLocal = window.localStorage.getItem('traxettle.uid');
+      if (fromLocal) setCurrentUserId(fromLocal);
+    };
+    window.addEventListener('storage', handler);
+    window.addEventListener('traxettle:authChange', handler as any);
+    return () => {
+      window.removeEventListener('storage', handler);
+      window.removeEventListener('traxettle:authChange', handler as any);
+    };
   }, []);
 
   // Modals
@@ -797,9 +894,10 @@ export default function EventDetailPage() {
       setMarkPaidSubmitting(true);
       const payload: Record<string, any> = {
         paymentMode,
-        referenceId: markPaidReferenceId.trim(),
         note: markPaidNote.trim() || undefined,
       };
+      const referenceId = markPaidReferenceId.trim();
+      if (referenceId) payload.referenceId = referenceId;
       if (markPaidProofUrl.trim()) payload.proofUrl = markPaidProofUrl.trim();
       const res = await api.post<SettlementPayResponse>(`/api/settlements/${settlementId}/pay`, payload);
       pushToast({ type: 'success', title: 'Payment Marked', message: 'Marked as paid. Waiting for payee confirmation.' });
@@ -1258,15 +1356,15 @@ export default function EventDetailPage() {
             </SettlementHeader>
 
             {isStale && (
-              <div style={{ padding: '12px 16px', background: 'var(--color-warning-bg, #fff3cd)', borderRadius: 8, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontWeight: 600 }}>⚠ Expenses have changed.</span>
+              <WarningCallout>
+                <strong>⚠ Expenses have changed.</strong>
                 <span>Settlement needs to be regenerated before approvals can continue.</span>
                 {isAdmin && (
                   <Button $variant="primary" $size="sm" onClick={handleRegenerateSettlement} disabled={regenerateLoading} data-testid="regenerate-btn">
                     {regenerateLoading ? 'Regenerating...' : 'Regenerate Settlement'}
                   </Button>
                 )}
-              </div>
+              </WarningCallout>
             )}
 
             <SummaryGrid>
@@ -1394,8 +1492,17 @@ export default function EventDetailPage() {
 
             {settlements.map((s) => {
               const settlementStatus = s.status as string;
-              const isPayer = currentUserId === s.fromUserId;
-              const isPayee = currentUserId === s.toUserId;
+              const payerUserId =
+                s.fromEntityType === 'group'
+                  ? (groups.find((g) => g.id === s.fromEntityId)?.payerUserId || s.fromUserId)
+                  : s.fromUserId;
+              const payeeUserId =
+                s.toEntityType === 'group'
+                  ? (groups.find((g) => g.id === s.toEntityId)?.representative || s.toUserId)
+                  : s.toUserId;
+
+              const isPayer = currentUserId === payerUserId;
+              const isPayee = currentUserId === payeeUserId;
 
               return (
                 <TransactionCard key={s.id} $status={s.status} data-testid={`settlement-txn-${s.id}`}>
@@ -1411,8 +1518,8 @@ export default function EventDetailPage() {
                       {settlementStatus === 'initiated' && 'Marked paid — awaiting payee confirmation'}
                       {settlementStatus === 'failed' && 'Payment failed/rejected — payer should resubmit'}
                       {settlementStatus === 'completed' && 'Payment confirmed ✓'}
-                      {s.fromEntityType === 'group' && ` · Payer: ${getUserName(s.fromUserId)}`}
-                      {s.toEntityType === 'group' && ` · Recipient: ${getUserName(s.toUserId)}`}
+                      {s.fromEntityType === 'group' && ` · Payer: ${getUserName(payerUserId)}`}
+                      {s.toEntityType === 'group' && ` · Recipient: ${getUserName(payeeUserId)}`}
                     </TransactionMeta>
                   </TransactionFlow>
                   <TransactionAmount>
@@ -2071,7 +2178,7 @@ export default function EventDetailPage() {
                 );
               })()}
               <Field>
-                <Label htmlFor="mark-paid-reference">Reference ID (required)</Label>
+                <Label htmlFor="mark-paid-reference">Reference ID (optional)</Label>
                 <Input
                   id="mark-paid-reference"
                   value={markPaidReferenceId}
@@ -2120,7 +2227,7 @@ export default function EventDetailPage() {
             <Button
               type="button"
               $variant="primary"
-              disabled={markPaidSubmitting || markPaidUploading || !markPaidTarget || !markPaidReferenceId.trim()}
+              disabled={markPaidSubmitting || markPaidUploading || !markPaidTarget}
               onClick={() => markPaidTarget && doMarkPaid(markPaidTarget.id, markPaidTarget.settlementCurrency || markPaidTarget.currency)}
             >
               {markPaidSubmitting ? 'Submitting…' : 'I\'ve Paid'}
@@ -2200,7 +2307,19 @@ export default function EventDetailPage() {
                                   <div style={{ fontWeight: 600 }}>{String(entry.action || 'update').replace(/_/g, ' ')}</div>
                                   <div style={{ opacity: 0.75 }}>by {getUserName(entry.actorUserId || '')} · {formatDate(entry.createdAt)}</div>
                                   {entry.referenceId ? <div>Ref: {entry.referenceId}</div> : null}
-                                  {entry.proofUrl ? <div style={{ color: 'var(--color-primary)' }}>Proof: {entry.proofUrl}</div> : null}
+                                  {entry.proofUrl ? (
+                                    <div>
+                                      Proof:{' '}
+                                      <ProofLink
+                                        href={resolveProofHref(entry.proofUrl)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        title={String(entry.proofUrl)}
+                                      >
+                                        {proofLinkLabel(entry.proofUrl, entry.createdAt, event?.name)}
+                                      </ProofLink>
+                                    </div>
+                                  ) : null}
                                   {entry.note ? <div>{entry.note}</div> : null}
                                 </div>
                               </div>

@@ -8,11 +8,11 @@ import type { Environment, EnvState } from '@/types';
 const ENVS: Environment[] = ['prerequisites', 'utility', 'local', 'staging', 'production'];
 
 function envLabel(env: Environment): string {
-  if (env === 'prerequisites') return '📋 Prerequisites';
-  if (env === 'utility') return '🛠️ Utility';
-  if (env === 'local') return '🏠 Local';
-  if (env === 'staging') return '🔧 Staging';
-  return '🚀 Production';
+  if (env === 'prerequisites') return 'Prerequisites';
+  if (env === 'utility') return 'Utilities';
+  if (env === 'local') return 'Local';
+  if (env === 'staging') return 'Staging';
+  return 'Production';
 }
 
 function envIcon(env: Environment): string {
@@ -53,19 +53,17 @@ const SectionTitle = styled.div`
 
 const EnvRow = styled.div`
   display: flex;
-  gap: 8px;
-  background: rgba(17, 31, 58, 0.6);
-  border-radius: 12px;
-  padding: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  flex-direction: column;
+  gap: 10px;
 `;
 
 const Pill = styled.button<{ $state: EnvState; $active: boolean }>`
   display: flex;
-  flex-direction: column;
   align-items: center;
-  padding: 16px 12px;
-  border-radius: 8px;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 14px;
+  border-radius: 12px;
   border: 2px solid transparent;
   background: ${(props: { $state: EnvState; $active: boolean }) => {
     if (props.$active) return 'rgba(79, 140, 255, 0.2)';
@@ -79,7 +77,6 @@ const Pill = styled.button<{ $state: EnvState; $active: boolean }>`
   cursor: pointer;
   transition: all 0.3s ease;
   position: relative;
-  flex: 1;
 
   ${(props: { $state: EnvState; $active: boolean }) => 
     props.$active && `
@@ -89,7 +86,7 @@ const Pill = styled.button<{ $state: EnvState; $active: boolean }>`
 
   &:hover {
     background: rgba(255, 255, 255, 0.1);
-    transform: translateY(-2px);
+    transform: translateY(-1px);
   }
 
   &:active {
@@ -98,14 +95,35 @@ const Pill = styled.button<{ $state: EnvState; $active: boolean }>`
 `;
 
 const EnvIcon = styled.div`
-  font-size: 24px;
-  margin-bottom: 4px;
+  font-size: 18px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+`;
+
+const PillMain = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+`;
+
+const PillTextWrap = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 `;
 
 const PillText = styled.span`
   font-size: 14px;
   font-weight: 600;
-  margin-bottom: 2px;
+  line-height: 1.2;
 `;
 
 const PillState = styled.span<{ $state: EnvState }>`
@@ -114,6 +132,7 @@ const PillState = styled.span<{ $state: EnvState }>`
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  line-height: 1.2;
 `;
 
 const ActionsSection = styled.div`
@@ -207,9 +226,13 @@ export function EnvironmentRail(props: {
                 onClick={() => onChange(env)}
                 title={`Status: ${state}`}
               >
-                <EnvIcon>{envIcon(env)}</EnvIcon>
-                <PillText>{envLabel(env)}</PillText>
-                <PillState $state={state}>{state}</PillState>
+                <PillMain>
+                  <EnvIcon>{envIcon(env)}</EnvIcon>
+                  <PillTextWrap>
+                    <PillText>{envLabel(env)}</PillText>
+                    <PillState $state={state}>{state}</PillState>
+                  </PillTextWrap>
+                </PillMain>
               </Pill>
             );
           })}

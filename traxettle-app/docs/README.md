@@ -30,6 +30,9 @@ docs/
 
 ### Getting Started
 - **[Local Development](runbook/LOCAL_DEVELOPMENT.md)** — 6 run modes (emulator/real Firebase × web/mobile)
+- **Doctor Tool UI** — guided, layman-friendly setup flow:
+  - Start it from repo root: `cd traxettle-rush/tools/doctor-tool && npm run dev`
+  - Then open the printed localhost URL in your browser
 
 ### Deploying
 - **[Deployment Runbook](deployment/DEPLOYMENT_RUNBOOK.md)** — Full first-time deployment guide (Firebase, Cloud Run, EAS, stores)

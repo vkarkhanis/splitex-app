@@ -422,30 +422,12 @@ export const realtimeListeners = {
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{userId} {
+    // Locked-down baseline: the app talks to Firestore via the API (Admin SDK).
+    match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
-    
-    match /events/{eventId} {
-      allow read: if isParticipant(eventId);
-      allow write: if isAdmin(eventId);
-      
-      match /participants/{participantId} {
-        allow read, write: if isAdmin(eventId);
-      }
-    }
-    
-    match /expenses/{expenseId} {
-      allow read: if isParticipantInExpense(expenseId);
-      allow write: if isExpenseCreator(expenseId) || isAdmin(getExpenseEvent(expenseId));
-    }
-    
-    function isParticipant(eventId) {
-      return exists(/databases/$(database)/documents/events/$(eventId)/participants/$(request.auth.uid));
-    }
-    
-    function isAdmin(eventId) {
-      return get(/databases/$(database)/documents/events/$(eventId)).data.admins.includes(request.auth.uid);
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
@@ -991,7 +973,7 @@ This design document provides a comprehensive foundation for building the Traxet
 - RevenueCat webhook endpoint updates entitlement state idempotently.
 - Replay-safe event handling stores processed webhook IDs.
 - Runbook/scripts:
-  - `traxettle-rush/docs/REVENUECAT_INTEGRATION_RUNBOOK.md`
+  - `traxettle-app/docs/utility/REVENUECAT_INTEGRATION_RUNBOOK.md`
   - `traxettle-rush/scripts/revenuecat/bootstrap.sh`
   - `traxettle-rush/scripts/revenuecat/check-config.sh`
   - `traxettle-rush/scripts/revenuecat/smoke-webhook.sh`

@@ -1,0 +1,164 @@
+import type { Platform, WorkflowStep } from '@/types';
+
+export function storeUtilitySteps(platform: Platform): WorkflowStep[] {
+  return [
+    {
+      id: 'u-stores-overview',
+      platform,
+      environment: 'utility',
+      section: 'Stores',
+      title: 'What you need for TestFlight / Play Internal Testing / Production',
+      whyThisMatters:
+        'Mobile distribution requires Apple/Google accounts. Without them, you can still run locally, but you cannot distribute builds to testers via stores.',
+      kind: 'action',
+      skippable: false,
+      instructions: [
+        'Android distribution needs: Google Play Console account ($25 one-time).',
+        'iOS distribution needs: Apple Developer Program ($99/year) + App Store Connect access.',
+        '',
+        'Recommended flow:',
+        '1) Local run (Doctor → Local)',
+        '2) Staging API/Web deploy (Doctor → Staging)',
+        '3) Mobile staging builds → Internal testing (Play) / TestFlight (Apple)',
+        '4) Production builds → Store release',
+      ],
+      expected: ['You understand which accounts are required for distribution.'],
+    },
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Apple / iOS
+    // ────────────────────────────────────────────────────────────────────────
+    {
+      id: 'u-apple-dev-account',
+      platform,
+      environment: 'utility',
+      section: 'Stores',
+      title: 'Apple Developer Program + App Store Connect access (iOS)',
+      whyThisMatters: 'TestFlight and App Store releases require an Apple Developer Program membership.',
+      kind: 'action',
+      skippable: platform === 'web',
+      instructions: [
+        'If you are doing Android-only, you can skip this.',
+        '',
+        '1) Enroll in Apple Developer Program ($99/year):',
+        '   - developer.apple.com → Account → Enroll',
+        '2) Ensure you can login to App Store Connect:',
+        '   - appstoreconnect.apple.com',
+        '3) Ensure your Apple ID has the correct role (Admin/App Manager) to create apps and manage TestFlight.',
+      ],
+      scripts: [
+        { label: 'Open Apple Developer', command: 'echo "Open: https://developer.apple.com/programs/"' },
+        { label: 'Open App Store Connect', command: 'echo "Open: https://appstoreconnect.apple.com/"' },
+      ],
+      expected: ['You can access App Store Connect.', 'Membership is active (paid).'],
+    },
+    {
+      id: 'u-ios-create-appstoreconnect-app',
+      platform,
+      environment: 'utility',
+      section: 'Stores',
+      title: 'Create the iOS app in App Store Connect (one-time)',
+      whyThisMatters: 'TestFlight needs an app record before you can distribute builds.',
+      kind: 'action',
+      skippable: platform === 'web',
+      instructions: [
+        'In App Store Connect:',
+        '1) My Apps → “+” → New App',
+        '2) Platform: iOS',
+        '3) Name: Traxettle (or your preferred name)',
+        '4) Bundle ID: com.traxettle.app',
+        '5) SKU: com.traxettle.app (or any unique string)',
+        '6) User Access: Full Access (recommended)',
+      ],
+      expected: ['The app appears under “My Apps”.'],
+    },
+    {
+      id: 'u-ios-testflight-internal',
+      platform,
+      environment: 'utility',
+      section: 'Stores',
+      title: 'TestFlight internal testing (invite your testers)',
+      whyThisMatters: 'This is the standard way to distribute iOS builds to internal testers.',
+      kind: 'action',
+      skippable: platform === 'web',
+      instructions: [
+        'In App Store Connect → Your App → TestFlight:',
+        '1) Create an Internal Testing group (or use default)',
+        '2) Add testers (up to 100 internal testers)',
+        '3) After you upload a build, select it and enable it for that group',
+        '4) Testers receive an email and install the TestFlight app to test your build',
+        '',
+        'To create a staging build for TestFlight, use Doctor → Mobile → Staging → “Build iOS STAGING”.',
+      ],
+      expected: ['Internal testers are added and can install builds via TestFlight.'],
+    },
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Google Play / Android
+    // ────────────────────────────────────────────────────────────────────────
+    {
+      id: 'u-google-play-console',
+      platform,
+      environment: 'utility',
+      section: 'Stores',
+      title: 'Google Play Console account + create Android app (one-time)',
+      whyThisMatters: 'Internal testing and Play Store releases require a Play Console account and app record.',
+      kind: 'action',
+      skippable: platform === 'web',
+      instructions: [
+        '1) Create/activate Google Play Console account ($25 one-time):',
+        '   - play.google.com/console',
+        '2) Create a new app:',
+        '   - Default language: English',
+        '   - App name: Traxettle',
+        '   - App type: App',
+        '   - Package name must be: com.traxettle.app',
+      ],
+      scripts: [{ label: 'Open Play Console', command: 'echo "Open: https://play.google.com/console"' }],
+      expected: ['The app exists in Play Console.'],
+    },
+    {
+      id: 'u-android-internal-testing',
+      platform,
+      environment: 'utility',
+      section: 'Stores',
+      title: 'Android internal testing (upload staging build + invite testers)',
+      whyThisMatters: 'Internal testing lets you distribute staging builds safely before production release.',
+      kind: 'action',
+      skippable: platform === 'web',
+      instructions: [
+        'In Play Console:',
+        '1) Go to Testing → Internal testing',
+        '2) Create a tester list (email list or Google Group)',
+        '3) Upload the AAB build when ready',
+        '4) Publish the internal testing release',
+        '5) Share the testing link with testers',
+        '',
+        'To create a staging AAB, use Doctor → Mobile → Staging → “Build Android STAGING (AAB)”.',
+      ],
+      expected: ['Testers can install the app from the internal testing link.'],
+    },
+    {
+      id: 'u-android-play-signing-fingerprints',
+      platform,
+      environment: 'utility',
+      section: 'Stores',
+      title: 'Android Play App Signing fingerprints → add to Firebase (production)',
+      whyThisMatters:
+        'If Play App Signing is enabled, Firebase must include the Play signing certificate fingerprints for Google Sign-In in production.',
+      kind: 'action',
+      skippable: platform === 'web',
+      instructions: [
+        'In Play Console:',
+        '1) Go to Setup → App integrity → App signing',
+        '2) Find the SHA-1 and SHA-256 certificate fingerprints',
+        'Then in Firebase Console (traxettle-prod project):',
+        '3) Project Settings → Your apps → Android → Add fingerprint',
+        '4) Paste SHA-1 and SHA-256',
+        '5) Re-download google-services.json and save as apps/mobile/google-services.prod.json',
+      ],
+      expected: ['Production Google Sign-In works in Play Store builds.'],
+    },
+  ];
+}
+

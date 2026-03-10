@@ -246,6 +246,19 @@ describe('EmailService', () => {
       expect(callArgs.from).toContain('team@traxettle.app');
     });
 
+    it('should set replyTo when SMTP_REPLY_TO is provided', async () => {
+      process.env.SMTP_HOST = 'smtp.example.com';
+      process.env.SMTP_FROM = 'team@traxettle.app';
+      process.env.SMTP_REPLY_TO = 'support@karkhanislabs.com';
+      sendMailMock.mockResolvedValue({ messageId: '<id>' });
+
+      const service = new EmailService();
+      await service.sendInvitationEmail(sampleEmailData);
+
+      const callArgs = sendMailMock.mock.calls[0][0];
+      expect(callArgs.replyTo).toBe('support@karkhanislabs.com');
+    });
+
     it('should return error when email sending fails', async () => {
       sendMailMock.mockRejectedValue(new Error('SMTP connection refused'));
 
@@ -303,6 +316,7 @@ describe('EmailService', () => {
       await service.sendNotificationEmail(sampleNotification);
 
       const callArgs = sendMailMock.mock.calls[0][0];
+      expect(callArgs.html).toContain('/open/event/event123');
       expect(callArgs.html).toContain('/events/event123');
       expect(callArgs.text).toContain('/events/event123');
     });
