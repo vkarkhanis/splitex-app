@@ -41,7 +41,7 @@ describe('requireAuth middleware', () => {
     await requireAuth(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Unauthorized' });
+    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Unauthorized', code: 'AUTH_MISSING' });
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -108,7 +108,7 @@ describe('requireAuth middleware', () => {
     await requireAuth(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Unauthorized' });
+    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Unauthorized', code: 'AUTH_INVALID' });
     expect(next).not.toHaveBeenCalled();
   });
 

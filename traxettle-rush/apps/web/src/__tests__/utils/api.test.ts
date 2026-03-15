@@ -114,7 +114,7 @@ describe('web api client', () => {
       json: async () => ({ success: false, error: 'Invalid input' }),
     });
 
-    await expect(api.get('/bad')).rejects.toThrow('Invalid input');
+    await expect(api.get('/bad')).rejects.toMatchObject({ message: 'Invalid input', status: 400 });
   });
 
   test('throws status fallback message when backend has no message', async () => {
@@ -130,7 +130,7 @@ describe('web api client', () => {
       json: async () => ({ success: false }),
     });
 
-    await expect(api.get('/down')).rejects.toThrow('Request failed with status 503');
+    await expect(api.get('/down')).rejects.toMatchObject({ message: 'Request failed with status 503', status: 503 });
   });
 
   test('uses cached token when firebase import fails', async () => {
@@ -211,7 +211,7 @@ describe('web api client', () => {
       json: async () => ({ success: false, message: 'not allowed' }),
     });
 
-    await expect(api.get('/business-error')).rejects.toThrow('not allowed');
+    await expect(api.get('/business-error')).rejects.toMatchObject({ message: 'not allowed', status: 200 });
   });
 
   test('uses emulator API base when local developer emulator toggle is enabled', async () => {
@@ -238,5 +238,26 @@ describe('web api client', () => {
         method: 'GET',
       }),
     );
+  });
+
+  test('dispatches auth event on 401 responses', async () => {
+    const handler = jest.fn();
+    window.addEventListener('traxettle:webAuthUnauthorized', handler as EventListener);
+
+    jest.doMock('firebase/auth', () => ({
+      getAuth: () => ({ currentUser: null }),
+    }));
+
+    const { api } = await import('../../utils/api');
+    (fetch as jest.Mock).mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ success: false, error: 'Unauthorized', code: 'AUTH_INVALID' }),
+    });
+
+    await expect(api.get('/locked')).rejects.toMatchObject({ status: 401, code: 'AUTH_INVALID' });
+    expect(handler).toHaveBeenCalled();
+
+    window.removeEventListener('traxettle:webAuthUnauthorized', handler as EventListener);
   });
 });

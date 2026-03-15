@@ -28,7 +28,7 @@ import {
   TextArea,
   useToast,
 } from '@traxettle/ui';
-import { api } from '../../../utils/api';
+import { WebApiError, api } from '../../../utils/api';
 import { useEventSocket } from '../../../hooks/useSocket';
 import { getResolvedApiBaseUrl } from '../../../config/dev-options';
 import type {
@@ -781,7 +781,11 @@ export default function EventDetailPage() {
         });
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load event');
+      if (err instanceof WebApiError && err.status === 401) {
+        setError('Your session needs to be revalidated.');
+      } else {
+        setError(err.message || 'Failed to load event');
+      }
     } finally {
       setLoading(false);
     }

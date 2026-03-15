@@ -7,13 +7,16 @@ jest.mock('../../api', () => ({
     post: jest.fn(),
   },
   setToken: jest.fn(async () => {}),
+  setTokens: jest.fn(async () => {}),
   clearToken: jest.fn(async () => {}),
+  clearTokens: jest.fn(async () => {}),
   getToken: jest.fn(async () => null),
+  registerAuthFailureHandler: jest.fn(),
 }));
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthProvider, useAuth } from '../../context/AuthContext';
-import { api, clearToken, getToken, setToken } from '../../api';
+import { api, clearTokens, getToken, setTokens } from '../../api';
 
 describe('AuthContext', () => {
   let captured: ReturnType<typeof useAuth> | null = null;
@@ -119,7 +122,7 @@ describe('AuthContext', () => {
       password: 'pass1234',
       provider: 'email',
     });
-    expect(setToken).toHaveBeenCalledWith('new-token');
+    expect(setTokens).toHaveBeenCalledWith('new-token', undefined);
     expect(captured?.user?.userId).toBe('u2');
   });
 
@@ -150,7 +153,7 @@ describe('AuthContext', () => {
       await captured?.login('u2b@test.com', 'pass1234');
     });
 
-    expect(setToken).toHaveBeenCalledWith('fallback-token');
+    expect(setTokens).toHaveBeenCalledWith('fallback-token', undefined);
     expect(captured?.user?.userId).toBe('u2b');
   });
 
@@ -170,7 +173,7 @@ describe('AuthContext', () => {
   });
 
   it('google login accepts nested token and loads profile', async () => {
-    (api.post as jest.Mock).mockResolvedValueOnce({ data: { tokens: { accessToken: 'google-token' } } });
+    (api.post as jest.Mock).mockResolvedValueOnce({ data: { tokens: { accessToken: 'google-token', refreshToken: 'google-refresh' } } });
     (getToken as jest.Mock).mockResolvedValue('google-token');
     (api.get as jest.Mock).mockResolvedValue({
       data: {
@@ -196,7 +199,7 @@ describe('AuthContext', () => {
       await captured?.loginWithGoogle('id-token');
     });
 
-    expect(setToken).toHaveBeenCalledWith('google-token');
+    expect(setTokens).toHaveBeenCalledWith('google-token', 'google-refresh');
     expect(captured?.user?.userId).toBe('u-google');
   });
 
@@ -233,7 +236,7 @@ describe('AuthContext', () => {
       displayName: 'User Three',
       provider: 'email',
     });
-    expect(setToken).toHaveBeenCalledWith('reg-token');
+    expect(setTokens).toHaveBeenCalledWith('reg-token', undefined);
     expect(captured?.user?.userId).toBe('u3');
   });
 
@@ -268,7 +271,7 @@ describe('AuthContext', () => {
       await captured?.logout();
     });
 
-    expect(clearToken).toHaveBeenCalled();
+    expect(clearTokens).toHaveBeenCalled();
     expect(captured?.user).toBeNull();
   });
 
@@ -332,7 +335,7 @@ describe('AuthContext', () => {
       email: 'stored@test.com',
       link: 'https://app.test?oobCode=abc&mode=signIn',
     });
-    expect(setToken).toHaveBeenCalledWith('link-token');
+    expect(setTokens).toHaveBeenCalledWith('link-token', undefined);
     expect(AsyncStorage.removeItem).toHaveBeenCalledWith('@traxettle_pending_email_link_email');
   });
 
@@ -615,7 +618,7 @@ describe('AuthContext', () => {
     });
     await flush();
 
-    expect(clearToken).toHaveBeenCalled();
+    expect(clearTokens).toHaveBeenCalled();
     expect(captured?.loading).toBe(false);
   });
 });

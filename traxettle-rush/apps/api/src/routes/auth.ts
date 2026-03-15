@@ -4,6 +4,7 @@ import { ApiResponse, LoginRequest, RegisterRequest, User } from '@traxettle/sha
 import { auth, db } from '../config/firebase';
 import bcrypt from 'bcryptjs';
 import { EmailService } from '../services/email.service';
+import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 
 const router: Router = Router();
 const authService = new AuthService();
@@ -392,55 +393,18 @@ router.post('/email-link/complete', async (req, res) => {
 
 // Send OTP
 router.post('/send-otp', async (req, res) => {
-  try {
-    const { phoneNumber } = req.body;
-    
-    if (!phoneNumber) {
-      return res.status(400).json({
-        success: false,
-        error: 'Phone number is required'
-      } as ApiResponse);
-    }
-
-    const otp = await authService.signInWithPhone(phoneNumber);
-    
-    res.json({
-      success: true,
-      data: { message: 'OTP sent successfully', otp } // Only in development
-    } as ApiResponse);
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: 'Failed to send OTP'
-    } as ApiResponse);
-  }
+  return res.status(410).json({
+    success: false,
+    error: 'Phone OTP sign-in is not available in phase 1'
+  } as ApiResponse);
 });
 
 // Verify OTP
 router.post('/verify-otp', async (req, res) => {
-  try {
-    const { phoneNumber, otp } = req.body;
-    
-    if (!phoneNumber || !otp) {
-      return res.status(400).json({
-        success: false,
-        error: 'Phone number and OTP are required'
-      } as ApiResponse);
-    }
-
-    const user = await authService.verifyOTP(phoneNumber, otp);
-    const tokens = await authService.generateTokens(user);
-    
-    res.json({
-      success: true,
-      data: { user, tokens }
-    } as ApiResponse);
-  } catch (error) {
-    res.status(401).json({
-      success: false,
-      error: 'Invalid OTP'
-    } as ApiResponse);
-  }
+  return res.status(410).json({
+    success: false,
+    error: 'Phone OTP sign-in is not available in phase 1'
+  } as ApiResponse);
 });
 
 // Google Sign-In
@@ -477,29 +441,10 @@ router.post('/google', async (req, res) => {
 
 // Microsoft Sign-In
 router.post('/microsoft', async (req, res) => {
-  try {
-    const { token } = req.body;
-    
-    if (!token) {
-      return res.status(400).json({
-        success: false,
-        error: 'Microsoft token is required'
-      } as ApiResponse);
-    }
-
-    const user = await authService.signInWithMicrosoft(token);
-    const tokens = await authService.generateTokens(user);
-    
-    res.json({
-      success: true,
-      data: { user, tokens }
-    } as ApiResponse);
-  } catch (error) {
-    res.status(401).json({
-      success: false,
-      error: 'Microsoft sign-in failed'
-    } as ApiResponse);
-  }
+  return res.status(410).json({
+    success: false,
+    error: 'Microsoft sign-in is not available in phase 1'
+  } as ApiResponse);
 });
 
 // Refresh Token
@@ -518,29 +463,26 @@ router.post('/refresh', async (req, res) => {
     
     res.json({
       success: true,
-      data: { tokens }
+      data: {
+        tokens,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        token: tokens.accessToken,
+      }
     } as ApiResponse);
   } catch (error) {
     res.status(401).json({
       success: false,
-      error: 'Invalid refresh token'
+      error: 'Invalid refresh token',
+      code: 'AUTH_REFRESH_INVALID',
     } as ApiResponse);
   }
 });
 
 // Logout
-router.post('/logout', async (req, res) => {
+router.post('/logout', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    const { userId } = req.body;
-    
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: 'User ID is required'
-      } as ApiResponse);
-    }
-
-    await authService.logout(userId);
+    await authService.logout(req.user!.uid, req.user!.sessionId);
     
     res.json({
       success: true,

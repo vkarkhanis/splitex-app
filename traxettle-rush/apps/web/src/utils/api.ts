@@ -1,5 +1,21 @@
 import { getResolvedApiBaseUrl } from '../config/dev-options';
 
+export class WebApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+function dispatchUnauthorized(error: WebApiError) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('traxettle:webAuthUnauthorized', { detail: error }));
+}
+
 async function getFreshToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
   try {
@@ -60,7 +76,15 @@ async function request<T = any>(
   const json = await res.json().catch(() => ({}));
 
   if (!res.ok || !json.success) {
-    throw new Error(json.error || json.message || `Request failed with status ${res.status}`);
+    const error = new WebApiError(
+      json.error || json.message || `Request failed with status ${res.status}`,
+      res.status,
+      json.code,
+    );
+    if (res.status === 401) {
+      dispatchUnauthorized(error);
+    }
+    throw error;
   }
 
   return json;

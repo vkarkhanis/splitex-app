@@ -1,8 +1,23 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Linking } from 'react-native';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { AppState, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api, setToken, clearToken, getToken } from '../api';
+import {
+  api,
+  setTokens,
+  clearTokens,
+  getToken,
+  getResolvedApiBaseUrl,
+  registerAuthFailureHandler,
+} from '../api';
 import { ENV, isLocalLikeEnv } from '../config/env';
+import {
+  getLocalUnlockState,
+  hasStoredPin,
+  isBiometricSupported,
+  saveLocalUnlockPreferences,
+  tryBiometricUnlock,
+  verifyPin,
+} from '../services/local-session';
 
 interface AuthUser {
   userId: string;
@@ -21,6 +36,10 @@ interface AuthContextType {
   capabilities: AuthCapabilities;
   internalTester: boolean;
   preferredCurrency: string;
+  sessionLocked: boolean;
+  pinSetupRequired: boolean;
+  biometricsAvailable: boolean;
+  biometricsEnabled: boolean;
   login: (email: string, password: string) => Promise<void>;
   sendEmailLinkSignIn: (email: string) => Promise<void>;
   completeEmailLinkSignIn: (url: string, email?: string) => Promise<void>;
@@ -29,6 +48,10 @@ interface AuthContextType {
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   switchTier: (tier: 'free' | 'pro') => Promise<void>;
+  setupPin: (pin: string, enableBiometrics: boolean) => Promise<void>;
+  unlockWithPin: (pin: string) => Promise<boolean>;
+  unlockWithBiometrics: () => Promise<boolean>;
+  lockSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -38,6 +61,10 @@ const AuthContext = createContext<AuthContextType>({
   capabilities: { multiCurrencySettlement: false },
   internalTester: false,
   preferredCurrency: 'USD',
+  sessionLocked: false,
+  pinSetupRequired: false,
+  biometricsAvailable: false,
+  biometricsEnabled: false,
   login: async () => {},
   sendEmailLinkSignIn: async () => {},
   completeEmailLinkSignIn: async () => {},
@@ -46,6 +73,10 @@ const AuthContext = createContext<AuthContextType>({
   logout: async () => {},
   refreshProfile: async () => {},
   switchTier: async () => {},
+  setupPin: async () => {},
+  unlockWithPin: async () => false,
+  unlockWithBiometrics: async () => false,
+  lockSession: () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -66,6 +97,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [internalTester, setInternalTester] = useState(false);
   const [preferredCurrency, setPreferredCurrency] = useState('USD');
+  const [sessionLocked, setSessionLocked] = useState(false);
+  const [pinSetupRequired, setPinSetupRequired] = useState(false);
+  const [biometricsAvailable, setBiometricsAvailable] = useState(false);
+  const [biometricsEnabled, setBiometricsEnabled] = useState(false);
+  const backgroundedAtRef = useRef<number | null>(null);
 
   const applyProfile = useCallback((data: any) => {
     setUser({ userId: data.userId, email: data.email, displayName: data.displayName });
@@ -99,6 +135,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     applyProfile(data);
   }, [applyProfile]);
 
+  const syncLocalUnlockState = useCallback(async () => {
+    const [supported, pinStored, localState] = await Promise.all([
+      isBiometricSupported(),
+      hasStoredPin(),
+      getLocalUnlockState(),
+    ]);
+    setBiometricsAvailable(supported);
+    setBiometricsEnabled(localState.biometricsEnabled && supported);
+    setPinSetupRequired(Boolean(user) && !pinStored);
+    if (!user) {
+      setSessionLocked(false);
+    }
+  }, [user]);
+
   const loadUser = useCallback(async () => {
     try {
       const token = await getToken();
@@ -111,13 +161,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw fetchErr;
       }
     } catch {
-      await clearToken();
+      await clearTokens();
     } finally {
       setLoading(false);
     }
   }, [applyProfile]);
 
   useEffect(() => { loadUser(); }, [loadUser]);
+  useEffect(() => { syncLocalUnlockState().catch(() => {}); }, [syncLocalUnlockState]);
 
   const login = async (email: string, password: string) => {
     const { data } = await api.post('/api/auth/login', {
@@ -125,7 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       password,
       provider: 'email',
     });
-    await setToken(data.accessToken || data.token);
+    await setTokens(data.accessToken || data.token, data.refreshToken || data.tokens?.refreshToken);
     await loadUser();
   };
 
@@ -146,7 +197,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const token = data.tokens?.accessToken || data.accessToken || data.token;
     if (!token) throw new Error('No token received from server');
 
-    await setToken(token);
+    await setTokens(token, data.refreshToken || data.tokens?.refreshToken);
     await AsyncStorage.removeItem(EMAIL_LINK_PENDING_EMAIL_KEY);
     await loadUser();
   }, [loadUser]);
@@ -156,7 +207,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { data } = await api.post('/api/auth/google', { token: idToken });
       const token = data.tokens?.accessToken || data.accessToken || data.token;
       if (!token) throw new Error('No token received from server');
-      await setToken(token);
+      await setTokens(token, data.refreshToken || data.tokens?.refreshToken);
       await loadUser();
     } catch (err: any) {
       throw err;
@@ -170,18 +221,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       displayName,
       provider: 'email',
     });
-    await setToken(data.accessToken || data.token);
+    await setTokens(data.accessToken || data.token, data.refreshToken || data.tokens?.refreshToken);
     await loadUser();
   };
 
-  const logout = async () => {
-    await clearToken();
+  const logout = useCallback(async () => {
+    const token = await getToken();
+    if (token) {
+      try {
+        const apiBase = await getResolvedApiBaseUrl();
+        await fetch(`${apiBase}/api/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      } catch {
+        // Best-effort server logout
+      }
+    }
+
+    await clearTokens();
     setUser(null);
     setTier('free');
     setCapabilities({ multiCurrencySettlement: false });
     setInternalTester(false);
     setPreferredCurrency('USD');
-  };
+    setSessionLocked(false);
+    setPinSetupRequired(false);
+    setBiometricsEnabled(false);
+    backgroundedAtRef.current = null;
+  }, []);
 
   const switchTier = async (nextTier: 'free' | 'pro') => {
     await api.post('/api/internal/entitlements/switch', { tier: nextTier });
@@ -211,6 +282,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [completeEmailLinkSignIn]);
 
+  useEffect(() => {
+    registerAuthFailureHandler(async (error) => {
+      if (error.status !== 401) return;
+      await logout();
+    });
+    return () => registerAuthFailureHandler(null);
+  }, [logout]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background' || state === 'inactive') {
+        backgroundedAtRef.current = Date.now();
+        return;
+      }
+
+      if (state === 'active' && user) {
+        const backgroundedAt = backgroundedAtRef.current;
+        backgroundedAtRef.current = null;
+        if (backgroundedAt && Date.now() - backgroundedAt >= 5 * 60 * 1000) {
+          setSessionLocked(true);
+        }
+      }
+    });
+
+    return () => sub.remove();
+  }, [user]);
+
+  const setupPin = useCallback(async (pin: string, enableBiometrics: boolean) => {
+    await saveLocalUnlockPreferences(pin, enableBiometrics);
+    setPinSetupRequired(false);
+    setSessionLocked(false);
+    await syncLocalUnlockState();
+  }, [syncLocalUnlockState]);
+
+  const unlockWithPin = useCallback(async (pin: string) => {
+    const ok = await verifyPin(pin);
+    if (ok) {
+      setSessionLocked(false);
+    }
+    return ok;
+  }, []);
+
+  const unlockWithBiometrics = useCallback(async () => {
+    const ok = await tryBiometricUnlock();
+    if (ok) {
+      setSessionLocked(false);
+    }
+    return ok;
+  }, []);
+
+  const lockSession = useCallback(() => {
+    if (user) {
+      setSessionLocked(true);
+    }
+  }, [user]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -220,6 +347,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         capabilities,
         internalTester,
         preferredCurrency,
+        sessionLocked,
+        pinSetupRequired,
+        biometricsAvailable,
+        biometricsEnabled,
         login,
         sendEmailLinkSignIn,
         completeEmailLinkSignIn,
@@ -228,6 +359,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         refreshProfile,
         switchTier,
+        setupPin,
+        unlockWithPin,
+        unlockWithBiometrics,
+        lockSession,
       }}
     >
       {children}

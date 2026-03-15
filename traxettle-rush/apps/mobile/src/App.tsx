@@ -41,6 +41,8 @@ import ClosedEventsScreen from './screens/ClosedEventsScreen';
 import HelpScreen from './screens/HelpScreen';
 import AnalyticsScreen from './screens/AnalyticsScreen';
 import UnsettledPaymentsScreen from './screens/UnsettledPaymentsScreen';
+import SetupPinScreen from './screens/SetupPinScreen';
+import UnlockScreen from './screens/UnlockScreen';
 
 const Stack = createNativeStackNavigator();
 const CAMERA_PERMISSION_BOOTSTRAP_KEY = '@traxettle_camera_permission_prompted';
@@ -137,7 +139,7 @@ function AppStack() {
 }
 
 function RootNavigator() {
-  const { user, loading } = useAuth();
+  const { user, loading, pinSetupRequired, sessionLocked } = useAuth();
   const { theme } = useTheme();
 
   if (loading) {
@@ -146,6 +148,14 @@ function RootNavigator() {
         <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
+  }
+
+  if (user && pinSetupRequired) {
+    return <SetupPinScreen />;
+  }
+
+  if (user && sessionLocked) {
+    return <UnlockScreen />;
   }
 
   return user ? <AppStack /> : <AuthStack />;

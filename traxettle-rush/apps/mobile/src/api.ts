@@ -2,8 +2,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ENV, getApiUrl, getEmulatorApiUrl, isLocalLikeEnv } from './config/env';
 
 const TOKEN_KEY = '@traxettle_token';
+const REFRESH_TOKEN_KEY = '@traxettle_refresh_token';
 const FIREBASE_EMULATOR_KEY = '@traxettle_dev_firebase_emulator';
 const STAGING_MODE_KEY = '@traxettle_staging_mode';
+
+type AuthFailureHandler = (error: ApiRequestError) => void | Promise<void>;
+
+let authFailureHandler: AuthFailureHandler | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
 
 export class ApiRequestError extends Error {
   status: number;
@@ -26,8 +32,34 @@ export async function setToken(token: string): Promise<void> {
   return AsyncStorage.setItem(TOKEN_KEY, token);
 }
 
+export async function getRefreshToken(): Promise<string | null> {
+  return AsyncStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+export async function setRefreshToken(token: string): Promise<void> {
+  return AsyncStorage.setItem(REFRESH_TOKEN_KEY, token);
+}
+
+export async function setTokens(accessToken: string, refreshToken?: string | null): Promise<void> {
+  await setToken(accessToken);
+  if (refreshToken) {
+    await setRefreshToken(refreshToken);
+  }
+}
+
 export async function clearToken(): Promise<void> {
   return AsyncStorage.removeItem(TOKEN_KEY);
+}
+
+export async function clearTokens(): Promise<void> {
+  await Promise.all([
+    AsyncStorage.removeItem(TOKEN_KEY),
+    AsyncStorage.removeItem(REFRESH_TOKEN_KEY),
+  ]);
+}
+
+export function registerAuthFailureHandler(handler: AuthFailureHandler | null): void {
+  authFailureHandler = handler;
 }
 
 export async function isFirebaseEmulatorEnabled(): Promise<boolean> {
@@ -69,6 +101,7 @@ export async function getResolvedApiBaseUrl(): Promise<string> {
 async function request<T = any>(
   path: string,
   options: RequestInit = {},
+  allowAuthRetry = true,
 ): Promise<{ data: T; status: number }> {
   const token = await getToken();
   const headers: Record<string, string> = {
@@ -112,12 +145,62 @@ async function request<T = any>(
 
   const json = await res.json().catch(() => ({}));
 
+  if (res.status === 401 && allowAuthRetry && path !== '/api/auth/refresh') {
+    const refreshedToken = await refreshAccessToken();
+    if (refreshedToken) {
+      return request<T>(path, options, false);
+    }
+  }
+
   if (!res.ok) {
     const msg = json?.error || json?.message || `Request failed (${res.status})`;
-    throw new ApiRequestError(msg, res.status, json?.code, json?.feature);
+    const error = new ApiRequestError(msg, res.status, json?.code, json?.feature);
+    if (res.status === 401 && authFailureHandler) {
+      await authFailureHandler(error);
+    }
+    throw error;
   }
 
   return { data: json.data ?? json, status: res.status };
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    const refreshToken = await getRefreshToken();
+    if (!refreshToken) return null;
+
+    const apiBase = await getResolvedApiBaseUrl();
+    try {
+      const res = await fetch(`${apiBase}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        await clearTokens();
+        return null;
+      }
+
+      const nextAccessToken = json?.data?.tokens?.accessToken || json?.data?.accessToken || json?.data?.token;
+      const nextRefreshToken = json?.data?.tokens?.refreshToken || json?.data?.refreshToken || refreshToken;
+      if (!nextAccessToken) {
+        await clearTokens();
+        return null;
+      }
+
+      await setTokens(nextAccessToken, nextRefreshToken);
+      return nextAccessToken;
+    } catch {
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
 }
 
 export const api = {

@@ -38,6 +38,18 @@ name: Auth and Profile Smoke
 - pressKey: Enter
 - extendedWaitUntil:
     visible:
+      id: "setup-pin-input"
+    timeout: 10000
+- tapOn:
+    id: "setup-pin-input"
+- inputText: "1234"
+- tapOn:
+    id: "setup-pin-confirm-input"
+- inputText: "1234"
+- tapOn:
+    id: "setup-pin-submit-button"
+- extendedWaitUntil:
+    visible:
       id: "dashboard-create-event-button"
     timeout: 30000
 - tapOn:
