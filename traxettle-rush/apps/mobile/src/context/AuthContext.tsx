@@ -151,7 +151,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadUser = useCallback(async () => {
     try {
-      const token = await getToken();
+      let token = await getToken();
+      if (!token) {
+        try {
+          const { getAuth } = await import('firebase/auth');
+          const auth = getAuth();
+          if (auth.currentUser) {
+            token = await auth.currentUser.getIdToken();
+            await setTokens(token, null);
+          }
+        } catch {
+          // Ignore Firebase lookup errors and fall back to signed-out state.
+        }
+      }
       if (!token) { setLoading(false); return; }
 
       try {
@@ -171,12 +183,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => { syncLocalUnlockState().catch(() => {}); }, [syncLocalUnlockState]);
 
   const login = async (email: string, password: string) => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const {
+      fetchSignInMethodsForEmail,
+      getAuth,
+      signInWithCustomToken,
+      signInWithEmailAndPassword,
+    } = await import('firebase/auth');
+    const auth = getAuth();
+
+    try {
+      const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+      const idToken = await credential.user.getIdToken();
+      await setTokens(idToken, null);
+      await loadUser();
+      return;
+    } catch (firebaseError: any) {
+      try {
+        const methods: string[] = await fetchSignInMethodsForEmail(auth, normalizedEmail);
+        if (methods.includes('google.com') && !methods.includes('password')) {
+          throw new Error('This account uses Google sign-in. Sign in with Google or set a password first.');
+        }
+        if (methods.includes('password')) {
+          throw firebaseError;
+        }
+      } catch (providerError) {
+        if (providerError instanceof Error && providerError.message.includes('Google sign-in')) {
+          throw providerError;
+        }
+      }
+    }
+
     const { data } = await api.post('/api/auth/login', {
-      identifier: email,
+      identifier: normalizedEmail,
       password,
       provider: 'email',
     });
-    await setTokens(data.accessToken || data.token, data.refreshToken || data.tokens?.refreshToken);
+    const firebaseCustomToken = data.firebaseCustomToken as string | undefined;
+    if (!firebaseCustomToken) {
+      throw new Error('Unable to establish a secure session. Please try again.');
+    }
+    const credential = await signInWithCustomToken(auth, firebaseCustomToken);
+    const idToken = await credential.user.getIdToken();
+    await setTokens(idToken, null);
     await loadUser();
   };
 
@@ -193,35 +242,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error('Enter your email first, then tap the sign-in link from your inbox.');
     }
 
-    const { data } = await api.post('/api/auth/email-link/complete', { email, link: url });
-    const token = data.tokens?.accessToken || data.accessToken || data.token;
-    if (!token) throw new Error('No token received from server');
-
-    await setTokens(token, data.refreshToken || data.tokens?.refreshToken);
+    const { getAuth, signInWithEmailLink } = await import('firebase/auth');
+    const auth = getAuth();
+    const credential = await signInWithEmailLink(auth, email, url);
+    const token = await credential.user.getIdToken(true);
+    await setTokens(token, null);
     await AsyncStorage.removeItem(EMAIL_LINK_PENDING_EMAIL_KEY);
     await loadUser();
   }, [loadUser]);
 
   const loginWithGoogle = async (idToken: string) => {
-    try {
-      const { data } = await api.post('/api/auth/google', { token: idToken });
-      const token = data.tokens?.accessToken || data.accessToken || data.token;
-      if (!token) throw new Error('No token received from server');
-      await setTokens(token, data.refreshToken || data.tokens?.refreshToken);
-      await loadUser();
-    } catch (err: any) {
-      throw err;
+    const { getAuth, signInWithCustomToken } = await import('firebase/auth');
+    const auth = getAuth();
+    const { data } = await api.post('/api/auth/google', { token: idToken });
+    const firebaseCustomToken = data.firebaseCustomToken as string | undefined;
+    if (!firebaseCustomToken) {
+      throw new Error('No Firebase session received from server');
     }
+    const credential = await signInWithCustomToken(auth, firebaseCustomToken);
+    const token = await credential.user.getIdToken();
+    await setTokens(token, null);
+    await loadUser();
   };
 
   const register = async (email: string, password: string, displayName: string) => {
-    const { data } = await api.post('/api/auth/register', {
-      email,
-      password,
-      displayName,
-      provider: 'email',
-    });
-    await setTokens(data.accessToken || data.token, data.refreshToken || data.tokens?.refreshToken);
+    const normalizedEmail = email.trim().toLowerCase();
+    const {
+      createUserWithEmailAndPassword,
+      fetchSignInMethodsForEmail,
+      getAuth,
+      updateProfile,
+    } = await import('firebase/auth');
+    const auth = getAuth();
+
+    try {
+      const credential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+      if (displayName.trim()) {
+        await updateProfile(credential.user, { displayName: displayName.trim() });
+      }
+      const token = await credential.user.getIdToken(true);
+      await setTokens(token, null);
+    } catch (error: any) {
+      if (error?.code === 'auth/email-already-in-use') {
+        const methods: string[] = await fetchSignInMethodsForEmail(auth, normalizedEmail).catch(() => [] as string[]);
+        if (methods.includes('google.com') && !methods.includes('password')) {
+          throw new Error('This email is already registered with Google. Sign in with Google or set a password first.');
+        }
+      }
+      throw error;
+    }
+
     await loadUser();
   };
 
@@ -240,6 +310,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch {
         // Best-effort server logout
       }
+    }
+
+    try {
+      const { getAuth, signOut } = await import('firebase/auth');
+      await signOut(getAuth());
+    } catch {
+      // Ignore Firebase sign-out failures during local cleanup.
     }
 
     await clearTokens();

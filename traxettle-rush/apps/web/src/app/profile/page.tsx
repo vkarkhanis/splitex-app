@@ -37,6 +37,8 @@ type UserProfile = {
   email: string;
   phoneNumber?: string;
   photoURL?: string;
+  authProviders?: ('email' | 'google' | 'microsoft' | 'phone')[];
+  hasPassword?: boolean;
   tier: 'free' | 'pro';
   internalTester?: boolean;
   capabilities?: {
@@ -136,6 +138,10 @@ export default function ProfilePage() {
     details: '',
   });
   const [methodsLoading, setMethodsLoading] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   // Get a fresh Firebase ID token from the current user
   const getFreshToken = useCallback(async (): Promise<string | null> => {
@@ -469,6 +475,117 @@ export default function ProfilePage() {
     return () => window.removeEventListener('traxettle:tierUpdated', handler);
   }, [apiBaseUrl, getFreshToken]);
 
+  const providerLabels = (profile?.authProviders || []).map((provider) => {
+    if (provider === 'email') return 'Email/password';
+    if (provider === 'google') return 'Google';
+    if (provider === 'phone') return 'Phone';
+    return 'Microsoft';
+  });
+
+  const ensureFirebaseSession = useCallback(async (passwordHint?: string) => {
+    const services = getFirebaseServices();
+    if (services.auth.currentUser) {
+      return services.auth.currentUser;
+    }
+
+    const existingToken = typeof window !== 'undefined' ? window.localStorage.getItem('traxettle.authToken') : null;
+    if (!existingToken) {
+      throw new Error('Please sign in again to manage your password.');
+    }
+
+    const resp = await fetch(`${apiBaseUrl}/api/auth/bootstrap-firebase`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${existingToken}`,
+      },
+      body: JSON.stringify(passwordHint ? { password: passwordHint } : {}),
+    });
+    const json = (await resp.json()) as ApiResponse<{ firebaseCustomToken: string }>;
+    if (!resp.ok || !json.success || !json.data?.firebaseCustomToken) {
+      throw new Error(json.error || 'Please sign in again to continue.');
+    }
+
+    const { signInWithCustomToken } = await import('firebase/auth');
+    const credential = await signInWithCustomToken(services.auth, json.data.firebaseCustomToken);
+    const idToken = await credential.user.getIdToken(true);
+    window.localStorage.setItem('traxettle.authToken', idToken);
+    window.localStorage.setItem('traxettle.uid', credential.user.uid);
+    window.dispatchEvent(new Event('traxettle:authChange'));
+    return credential.user;
+  }, [apiBaseUrl]);
+
+  const handlePasswordSave = async () => {
+    if (!profile) return;
+    if (!newPassword || !confirmPassword) {
+      push({ type: 'error', title: 'Missing fields', message: 'Enter and confirm your new password.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      push({ type: 'error', title: 'Passwords do not match', message: 'Your confirmation password must match.' });
+      return;
+    }
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(newPassword)) {
+      push({
+        type: 'error',
+        title: 'Weak password',
+        message: 'Use at least 8 characters with uppercase, lowercase, and a number.',
+      });
+      return;
+    }
+    if (profile.hasPassword && !currentPassword) {
+      push({ type: 'error', title: 'Current password required', message: 'Enter your current password to continue.' });
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      const {
+        EmailAuthProvider,
+        GoogleAuthProvider,
+        linkWithCredential,
+        reauthenticateWithCredential,
+        reauthenticateWithPopup,
+        updatePassword,
+      } = await import('firebase/auth');
+      const firebaseUser = await ensureFirebaseSession(profile.hasPassword ? currentPassword : undefined);
+
+      if (profile.hasPassword) {
+        const credential = EmailAuthProvider.credential(profile.email, currentPassword);
+        await reauthenticateWithCredential(firebaseUser, credential);
+        await updatePassword(firebaseUser, newPassword);
+      } else {
+        if (profile.authProviders?.includes('google')) {
+          await reauthenticateWithPopup(firebaseUser, new GoogleAuthProvider());
+        }
+        const credential = EmailAuthProvider.credential(profile.email, newPassword);
+        await linkWithCredential(firebaseUser, credential);
+      }
+
+      const freshToken = await firebaseUser.getIdToken(true);
+      await fetch(`${apiBaseUrl}/api/auth/revoke-sessions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${freshToken}` },
+      });
+
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      push({
+        type: 'success',
+        title: profile.hasPassword ? 'Password changed' : 'Password set',
+        message: 'Please sign in again with your updated credentials.',
+      });
+      await handleSignOut();
+    } catch (e: unknown) {
+      const friendly = toUserFriendlyError(e);
+      setError(friendly);
+      push({ type: 'error', title: 'Password update failed', message: friendly });
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   return (
     <Page>
       <Container>
@@ -689,6 +806,69 @@ export default function ProfilePage() {
                     </Field>
                   </Row>
                 )}
+
+                <Field>
+                  <Label>Security</Label>
+                  <MethodBox>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>Sign-in methods</div>
+                    <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
+                      {providerLabels.length > 0 ? providerLabels.join(', ') : 'Unknown'}
+                    </div>
+                    <div style={{ fontSize: 12, marginTop: 10 }}>
+                      {profile.hasPassword
+                        ? 'Change your password with a recent-password check. This signs out all active sessions for safety.'
+                        : 'Set a password so you can sign in with email/password in addition to your current provider.'}
+                    </div>
+                    <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
+                      {profile.hasPassword && (
+                        <Field>
+                          <Label htmlFor="currentPassword">Current password</Label>
+                          <Input
+                            id="currentPassword"
+                            type="password"
+                            value={currentPassword}
+                            onChange={(e) => setCurrentPassword(e.target.value)}
+                            disabled={passwordSaving}
+                          />
+                        </Field>
+                      )}
+                      <Field>
+                        <Label htmlFor="newPassword">{profile.hasPassword ? 'New password' : 'Set password'}</Label>
+                        <Input
+                          id="newPassword"
+                          type="password"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          disabled={passwordSaving}
+                        />
+                      </Field>
+                      <Field>
+                        <Label htmlFor="confirmPassword">Confirm password</Label>
+                        <Input
+                          id="confirmPassword"
+                          type="password"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          disabled={passwordSaving}
+                        />
+                      </Field>
+                    </div>
+                    <InlineActions>
+                      <Button type="button" $variant="primary" onClick={handlePasswordSave} disabled={passwordSaving}>
+                        {passwordSaving
+                          ? 'Saving…'
+                          : profile.hasPassword
+                            ? 'Change Password'
+                            : 'Set Password'}
+                      </Button>
+                      {profile.hasPassword && (
+                        <Button type="button" $variant="outline" onClick={() => router.push('/auth/forgot-password')} disabled={passwordSaving}>
+                          Forgot Password
+                        </Button>
+                      )}
+                    </InlineActions>
+                  </MethodBox>
+                </Field>
 
                 <Field>
                   <Label>Payment Methods</Label>

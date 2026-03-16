@@ -107,9 +107,18 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const { signInWithEmailAndPassword } = await import('firebase/auth');
+      const { fetchSignInMethodsForEmail, signInWithEmailAndPassword } = await import('firebase/auth');
       const services = getFirebaseServices();
-      const result = await signInWithEmailAndPassword(services.auth, email, password);
+      let result;
+      try {
+        result = await signInWithEmailAndPassword(services.auth, email, password);
+      } catch (err: unknown) {
+        const methods: string[] = await fetchSignInMethodsForEmail(services.auth, email.trim().toLowerCase()).catch(() => [] as string[]);
+        if (methods.includes('google.com') && !methods.includes('password')) {
+          throw new Error('This account uses Google sign-in. Sign in with Google or set a password first.');
+        }
+        throw err;
+      }
 
       const idToken = await result.user.getIdToken();
       localStorage.setItem('traxettle.authToken', idToken);

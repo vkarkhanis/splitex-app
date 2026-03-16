@@ -41,6 +41,37 @@ function extractOobCode(link?: string, code?: string): string | undefined {
   }
 }
 
+async function ensureFirebaseUser(params: {
+  uid: string;
+  email?: string;
+  displayName?: string;
+  password?: string;
+}): Promise<void> {
+  const { uid, email, displayName, password } = params;
+  try {
+    const existing = await auth.getUser(uid);
+    const updates: Record<string, unknown> = {};
+    if (email && existing.email !== email) updates.email = email;
+    if (displayName && existing.displayName !== displayName) updates.displayName = displayName;
+    if (password) updates.password = password;
+    if (Object.keys(updates).length > 0) {
+      await auth.updateUser(uid, updates);
+    }
+    return;
+  } catch (error: any) {
+    if (error?.code !== 'auth/user-not-found') {
+      throw error;
+    }
+  }
+
+  await auth.createUser({
+    uid,
+    email,
+    displayName,
+    ...(password ? { password } : {}),
+  });
+}
+
 async function upsertEmailUserFromFirebase(uid: string, email: string, displayName?: string): Promise<User> {
   const now = new Date().toISOString();
   const userRef = db.collection('users').doc(uid);
@@ -151,13 +182,22 @@ router.post('/register', async (req, res) => {
       updatedAt: now
     });
 
+    await ensureFirebaseUser({
+      uid: userId,
+      email: normalizedEmail,
+      displayName: displayName.trim(),
+      password,
+    });
+
     const tokens = await authService.generateTokens(user);
+    const firebaseCustomToken = await auth.createCustomToken(userId);
 
     return res.json({
       success: true,
       data: {
         user,
         tokens,
+        firebaseCustomToken,
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         token: tokens.accessToken
@@ -239,12 +279,20 @@ router.post('/login', async (req, res) => {
     };
 
     const tokens = await authService.generateTokens(user);
+    await ensureFirebaseUser({
+      uid: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      password,
+    });
+    const firebaseCustomToken = await auth.createCustomToken(user.id);
 
     return res.json({
       success: true,
       data: {
         user,
         tokens,
+        firebaseCustomToken,
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         token: tokens.accessToken
@@ -421,10 +469,16 @@ router.post('/google', async (req, res) => {
 
     const user = await authService.signInWithGoogle(token);
     const tokens = await authService.generateTokens(user);
+    await ensureFirebaseUser({
+      uid: user.id,
+      email: user.email,
+      displayName: user.displayName,
+    });
+    const firebaseCustomToken = await auth.createCustomToken(user.id);
     
     res.json({
       success: true,
-      data: { user, tokens }
+      data: { user, tokens, firebaseCustomToken }
     } as ApiResponse);
   } catch (error: any) {
     const detail = error?.message || 'Google sign-in failed';
@@ -435,6 +489,39 @@ router.post('/google', async (req, res) => {
     res.status(401).json({
       success: false,
       error: includeDetail ? detail : 'Google sign-in failed'
+    } as ApiResponse);
+  }
+});
+
+router.post('/bootstrap-firebase', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const userRef = db.collection('users').doc(req.user!.uid);
+    const snap = await userRef.get();
+    const data = snap.exists ? (snap.data() || {}) : {};
+    const password = typeof req.body?.password === 'string' && req.body.password ? req.body.password : undefined;
+
+    const email = typeof data.email === 'string' ? data.email : req.user?.email;
+    const displayName =
+      typeof data.displayName === 'string' && data.displayName
+        ? data.displayName
+        : req.user?.name || email || 'User';
+
+    await ensureFirebaseUser({
+      uid: req.user!.uid,
+      email,
+      displayName,
+      password,
+    });
+    const firebaseCustomToken = await auth.createCustomToken(req.user!.uid);
+
+    return res.json({
+      success: true,
+      data: { firebaseCustomToken }
+    } as ApiResponse);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to bootstrap Firebase session'
     } as ApiResponse);
   }
 });
@@ -492,6 +579,22 @@ router.post('/logout', requireAuth, async (req: AuthenticatedRequest, res) => {
     res.status(500).json({
       success: false,
       error: 'Logout failed'
+    } as ApiResponse);
+  }
+});
+
+router.post('/revoke-sessions', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    await authService.logout(req.user!.uid);
+
+    return res.json({
+      success: true,
+      data: { message: 'All sessions revoked successfully' }
+    } as ApiResponse);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to revoke sessions'
     } as ApiResponse);
   }
 });

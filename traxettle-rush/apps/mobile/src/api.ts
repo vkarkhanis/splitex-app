@@ -44,6 +44,8 @@ export async function setTokens(accessToken: string, refreshToken?: string | nul
   await setToken(accessToken);
   if (refreshToken) {
     await setRefreshToken(refreshToken);
+  } else {
+    await AsyncStorage.removeItem(REFRESH_TOKEN_KEY);
   }
 }
 
@@ -168,6 +170,20 @@ async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
 
   refreshInFlight = (async () => {
+    try {
+      const [{ getAuth }] = await Promise.all([import('firebase/auth')]);
+      const auth = getAuth();
+      if (auth.currentUser) {
+        const firebaseToken = await auth.currentUser.getIdToken(true);
+        if (firebaseToken) {
+          await setTokens(firebaseToken, null);
+          return firebaseToken;
+        }
+      }
+    } catch {
+      // Fall back to legacy refresh-token flow if Firebase session refresh is unavailable.
+    }
+
     const refreshToken = await getRefreshToken();
     if (!refreshToken) return null;
 

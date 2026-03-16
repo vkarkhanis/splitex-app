@@ -22,6 +22,7 @@ import {
   getResolvedApiBaseUrl,
   isFirebaseEmulatorEnabled,
   isStagingModeEnabled,
+  setTokens,
   setFirebaseEmulatorEnabled,
   setStagingModeEnabled,
 } from '../api';
@@ -46,6 +47,8 @@ interface UserProfile {
   email: string;
   phoneNumber?: string;
   photoURL?: string;
+  authProviders?: ('email' | 'google' | 'microsoft' | 'phone')[];
+  hasPassword?: boolean;
   tier: 'free' | 'pro';
   internalTester?: boolean;
   capabilities?: {
@@ -87,6 +90,10 @@ export default function ProfileScreen({ navigation }: any) {
   const [methodType, setMethodType] = useState<PaymentMethodType>('bank');
   const [methodDetails, setMethodDetails] = useState('');
   const [methodsLoading, setMethodsLoading] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -337,6 +344,101 @@ export default function ProfileScreen({ navigation }: any) {
     });
   };
 
+  const ensureFirebaseSecurityUser = async (passwordHint?: string) => {
+    const { getAuth, signInWithCustomToken } = await import('firebase/auth');
+    const auth = getAuth();
+    if (auth.currentUser) return auth.currentUser;
+
+    const response = await api.post<{ firebaseCustomToken: string }>('/api/auth/bootstrap-firebase', passwordHint ? { password: passwordHint } : {});
+    const firebaseCustomToken = response.data?.firebaseCustomToken;
+    if (!firebaseCustomToken) {
+      throw new Error('Please sign in again to manage your password.');
+    }
+
+    const credential = await signInWithCustomToken(auth, firebaseCustomToken);
+    const idToken = await credential.user.getIdToken(true);
+    await setTokens(idToken, null);
+    return credential.user;
+  };
+
+  const providerLabels = (profile?.authProviders || []).map((provider) => {
+    if (provider === 'email') return 'Email/password';
+    if (provider === 'google') return 'Google';
+    if (provider === 'phone') return 'Phone';
+    return 'Microsoft';
+  });
+
+  const handlePasswordUpdate = async () => {
+    if (!profile) return;
+    if (!newPassword || !confirmPassword) {
+      Alert.alert('Missing fields', 'Enter and confirm your new password.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Passwords do not match', 'Your confirmation password must match.');
+      return;
+    }
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(newPassword)) {
+      Alert.alert('Weak password', 'Use at least 8 characters with uppercase, lowercase, and a number.');
+      return;
+    }
+    if (profile.hasPassword && !currentPassword) {
+      Alert.alert('Current password required', 'Enter your current password to continue.');
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      const {
+        EmailAuthProvider,
+        GoogleAuthProvider,
+        linkWithCredential,
+        reauthenticateWithCredential,
+        updatePassword,
+      } = await import('firebase/auth');
+      const firebaseUser = await ensureFirebaseSecurityUser(profile.hasPassword ? currentPassword : undefined);
+
+      if (profile.hasPassword) {
+        const credential = EmailAuthProvider.credential(profile.email, currentPassword);
+        await reauthenticateWithCredential(firebaseUser, credential);
+        await updatePassword(firebaseUser, newPassword);
+      } else {
+        if (profile.authProviders?.includes('google')) {
+          const { GoogleSignin } = await import('@react-native-google-signin/google-signin');
+          if (Platform.OS === 'android') {
+            await GoogleSignin.hasPlayServices();
+          }
+          await GoogleSignin.signOut().catch(() => {});
+          const result: any = await GoogleSignin.signIn();
+          const googleIdToken = result?.data?.idToken || result?.idToken;
+          if (!googleIdToken) {
+            throw new Error('Google re-authentication failed. Please try again.');
+          }
+          const googleCredential = GoogleAuthProvider.credential(googleIdToken);
+          await reauthenticateWithCredential(firebaseUser, googleCredential);
+        }
+        const credential = EmailAuthProvider.credential(profile.email, newPassword);
+        await linkWithCredential(firebaseUser, credential);
+      }
+
+      const freshToken = await firebaseUser.getIdToken(true);
+      await setTokens(freshToken, null);
+      await api.post('/api/auth/revoke-sessions', {});
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      Alert.alert(
+        profile.hasPassword ? 'Password Changed' : 'Password Set',
+        'Please sign in again with your updated credentials.',
+        [{ text: 'OK', onPress: () => { logout().catch(() => {}); } }]
+      );
+    } catch (err: any) {
+      Alert.alert('Password Update Failed', err?.message || 'Unable to update your password.');
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: c.background }]}>
@@ -421,6 +523,75 @@ export default function ProfileScreen({ navigation }: any) {
           <Text style={[styles.toggleLabel, { color: c.text }]}>Notifications</Text>
           <Switch value={notifications} onValueChange={handleToggleNotifications} trackColor={{ true: c.primary }} />
         </View>
+      </View>
+
+      <View style={[styles.card, { backgroundColor: c.surface }]}>
+        <Text style={[styles.cardTitle, { color: c.text }]}>Security</Text>
+        <Text style={[styles.cardSub, { color: c.muted }]}>
+          Sign-in methods: {providerLabels.length > 0 ? providerLabels.join(', ') : 'Unknown'}
+        </Text>
+        <Text style={[styles.cardSub, { color: c.muted }]}>
+          {profile?.hasPassword
+            ? 'Changing your password requires your current password and signs out all active sessions.'
+            : 'Set a password to enable email/password login alongside your current sign-in provider.'}
+        </Text>
+
+        {profile?.hasPassword && (
+          <>
+            <Text style={[styles.label, { color: c.textSecondary }]}>Current Password</Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
+              placeholder="Current password"
+              placeholderTextColor={c.muted}
+              secureTextEntry
+            />
+          </>
+        )}
+
+        <Text style={[styles.label, { color: c.textSecondary }]}>
+          {profile?.hasPassword ? 'New Password' : 'Set Password'}
+        </Text>
+        <TextInput
+          style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+          value={newPassword}
+          onChangeText={setNewPassword}
+          placeholder="New password"
+          placeholderTextColor={c.muted}
+          secureTextEntry
+        />
+
+        <Text style={[styles.label, { color: c.textSecondary }]}>Confirm Password</Text>
+        <TextInput
+          style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          placeholder="Confirm password"
+          placeholderTextColor={c.muted}
+          secureTextEntry
+        />
+
+        <TouchableOpacity
+          style={[styles.saveBtn, { backgroundColor: c.primary }, passwordSaving && styles.saveBtnDisabled]}
+          onPress={handlePasswordUpdate}
+          disabled={passwordSaving}
+        >
+          {passwordSaving ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <Text style={styles.saveBtnText}>{profile?.hasPassword ? 'Change Password' : 'Set Password'}</Text>
+          )}
+        </TouchableOpacity>
+
+        {profile?.hasPassword && (
+          <TouchableOpacity
+            style={[styles.signOutBtn, { borderColor: c.primary, marginTop: spacing.md }]}
+            onPress={() => navigation.navigate('ForgotPassword')}
+          >
+            <Text style={[styles.signOutText, { color: c.primary }]}>Forgot Password</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <View style={[styles.card, { backgroundColor: c.surface }]}>
