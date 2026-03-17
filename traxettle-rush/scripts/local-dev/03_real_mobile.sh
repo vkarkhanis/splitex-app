@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 FLAGS_FILE="$ROOT_DIR/scripts/local-dev/.runtime.env"
 RC_LOADER="$ROOT_DIR/scripts/revenuecat/load-rc-config.sh"
+REAL_DEVICE_API_HOST="${REAL_DEVICE_API_HOST:-${EXPO_PUBLIC_API_URL:-}}"
 
 DEV_TIER="free"
 DEV_REAL_PAYMENTS="false"
@@ -25,6 +26,27 @@ BOOTSTRAP_ENV="$ROOT_DIR/scripts/local-dev/.bootstrap.env"
 if [[ -f "$BOOTSTRAP_ENV" ]]; then
   source "$BOOTSTRAP_ENV"
 fi
+
+resolve_api_url() {
+  local explicit_url="$1"
+  local fallback_url="$2"
+  if [[ -n "$explicit_url" ]]; then
+    printf "%s" "$explicit_url"
+    return
+  fi
+  if [[ -n "$REAL_DEVICE_API_HOST" ]]; then
+    if [[ "$REAL_DEVICE_API_HOST" == http://* || "$REAL_DEVICE_API_HOST" == https://* ]]; then
+      printf "%s" "$REAL_DEVICE_API_HOST"
+    else
+      printf "http://%s:3001" "$REAL_DEVICE_API_HOST"
+    fi
+    return
+  fi
+  printf "%s" "$fallback_url"
+}
+
+IOS_API_URL="$(resolve_api_url "${EXPO_PUBLIC_API_URL_IOS:-}" "http://localhost:3001")"
+ANDROID_API_URL="$(resolve_api_url "${EXPO_PUBLIC_API_URL_ANDROID:-}" "http://10.0.2.2:3001")"
 
 run_rushx() {
   local project_dir="$1"
@@ -48,20 +70,26 @@ trap cleanup EXIT INT TERM
   REVENUECAT_WEBHOOK_SECRET="${REVENUECAT_WEBHOOK_SECRET:-}" \
   REVENUECAT_PRO_ENTITLEMENT_ID="${REVENUECAT_PRO_ENTITLEMENT_ID:-pro}" \
   FIREBASE_USE_EMULATOR=false \
-  FIREBASE_PROJECT_ID=traxettle-test \
+  FIREBASE_PROJECT_ID="${BOOTSTRAP_FIREBASE_PROJECT_ID:-traxettle-test}" \
+  FIREBASE_STORAGE_BUCKET="${BOOTSTRAP_FIREBASE_STORAGE_BUCKET:-}" \
+  FIREBASE_WEB_API_KEY="${BOOTSTRAP_FIREBASE_API_KEY:-}" \
+  FIREBASE_AUTH_DOMAIN="${BOOTSTRAP_FIREBASE_AUTH_DOMAIN:-}" \
+  FIREBASE_MESSAGING_SENDER_ID="${BOOTSTRAP_FIREBASE_MESSAGING_SENDER_ID:-}" \
+  FIREBASE_APP_ID="${BOOTSTRAP_FIREBASE_APP_ID:-}" \
   run_rushx "$ROOT_DIR/apps/api" dev
 ) &
 
 (
   EXPO_PUBLIC_APP_ENV=local \
-  EXPO_PUBLIC_API_URL_IOS=http://localhost:3001 \
-  EXPO_PUBLIC_API_URL_ANDROID=http://10.0.2.2:3001 \
+  EXPO_PUBLIC_API_URL_IOS="$IOS_API_URL" \
+  EXPO_PUBLIC_API_URL_ANDROID="$ANDROID_API_URL" \
   EXPO_PUBLIC_INTERNAL_FEATURES_ENABLED=true \
   EXPO_PUBLIC_DEFAULT_TIER="$DEV_TIER" \
   EXPO_PUBLIC_USE_REAL_PAYMENTS="$DEV_REAL_PAYMENTS" \
   EXPO_PUBLIC_LOCAL_DEV_OPTIONS_ENABLED=true \
   EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID="${BOOTSTRAP_GOOGLE_IOS_CLIENT_ID:-}" \
   EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID="${BOOTSTRAP_GOOGLE_WEB_CLIENT_ID:-}" \
+  EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID="${BOOTSTRAP_GOOGLE_ANDROID_CLIENT_ID:-}" \
   EXPO_PUBLIC_REVENUECAT_APPLE_KEY="${EXPO_PUBLIC_REVENUECAT_APPLE_KEY:-}" \
   EXPO_PUBLIC_REVENUECAT_GOOGLE_KEY="${EXPO_PUBLIC_REVENUECAT_GOOGLE_KEY:-}" \
   EXPO_PUBLIC_REVENUECAT_PRO_ENTITLEMENT="${EXPO_PUBLIC_REVENUECAT_PRO_ENTITLEMENT:-pro}" \

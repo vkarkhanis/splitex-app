@@ -4,6 +4,10 @@ name: Auth and Profile Smoke
 - launchApp:
     clearState: true
 - evalScript: ${output.runId = Date.now().toString()}
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 30000
 - tapOn:
     id: "dashboard-open-profile"
     optional: true
@@ -80,3 +84,45 @@ name: Auth and Profile Smoke
     visible:
       id: "dashboard-create-event-button"
     timeout: 30000
+- tapOn:
+    id: "dashboard-open-profile"
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- scrollUntilVisible:
+    element:
+      id: "profile-lock-session-button"
+    direction: DOWN
+- tapOn:
+    id: "profile-lock-session-button"
+- extendedWaitUntil:
+    visible:
+      id: "unlock-pin-input"
+    timeout: 10000
+- tapOn:
+    id: "unlock-pin-input"
+- inputText: "1234"
+- tapOn:
+    id: "unlock-pin-submit-button"
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 10000

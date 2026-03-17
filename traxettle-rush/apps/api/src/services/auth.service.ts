@@ -85,12 +85,22 @@ export class AuthService {
 
       let user = await this.findUserById(uid);
       if (!user) {
+        user = await this.findUserByEmail(email);
+      }
+      if (!user) {
         user = await this.createUser({
           uid,
           email,
           displayName,
           photoURL,
           provider: 'google'
+        });
+      } else if (!user.authProviders.includes('google')) {
+        user = await this.updateUser(user.id, {
+          email,
+          displayName,
+          photoURL,
+          authProviders: Array.from(new Set([...(user.authProviders || []), 'google'])) as any,
         });
       }
       
@@ -272,6 +282,69 @@ export class AuthService {
     } catch {
       return null;
     }
+  }
+
+  private async findUserByEmail(email: string): Promise<User | null> {
+    try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const snap = await db.collection('users')
+        .where('email', '==', normalizedEmail)
+        .limit(1)
+        .get();
+      if (snap.empty) return null;
+      const doc = snap.docs[0];
+      const data = doc.data() || {};
+      return {
+        id: (data.userId as string) || doc.id,
+        email: (data.email as string) || normalizedEmail,
+        phoneNumber: (data.phoneNumber as string) || '',
+        displayName: (data.displayName as string) || normalizedEmail.split('@')[0],
+        photoURL: typeof data.photoURL === 'string' ? data.photoURL : '',
+        authProviders: (Array.isArray(data.authProviders) ? data.authProviders : ['email']) as any,
+        preferences: data.preferences || {
+          notifications: true,
+          currency: 'USD',
+          timezone: 'UTC',
+        },
+        createdAt: data.createdAt ? new Date(data.createdAt) : new Date(),
+        updatedAt: data.updatedAt ? new Date(data.updatedAt) : new Date(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async updateUser(
+    userId: string,
+    updates: Partial<Pick<User, 'email' | 'displayName' | 'photoURL' | 'authProviders'>>
+  ): Promise<User> {
+    const existing = await this.findUserById(userId);
+    if (!existing) {
+      throw new Error('User not found');
+    }
+
+    const now = new Date().toISOString();
+    const nextDoc = {
+      userId,
+      email: updates.email || existing.email,
+      phoneNumber: existing.phoneNumber || '',
+      displayName: updates.displayName || existing.displayName,
+      photoURL: updates.photoURL ?? existing.photoURL ?? '',
+      authProviders: updates.authProviders || existing.authProviders,
+      preferences: existing.preferences,
+      updatedAt: now,
+    };
+
+    await db.collection('users').doc(userId).set(nextDoc, { merge: true });
+
+    return {
+      ...existing,
+      email: nextDoc.email,
+      displayName: nextDoc.displayName,
+      photoURL: nextDoc.photoURL,
+      authProviders: nextDoc.authProviders as any,
+      updatedAt: new Date(now),
+    };
   }
 
   private async createUser(userData: any): Promise<User> {

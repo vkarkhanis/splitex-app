@@ -155,6 +155,7 @@ class TraxettleDoctor {
     await this.checkRevenueCatSetup();
     await this.checkEmailSetup();
     await this.checkEnvironmentVariables();
+    await this.checkRuntimeConfigContract();
     await this.checkBuildConfiguration();
     await this.runFinalVerification();
 
@@ -546,6 +547,49 @@ class TraxettleDoctor {
     colorLog('cyan', '\nWeb environment variables:');
     for (const varName of webVars) {
       checkEnvVar(varName, false);
+    }
+  }
+
+  async checkRuntimeConfigContract() {
+    colorLog('blue', '\n🌐 Runtime Config Contract');
+
+    const runtimeConfigUrls = {
+      staging: 'https://traxettle-api-staging-943648574702.us-central1.run.app/api/config',
+      production: 'https://traxettle-api-prod-943648574702.us-central1.run.app/api/config',
+    };
+
+    const url = runtimeConfigUrls[this.environment];
+    if (!url) {
+      colorLog('yellow', '⚠️  Skipping deployed runtime config check for local/internal environment');
+      return;
+    }
+
+    if (!commandExists('curl')) {
+      colorLog('yellow', '⚠️  curl not found, skipping deployed runtime config check');
+      this.warnings.push('curl recommended for deployed runtime config verification');
+      return;
+    }
+
+    try {
+      colorLog('cyan', `Checking ${url}`);
+      const raw = execSync(`curl -fsSL ${url}`, { encoding: 'utf8', stdio: 'pipe' }).trim();
+      const parsed = JSON.parse(raw);
+      const firebaseConfig = parsed?.data?.firebaseConfig || {};
+      const requiredFields = ['projectId', 'apiKey', 'authDomain', 'messagingSenderId', 'appId', 'storageBucket'];
+      const missingFields = requiredFields.filter((field) => {
+        const value = firebaseConfig[field];
+        return !value || `${value}`.trim() === '';
+      });
+
+      if (missingFields.length > 0) {
+        colorLog('red', `❌ /api/config is missing Firebase client fields: ${missingFields.join(', ')}`);
+        this.errors.push(`Deployed runtime config incomplete for ${this.environment}: ${missingFields.join(', ')}`);
+      } else {
+        colorLog('green', '✅ /api/config returns complete Firebase client config');
+      }
+    } catch (error) {
+      colorLog('yellow', `⚠️  Could not verify deployed /api/config: ${error.message}`);
+      this.warnings.push(`Unable to verify deployed runtime config for ${this.environment}`);
     }
   }
 

@@ -55,7 +55,29 @@ async function ensureFirebaseUser(params: {
     if (displayName && existing.displayName !== displayName) updates.displayName = displayName;
     if (password) updates.password = password;
     if (Object.keys(updates).length > 0) {
-      await auth.updateUser(uid, updates);
+      try {
+        await auth.updateUser(uid, updates);
+      } catch (error: any) {
+        if (error?.code !== 'auth/email-already-exists' || !email) {
+          throw error;
+        }
+
+        const emailOwner = await auth.getUserByEmail(email).catch(() => null);
+        if (!emailOwner || emailOwner.uid === uid) {
+          throw error;
+        }
+
+        // Legacy account bridge: keep the app UID stable even if a Firebase
+        // Auth user with this email already exists under another UID.
+        const safeUpdates: Record<string, unknown> = {};
+        if (displayName && existing.displayName !== displayName) {
+          safeUpdates.displayName = displayName;
+        }
+        if (password) safeUpdates.password = password;
+        if (Object.keys(safeUpdates).length > 0) {
+          await auth.updateUser(uid, safeUpdates);
+        }
+      }
     }
     return;
   } catch (error: any) {
@@ -64,12 +86,31 @@ async function ensureFirebaseUser(params: {
     }
   }
 
-  await auth.createUser({
-    uid,
-    email,
-    displayName,
-    ...(password ? { password } : {}),
-  });
+  try {
+    await auth.createUser({
+      uid,
+      email,
+      displayName,
+      ...(password ? { password } : {}),
+    });
+  } catch (error: any) {
+    if (error?.code !== 'auth/email-already-exists' || !email) {
+      throw error;
+    }
+
+    const emailOwner = await auth.getUserByEmail(email).catch(() => null);
+    if (!emailOwner || emailOwner.uid === uid) {
+      throw error;
+    }
+
+    // Legacy account bridge: create the Firebase Auth principal for the app UID
+    // without reusing the already-linked email address from another provider UID.
+    await auth.createUser({
+      uid,
+      displayName,
+      ...(password ? { password } : {}),
+    });
+  }
 }
 
 async function upsertEmailUserFromFirebase(uid: string, email: string, displayName?: string): Promise<User> {
@@ -482,8 +523,16 @@ router.post('/google', async (req, res) => {
     } as ApiResponse);
   } catch (error: any) {
     const detail = error?.message || 'Google sign-in failed';
+    console.error('[auth/google] Sign-in failed', {
+      appEnv: process.env.APP_ENV,
+      nodeEnv: process.env.NODE_ENV,
+      detail,
+      stack: error?.stack,
+    });
     const includeDetail =
       process.env.APP_ENV === 'local' ||
+      process.env.APP_ENV === 'staging' ||
+      process.env.NODE_ENV === 'staging' ||
       process.env.NODE_ENV === 'development' ||
       process.env.NODE_ENV === 'test';
     res.status(401).json({

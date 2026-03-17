@@ -1,4 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import {
+  EmailAuthProvider,
+  GoogleAuthProvider,
+  getAuth,
+  linkWithCredential,
+  reauthenticateWithCredential,
+  signInWithCustomToken,
+  updatePassword,
+} from 'firebase/auth';
 import {
   View,
   Text,
@@ -27,6 +37,7 @@ import {
   setStagingModeEnabled,
 } from '../api';
 import { ENV, isLocalLikeEnv } from '../config/env';
+import { toUserFriendlyError } from '../utils/errorMessages';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
 const PAYMENT_METHOD_TYPES = ['upi', 'bank', 'paypal', 'wise', 'swift', 'other'] as const;
@@ -62,7 +73,7 @@ interface UserProfile {
 }
 
 export default function ProfileScreen({ navigation }: any) {
-  const { user, logout, tier, switchTier, internalTester, refreshProfile } = useAuth();
+  const { user, logout, tier, switchTier, internalTester, refreshProfile, lockSession } = useAuth();
   const { theme, themeName, setThemeName } = useTheme();
   const c = theme.colors;
   const { isPro, priceString } = usePurchase();
@@ -73,7 +84,6 @@ export default function ProfileScreen({ navigation }: any) {
   const [saving, setSaving] = useState(false);
   const [tierSwitching, setTierSwitching] = useState(false);
   const [useStaging, setUseStaging] = useState(false);
-  const [envTapCount, setEnvTapCount] = useState(0);
   const [devTapCount, setDevTapCount] = useState(0);
   const [devOptionsUnlocked, setDevOptionsUnlocked] = useState(false);
   const [useFirebaseEmulator, setUseFirebaseEmulator] = useState(false);
@@ -94,6 +104,12 @@ export default function ProfileScreen({ navigation }: any) {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const isGoogleOnlyProfile = Boolean(
+    profile &&
+    profile.authProviders?.includes('google') &&
+    !profile.authProviders?.includes('email') &&
+    !profile.hasPassword
+  );
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -256,43 +272,32 @@ export default function ProfileScreen({ navigation }: any) {
   };
 
   const handleVersionTap = () => {
-    if (canShowHiddenDevOptions) {
-      const next = devTapCount + 1;
-      if (next >= 7) {
-        setDevOptionsUnlocked(true);
-        setDevTapCount(0);
-        Alert.alert('Developer options unlocked', 'Hidden local tools are now visible.');
-        return;
-      }
-      setDevTapCount(next);
-      return;
-    }
-
-    const next = envTapCount + 1;
+    const next = devTapCount + 1;
     if (next >= 7) {
-      setEnvTapCount(0);
-      (async () => {
-        try {
-          const wasStaging = await isStagingModeEnabled();
-          console.log('[ProfileScreen] Toggling environment from:', wasStaging);
-          await setStagingModeEnabled(!wasStaging);
-          const apiBase = await getResolvedApiBaseUrl();
-          setActiveApiBase(apiBase);
-          const newStaging = !wasStaging;
-          setUseStaging(newStaging);
-          console.log('[ProfileScreen] Environment toggled to:', newStaging);
-          pushToast(
-            'success',
-            'Environment Switched',
-            `Now using ${wasStaging ? 'PRODUCTION' : 'STAGING'} API.`
-          );
-        } catch {
-          pushToast('error', 'Error', 'Failed to switch environment. Please try again.');
-        }
-      })();
+      setDevOptionsUnlocked(true);
+      setDevTapCount(0);
+      Alert.alert('Developer options unlocked', 'Hidden tools are now visible.');
       return;
     }
-    setEnvTapCount(next);
+    setDevTapCount(next);
+  };
+
+  const handleEnvironmentToggle = async () => {
+    try {
+      const wasStaging = await isStagingModeEnabled();
+      await setStagingModeEnabled(!wasStaging);
+      const apiBase = await getResolvedApiBaseUrl();
+      setActiveApiBase(apiBase);
+      const newStaging = !wasStaging;
+      setUseStaging(newStaging);
+      pushToast(
+        'success',
+        'Environment Switched',
+        `Now using ${wasStaging ? 'PRODUCTION' : 'STAGING'} API.`
+      );
+    } catch {
+      pushToast('error', 'Error', 'Failed to switch environment. Please try again.');
+    }
   };
 
   const handleFirebaseEmulatorToggle = async (enabled: boolean) => {
@@ -345,7 +350,6 @@ export default function ProfileScreen({ navigation }: any) {
   };
 
   const ensureFirebaseSecurityUser = async (passwordHint?: string) => {
-    const { getAuth, signInWithCustomToken } = await import('firebase/auth');
     const auth = getAuth();
     if (auth.currentUser) return auth.currentUser;
 
@@ -389,13 +393,6 @@ export default function ProfileScreen({ navigation }: any) {
 
     setPasswordSaving(true);
     try {
-      const {
-        EmailAuthProvider,
-        GoogleAuthProvider,
-        linkWithCredential,
-        reauthenticateWithCredential,
-        updatePassword,
-      } = await import('firebase/auth');
       const firebaseUser = await ensureFirebaseSecurityUser(profile.hasPassword ? currentPassword : undefined);
 
       if (profile.hasPassword) {
@@ -404,7 +401,6 @@ export default function ProfileScreen({ navigation }: any) {
         await updatePassword(firebaseUser, newPassword);
       } else {
         if (profile.authProviders?.includes('google')) {
-          const { GoogleSignin } = await import('@react-native-google-signin/google-signin');
           if (Platform.OS === 'android') {
             await GoogleSignin.hasPlayServices();
           }
@@ -433,7 +429,7 @@ export default function ProfileScreen({ navigation }: any) {
         [{ text: 'OK', onPress: () => { logout().catch(() => {}); } }]
       );
     } catch (err: any) {
-      Alert.alert('Password Update Failed', err?.message || 'Unable to update your password.');
+      Alert.alert('Password Update Failed', toUserFriendlyError(err));
     } finally {
       setPasswordSaving(false);
     }
@@ -531,12 +527,14 @@ export default function ProfileScreen({ navigation }: any) {
           Sign-in methods: {providerLabels.length > 0 ? providerLabels.join(', ') : 'Unknown'}
         </Text>
         <Text style={[styles.cardSub, { color: c.muted }]}>
-          {profile?.hasPassword
-            ? 'Changing your password requires your current password and signs out all active sessions.'
-            : 'Set a password to enable email/password login alongside your current sign-in provider.'}
+          {isGoogleOnlyProfile
+            ? 'Password management is available only for email/password accounts.'
+            : profile?.hasPassword
+              ? 'Changing your password requires your current password and signs out all active sessions.'
+              : 'Set a password to enable email/password login alongside your current sign-in provider.'}
         </Text>
 
-        {profile?.hasPassword && (
+        {profile?.hasPassword && !isGoogleOnlyProfile && (
           <>
             <Text style={[styles.label, { color: c.textSecondary }]}>Current Password</Text>
             <TextInput
@@ -550,41 +548,45 @@ export default function ProfileScreen({ navigation }: any) {
           </>
         )}
 
-        <Text style={[styles.label, { color: c.textSecondary }]}>
-          {profile?.hasPassword ? 'New Password' : 'Set Password'}
-        </Text>
-        <TextInput
-          style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
-          value={newPassword}
-          onChangeText={setNewPassword}
-          placeholder="New password"
-          placeholderTextColor={c.muted}
-          secureTextEntry
-        />
+        {!isGoogleOnlyProfile && (
+          <>
+            <Text style={[styles.label, { color: c.textSecondary }]}>
+              {profile?.hasPassword ? 'New Password' : 'Set Password'}
+            </Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+              value={newPassword}
+              onChangeText={setNewPassword}
+              placeholder="New password"
+              placeholderTextColor={c.muted}
+              secureTextEntry
+            />
 
-        <Text style={[styles.label, { color: c.textSecondary }]}>Confirm Password</Text>
-        <TextInput
-          style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          placeholder="Confirm password"
-          placeholderTextColor={c.muted}
-          secureTextEntry
-        />
+            <Text style={[styles.label, { color: c.textSecondary }]}>Confirm Password</Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="Confirm password"
+              placeholderTextColor={c.muted}
+              secureTextEntry
+            />
 
-        <TouchableOpacity
-          style={[styles.saveBtn, { backgroundColor: c.primary }, passwordSaving && styles.saveBtnDisabled]}
-          onPress={handlePasswordUpdate}
-          disabled={passwordSaving}
-        >
-          {passwordSaving ? (
-            <ActivityIndicator color="#ffffff" />
-          ) : (
-            <Text style={styles.saveBtnText}>{profile?.hasPassword ? 'Change Password' : 'Set Password'}</Text>
-          )}
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.saveBtn, styles.passwordActionBtn, { backgroundColor: c.primary }, passwordSaving && styles.saveBtnDisabled]}
+              onPress={handlePasswordUpdate}
+              disabled={passwordSaving}
+            >
+              {passwordSaving ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={styles.saveBtnText}>{profile?.hasPassword ? 'Change Password' : 'Set Password'}</Text>
+              )}
+            </TouchableOpacity>
+          </>
+        )}
 
-        {profile?.hasPassword && (
+        {profile?.hasPassword && !isGoogleOnlyProfile && (
           <TouchableOpacity
             style={[styles.signOutBtn, { borderColor: c.primary, marginTop: spacing.md }]}
             onPress={() => navigation.navigate('ForgotPassword')}
@@ -811,20 +813,38 @@ export default function ProfileScreen({ navigation }: any) {
         </View>
       )}
 
-      {devOptionsUnlocked && canShowHiddenDevOptions && (
+      {devOptionsUnlocked && (
         <View style={[styles.card, { backgroundColor: c.surface }]}>
           <Text style={[styles.cardTitle, { color: c.text }]}>Developer (Hidden)</Text>
-          <Text style={[styles.cardSub, { color: c.muted }]}>Local-only tooling for Firebase Emulator Suite.</Text>
-          <View style={styles.toggleRow}>
-            <Text style={[styles.toggleLabel, { color: c.text }]}>Use Firebase Emulator</Text>
-            <Switch
-              testID="profile-firebase-emulator-switch"
-              value={useFirebaseEmulator}
-              onValueChange={handleFirebaseEmulatorToggle}
-              trackColor={{ true: c.primary }}
-            />
-          </View>
+          <Text style={[styles.cardSub, { color: c.muted }]}>Environment and session QA tools.</Text>
+          <TouchableOpacity
+            style={[styles.signOutBtn, { borderColor: c.primary }]}
+            onPress={handleEnvironmentToggle}
+          >
+            <Text style={[styles.signOutText, { color: c.primary }]}>
+              Switch to {useStaging ? 'Production API' : 'Staging API'}
+            </Text>
+          </TouchableOpacity>
+          {canShowHiddenDevOptions && (
+            <View style={styles.toggleRow}>
+              <Text style={[styles.toggleLabel, { color: c.text }]}>Use Firebase Emulator</Text>
+              <Switch
+                testID="profile-firebase-emulator-switch"
+                value={useFirebaseEmulator}
+                onValueChange={handleFirebaseEmulatorToggle}
+                trackColor={{ true: c.primary }}
+              />
+            </View>
+          )}
+          <TouchableOpacity
+            testID="profile-lock-session-button"
+            style={[styles.signOutBtn, { borderColor: c.primary, marginTop: spacing.md }]}
+            onPress={lockSession}
+          >
+            <Text style={[styles.signOutText, { color: c.primary }]}>Lock Session Now</Text>
+          </TouchableOpacity>
           <Text style={[styles.cardSub, { color: c.muted, marginBottom: 0 }]}>API target: {activeApiBase || 'Loading...'}</Text>
+          <Text style={[styles.cardSub, { color: c.muted, marginBottom: 0 }]}>Auto-lock after 5 minutes in background.</Text>
         </View>
       )}
 
@@ -951,6 +971,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.md, padding: spacing.lg, alignItems: 'center',
     marginBottom: spacing.md,
   },
+  passwordActionBtn: { marginTop: spacing.md },
   saveBtnDisabled: { opacity: 0.6 },
   saveBtnText: { color: '#ffffff', fontSize: fontSizes.md, fontWeight: '600' },
   signOutBtn: {

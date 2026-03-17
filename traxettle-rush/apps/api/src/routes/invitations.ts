@@ -87,8 +87,12 @@ router.post('/history-email', requireAuth, async (req: AuthenticatedRequest, res
       return res.status(400).json({ success: false, error: 'No email found for this account' } as ApiResponse);
     }
     const invitations = await invitationService.getUserInvitations(uid, recipientEmail);
+    const threeMonthsAgo = Date.now() - (1000 * 60 * 60 * 24 * 31 * 3);
     const history = invitations
-      .filter((inv: any) => inv?.status && inv.status !== 'pending')
+      .filter((inv: any) => {
+        const ts = inv?.respondedAt ? Date.parse(String(inv.respondedAt)) : (inv?.createdAt ? Date.parse(String(inv.createdAt)) : 0);
+        return ts >= threeMonthsAgo;
+      })
       .sort((a: any, b: any) => {
         const at = a?.respondedAt ? Date.parse(String(a.respondedAt)) : (a?.createdAt ? Date.parse(String(a.createdAt)) : 0);
         const bt = b?.respondedAt ? Date.parse(String(b.respondedAt)) : (b?.createdAt ? Date.parse(String(b.createdAt)) : 0);
@@ -115,7 +119,7 @@ router.post('/history-email', requireAuth, async (req: AuthenticatedRequest, res
     const subject = 'Your Traxettle invitation history';
     const html = `<!doctype html><html><body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;margin:24px;color:#111">
       <h1 style="margin:0 0 6px;font-size:18px">Invitation history</h1>
-      <div style="color:#666;font-size:12px;margin-bottom:14px">Count: ${history.length}</div>
+      <div style="color:#666;font-size:12px;margin-bottom:14px">Count from the last 3 months: ${history.length}</div>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr>
           <th style="text-align:left;border:1px solid #e5e7eb;padding:8px;background:#f8fafc">Event</th>
@@ -123,10 +127,10 @@ router.post('/history-email', requireAuth, async (req: AuthenticatedRequest, res
           <th style="text-align:left;border:1px solid #e5e7eb;padding:8px;background:#f8fafc">Role</th>
           <th style="text-align:left;border:1px solid #e5e7eb;padding:8px;background:#f8fafc">When</th>
         </tr></thead>
-        <tbody>${rows.join('') || '<tr><td colspan="4" style="border:1px solid #e5e7eb;padding:8px;color:#666">No historic invitations.</td></tr>'}</tbody>
+        <tbody>${rows.join('') || '<tr><td colspan="4" style="border:1px solid #e5e7eb;padding:8px;color:#666">No invitation history in the last 3 months.</td></tr>'}</tbody>
       </table>
     </body></html>`;
-    const text = `Invitation history (count: ${history.length})\n\n` + history.map((inv: any) => {
+    const text = `Invitation history from the last 3 months (count: ${history.length})\n\n` + history.map((inv: any) => {
       return `- ${inv.eventId} | ${inv.status} | ${inv.role} | ${inv.respondedAt || inv.createdAt || ''}`;
     }).join('\n');
 

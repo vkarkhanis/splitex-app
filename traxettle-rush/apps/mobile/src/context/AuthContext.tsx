@@ -2,6 +2,16 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { AppState, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  createUserWithEmailAndPassword,
+  fetchSignInMethodsForEmail,
+  getAuth,
+  signInWithCustomToken,
+  signInWithEmailAndPassword,
+  signInWithEmailLink,
+  signOut,
+  updateProfile,
+} from 'firebase/auth';
+import {
   api,
   setTokens,
   clearTokens,
@@ -154,7 +164,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let token = await getToken();
       if (!token) {
         try {
-          const { getAuth } = await import('firebase/auth');
           const auth = getAuth();
           if (auth.currentUser) {
             token = await auth.currentUser.getIdToken();
@@ -184,12 +193,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string) => {
     const normalizedEmail = email.trim().toLowerCase();
-    const {
-      fetchSignInMethodsForEmail,
-      getAuth,
-      signInWithCustomToken,
-      signInWithEmailAndPassword,
-    } = await import('firebase/auth');
     const auth = getAuth();
 
     try {
@@ -242,7 +245,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error('Enter your email first, then tap the sign-in link from your inbox.');
     }
 
-    const { getAuth, signInWithEmailLink } = await import('firebase/auth');
     const auth = getAuth();
     const credential = await signInWithEmailLink(auth, email, url);
     const token = await credential.user.getIdToken(true);
@@ -252,27 +254,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [loadUser]);
 
   const loginWithGoogle = async (idToken: string) => {
-    const { getAuth, signInWithCustomToken } = await import('firebase/auth');
     const auth = getAuth();
-    const { data } = await api.post('/api/auth/google', { token: idToken });
-    const firebaseCustomToken = data.firebaseCustomToken as string | undefined;
-    if (!firebaseCustomToken) {
-      throw new Error('No Firebase session received from server');
+    try {
+      console.log('[AuthContext] Starting backend Google login exchange');
+      const { data } = await api.post('/api/auth/google', { token: idToken });
+      const firebaseCustomToken = data.firebaseCustomToken as string | undefined;
+      if (!firebaseCustomToken) {
+        throw new Error('No Firebase session received from server');
+      }
+      console.log('[AuthContext] Received Firebase custom token from backend');
+      const credential = await signInWithCustomToken(auth, firebaseCustomToken);
+      console.log('[AuthContext] Firebase custom-token sign-in succeeded');
+      const token = await credential.user.getIdToken();
+      await setTokens(token, null);
+      await loadUser();
+    } catch (error: any) {
+      console.error('[AuthContext] Google login failed', {
+        message: error?.message,
+        code: error?.code,
+        status: error?.status,
+      });
+      throw error;
     }
-    const credential = await signInWithCustomToken(auth, firebaseCustomToken);
-    const token = await credential.user.getIdToken();
-    await setTokens(token, null);
-    await loadUser();
   };
 
   const register = async (email: string, password: string, displayName: string) => {
     const normalizedEmail = email.trim().toLowerCase();
-    const {
-      createUserWithEmailAndPassword,
-      fetchSignInMethodsForEmail,
-      getAuth,
-      updateProfile,
-    } = await import('firebase/auth');
     const auth = getAuth();
 
     try {
@@ -313,7 +320,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { getAuth, signOut } = await import('firebase/auth');
       await signOut(getAuth());
     } catch {
       // Ignore Firebase sign-out failures during local cleanup.

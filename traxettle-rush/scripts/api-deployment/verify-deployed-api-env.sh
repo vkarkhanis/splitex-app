@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Verifies that a deployed Cloud Run API will not generate localhost links in emails.
+# Verifies that a deployed Cloud Run API is configured for email links and Google sign-in.
 #
-# Rule:
+# Rules:
 # - OK if APP_URL is set to a non-localhost URL
 # - OR OK if FIREBASE_PROJECT_ID is set and not "local"
+# - Google sign-in requires roles/serviceusage.serviceUsageConsumer on:
+#   - the Cloud Run runtime service account
+#   - the Firebase Admin service account configured as FIREBASE_CLIENT_EMAIL
 #
 # Usage:
 #   bash scripts/api-deployment/verify-deployed-api-env.sh staging
@@ -62,6 +65,8 @@ GCP_PROJECT_ID="${GCP_PROJECT_ID:-$DEFAULT_GCP_PROJECT_ID}"
 REGION="${REGION:-$DEFAULT_REGION}"
 SERVICE_NAME="${SERVICE_NAME:-$DEFAULT_SERVICE_NAME}"
 EXPECTED_APP_URL="${EXPECTED_APP_URL:-$DEFAULT_EXPECTED_APP_URL}"
+RUNTIME_SA_NAME="${RUNTIME_SA_NAME:-}"
+FIREBASE_CLIENT_EMAIL="${FIREBASE_CLIENT_EMAIL:-}"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -107,6 +112,48 @@ echo "Project:  $GCP_PROJECT_ID"
 echo "Region:   $REGION"
 echo "Service:  $SERVICE_NAME"
 echo ""
+
+if [[ -z "$RUNTIME_SA_NAME" ]]; then
+  if [[ "$ENVIRONMENT" == "staging" ]]; then
+    RUNTIME_SA_NAME="traxettle-api-staging-runtime"
+  else
+    RUNTIME_SA_NAME="traxettle-api-prod-runtime"
+  fi
+fi
+RUNTIME_SA_EMAIL="${RUNTIME_SA_NAME}@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
+
+IAM_POLICY_JSON="$(gcloud projects get-iam-policy "$GCP_PROJECT_ID" --format=json 2>/dev/null || true)"
+HAS_RUNTIME_SERVICE_USAGE="unknown"
+HAS_FIREBASE_ADMIN_SERVICE_USAGE="unknown"
+if [[ -n "$IAM_POLICY_JSON" ]]; then
+  HAS_RUNTIME_SERVICE_USAGE="$(
+    IAM_POLICY_JSON="$IAM_POLICY_JSON" RUNTIME_SA_EMAIL="$RUNTIME_SA_EMAIL" node -e "
+      const data = JSON.parse(process.env.IAM_POLICY_JSON);
+      const member = 'serviceAccount:' + process.env.RUNTIME_SA_EMAIL;
+      const ok = (data.bindings || []).some((binding) =>
+        binding.role === 'roles/serviceusage.serviceUsageConsumer' &&
+        Array.isArray(binding.members) &&
+        binding.members.includes(member)
+      );
+      process.stdout.write(ok ? 'yes' : 'no');
+    " 2>/dev/null || echo unknown
+  )"
+
+  if [[ -n "$FIREBASE_CLIENT_EMAIL" ]]; then
+    HAS_FIREBASE_ADMIN_SERVICE_USAGE="$(
+      IAM_POLICY_JSON="$IAM_POLICY_JSON" FIREBASE_CLIENT_EMAIL="$FIREBASE_CLIENT_EMAIL" node -e "
+        const data = JSON.parse(process.env.IAM_POLICY_JSON);
+        const member = 'serviceAccount:' + process.env.FIREBASE_CLIENT_EMAIL;
+        const ok = (data.bindings || []).some((binding) =>
+          binding.role === 'roles/serviceusage.serviceUsageConsumer' &&
+          Array.isArray(binding.members) &&
+          binding.members.includes(member)
+        );
+        process.stdout.write(ok ? 'yes' : 'no');
+      " 2>/dev/null || echo unknown
+    )"
+  fi
+fi
 
 SERVICE_JSON="$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --project "$GCP_PROJECT_ID" --format=json 2>/dev/null || true)"
 if [[ -z "$SERVICE_JSON" ]]; then
@@ -165,6 +212,36 @@ else
   echo "  ⚠️  Could not read FIREBASE_PROJECT_ID secret value (permission or secret missing)"
 fi
 
+case "$HAS_RUNTIME_SERVICE_USAGE" in
+  yes)
+    echo "  ✅ Runtime service account has roles/serviceusage.serviceUsageConsumer"
+    ;;
+  no)
+    echo "  ❌ Runtime service account is missing roles/serviceusage.serviceUsageConsumer"
+    echo "     Member: serviceAccount:$RUNTIME_SA_EMAIL"
+    ;;
+  *)
+    echo "  ⚠️  Could not verify runtime service account IAM role"
+    ;;
+esac
+
+if [[ -n "$FIREBASE_CLIENT_EMAIL" ]]; then
+  case "$HAS_FIREBASE_ADMIN_SERVICE_USAGE" in
+    yes)
+      echo "  ✅ Firebase Admin service account has roles/serviceusage.serviceUsageConsumer"
+      ;;
+    no)
+      echo "  ❌ Firebase Admin service account is missing roles/serviceusage.serviceUsageConsumer"
+      echo "     Member: serviceAccount:$FIREBASE_CLIENT_EMAIL"
+      ;;
+    *)
+      echo "  ⚠️  Could not verify Firebase Admin service account IAM role"
+      ;;
+  esac
+else
+  echo "  ⚠️  FIREBASE_CLIENT_EMAIL not available from local deploy config, skipping Firebase Admin IAM check"
+fi
+
 echo ""
 EMAIL_LINKS_OK="no"
 if [[ -n "${APP_URL_VALUE:-}" ]] && ! is_localhost_url "$APP_URL_VALUE"; then
@@ -203,3 +280,19 @@ case "$EMAIL_LINKS_OK" in
     echo "Alternative fix: ensure FIREBASE_PROJECT_ID is set to a real Firebase project id (not 'local'), then redeploy."
     ;;
 esac
+
+echo ""
+if [[ "$HAS_RUNTIME_SERVICE_USAGE" == "no" || "$HAS_FIREBASE_ADMIN_SERVICE_USAGE" == "no" ]]; then
+  echo "Google sign-in IAM fix:"
+  if [[ "$HAS_RUNTIME_SERVICE_USAGE" == "no" ]]; then
+    echo "  gcloud projects add-iam-policy-binding \"$GCP_PROJECT_ID\" \\"
+    echo "    --member=\"serviceAccount:$RUNTIME_SA_EMAIL\" \\"
+    echo "    --role=\"roles/serviceusage.serviceUsageConsumer\""
+  fi
+  if [[ "$HAS_FIREBASE_ADMIN_SERVICE_USAGE" == "no" && -n "$FIREBASE_CLIENT_EMAIL" ]]; then
+    echo "  gcloud projects add-iam-policy-binding \"$GCP_PROJECT_ID\" \\"
+    echo "    --member=\"serviceAccount:$FIREBASE_CLIENT_EMAIL\" \\"
+    echo "    --role=\"roles/serviceusage.serviceUsageConsumer\""
+  fi
+  echo "  Use condition: None"
+fi

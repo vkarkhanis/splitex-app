@@ -29,6 +29,23 @@ export class RuntimeConfigManager {
   private cachedConfig: RuntimeConfig | null = null;
   private cacheExpiry: number = 0;
 
+  private isFirebaseClientConfigComplete(config: RuntimeConfig | null): config is RuntimeConfig {
+    if (!config) return false;
+
+    const firebaseConfig = config.firebaseConfig || {};
+    const requiredKeys: Array<keyof RuntimeConfig['firebaseConfig']> = [
+      'projectId',
+      'apiKey',
+      'authDomain',
+      'appId',
+    ];
+
+    return requiredKeys.every((key) => {
+      const value = firebaseConfig[key];
+      return typeof value === 'string' && value.trim().length > 0;
+    });
+  }
+
   /**
    * Get runtime configuration from API or cache
    */
@@ -44,11 +61,16 @@ export class RuntimeConfigManager {
     try {
       // Try to load from AsyncStorage first
       const storedConfig = await this.loadStoredConfig();
-      if (storedConfig) {
+      if (this.isFirebaseClientConfigComplete(storedConfig)) {
         this.cachedConfig = storedConfig;
         this.cacheExpiry = now + CONFIG_CACHE_DURATION;
         console.log('[RuntimeConfig] Using stored config');
         return storedConfig;
+      }
+
+      if (storedConfig) {
+        console.warn('[RuntimeConfig] Ignoring incomplete stored config and fetching fresh config');
+        await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
       }
 
       // Fetch fresh config from API
@@ -82,29 +104,47 @@ export class RuntimeConfigManager {
    * Fetch configuration from API
    */
   private async fetchConfig(): Promise<RuntimeConfig> {
-    // Check if developer mode is enabled for staging
     const useStaging = await this.isStagingModeEnabled();
 
     // In local-like environments, always use the locally configured API base.
-    // This avoids attempting production/staging Cloud Run endpoints during local dev.
+    // If the local API is unavailable, fall back to hosted config so the app
+    // can still initialize and the tester can switch environments from UI.
     if (isLocalLikeEnv()) {
-      const apiBase = getApiUrlFromEnv();
-      const apiUrl = `${apiBase}/api/config`;
-      console.log(`[RuntimeConfig] Fetching config from: ${apiUrl} (local)`);
+      const candidateBases = [
+        getApiUrlFromEnv(),
+        useStaging ? ENV.STAGING_API_URL : ENV.PROD_API_URL,
+      ];
 
-      const response = await this.fetchWithTimeout(apiUrl);
-      if (!response.ok) {
-        throw new Error(`API responded with status: ${response.status}`);
+      let lastError: Error | null = null;
+
+      for (const apiBase of candidateBases) {
+        const apiUrl = `${apiBase}/api/config`;
+        console.log(`[RuntimeConfig] Fetching config from: ${apiUrl}`);
+
+        try {
+          const response = await this.fetchWithTimeout(apiUrl);
+          if (!response.ok) {
+            throw new Error(`API responded with status: ${response.status}`);
+          }
+
+          const data = await response.json();
+          if (!data.data) {
+            throw new Error('No configuration data received');
+          }
+
+          console.log(`[RuntimeConfig] Success with API: ${apiUrl}`);
+          console.log(`[RuntimeConfig] Environment: ${data.data.env}`);
+          return data.data;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+          console.error(
+            `[RuntimeConfig] API fetch failed for ${apiUrl}:`,
+            lastError.message,
+          );
+        }
       }
 
-      const data = await response.json();
-      if (!data.data) {
-        throw new Error('No configuration data received');
-      }
-
-      console.log(`[RuntimeConfig] Success with API: ${apiUrl}`);
-      console.log(`[RuntimeConfig] Environment: ${data.data.env}`);
-      return data.data;
+      throw lastError || new Error('Failed to fetch configuration');
     }
 
     // Production/Staging API URL (non-local builds)
@@ -240,7 +280,15 @@ export class RuntimeConfigManager {
   private async loadStoredConfig(): Promise<RuntimeConfig | null> {
     try {
       const stored = await AsyncStorage.getItem(RUNTIME_CONFIG_KEY);
-      return stored ? JSON.parse(stored) : null;
+      const parsed = stored ? JSON.parse(stored) : null;
+
+      if (parsed && !this.isFirebaseClientConfigComplete(parsed)) {
+        console.warn('[RuntimeConfig] Stored config is incomplete and will be ignored');
+        await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
+        return null;
+      }
+
+      return parsed;
     } catch (error) {
       console.error('[RuntimeConfig] Failed to load stored config:', error);
       return null;

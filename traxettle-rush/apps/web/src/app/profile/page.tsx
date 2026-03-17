@@ -142,6 +142,12 @@ export default function ProfilePage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const isGoogleOnlyProfile = Boolean(
+    profile &&
+    profile.authProviders?.includes('google') &&
+    !profile.authProviders?.includes('email') &&
+    !profile.hasPassword
+  );
 
   // Get a fresh Firebase ID token from the current user
   const getFreshToken = useCallback(async (): Promise<string | null> => {
@@ -815,12 +821,14 @@ export default function ProfilePage() {
                       {providerLabels.length > 0 ? providerLabels.join(', ') : 'Unknown'}
                     </div>
                     <div style={{ fontSize: 12, marginTop: 10 }}>
-                      {profile.hasPassword
-                        ? 'Change your password with a recent-password check. This signs out all active sessions for safety.'
-                        : 'Set a password so you can sign in with email/password in addition to your current provider.'}
+                      {isGoogleOnlyProfile
+                        ? 'Password management is available only for email/password accounts.'
+                        : profile.hasPassword
+                          ? 'Change your password with a recent-password check. This signs out all active sessions for safety.'
+                          : 'Set a password so you can sign in with email/password in addition to your current provider.'}
                     </div>
                     <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
-                      {profile.hasPassword && (
+                      {profile.hasPassword && !isGoogleOnlyProfile && (
                         <Field>
                           <Label htmlFor="currentPassword">Current password</Label>
                           <Input
@@ -832,41 +840,47 @@ export default function ProfilePage() {
                           />
                         </Field>
                       )}
-                      <Field>
-                        <Label htmlFor="newPassword">{profile.hasPassword ? 'New password' : 'Set password'}</Label>
-                        <Input
-                          id="newPassword"
-                          type="password"
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          disabled={passwordSaving}
-                        />
-                      </Field>
-                      <Field>
-                        <Label htmlFor="confirmPassword">Confirm password</Label>
-                        <Input
-                          id="confirmPassword"
-                          type="password"
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          disabled={passwordSaving}
-                        />
-                      </Field>
-                    </div>
-                    <InlineActions>
-                      <Button type="button" $variant="primary" onClick={handlePasswordSave} disabled={passwordSaving}>
-                        {passwordSaving
-                          ? 'Saving…'
-                          : profile.hasPassword
-                            ? 'Change Password'
-                            : 'Set Password'}
-                      </Button>
-                      {profile.hasPassword && (
-                        <Button type="button" $variant="outline" onClick={() => router.push('/auth/forgot-password')} disabled={passwordSaving}>
-                          Forgot Password
-                        </Button>
+                      {!isGoogleOnlyProfile && (
+                        <>
+                          <Field>
+                            <Label htmlFor="newPassword">{profile.hasPassword ? 'New password' : 'Set password'}</Label>
+                            <Input
+                              id="newPassword"
+                              type="password"
+                              value={newPassword}
+                              onChange={(e) => setNewPassword(e.target.value)}
+                              disabled={passwordSaving}
+                            />
+                          </Field>
+                          <Field>
+                            <Label htmlFor="confirmPassword">Confirm password</Label>
+                            <Input
+                              id="confirmPassword"
+                              type="password"
+                              value={confirmPassword}
+                              onChange={(e) => setConfirmPassword(e.target.value)}
+                              disabled={passwordSaving}
+                            />
+                          </Field>
+                        </>
                       )}
-                    </InlineActions>
+                    </div>
+                    {!isGoogleOnlyProfile && (
+                      <InlineActions>
+                        <Button type="button" $variant="primary" onClick={handlePasswordSave} disabled={passwordSaving}>
+                          {passwordSaving
+                            ? 'Saving…'
+                            : profile.hasPassword
+                              ? 'Change Password'
+                              : 'Set Password'}
+                        </Button>
+                        {profile.hasPassword && (
+                          <Button type="button" $variant="outline" onClick={() => router.push('/auth/forgot-password')} disabled={passwordSaving}>
+                            Forgot Password
+                          </Button>
+                        )}
+                      </InlineActions>
+                    )}
                   </MethodBox>
                 </Field>
 

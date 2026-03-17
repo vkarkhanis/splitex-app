@@ -49,3 +49,25 @@ docs/
 - **[Settlement Provider Guide](utility/01_SETTLEMENT_PROVIDER_RECOMMENDATION_AND_RUNBOOK.md)** — Razorpay (INR) + Stripe (intl) integration plan
 - **[Settlement Code Changes](utility/02_DETAILED_CODE_CHANGES.md)** — Detailed code-level changes for payment integration
 - **[Design Document](utility/DESIGN_DOCUMENT.md)** — Core application architecture and design decisions
+
+## Current Auth Session Behavior
+
+The app currently allows multi-device concurrent login. Signing in on one device does not automatically sign out another device.
+
+### Multi-Device Behavior Matrix
+
+| Action | Existing device session | New device session | Current behavior |
+| --- | --- | --- | --- |
+| Email/password login on device B while already logged in on device A | Remains active | New session is created | Both devices stay signed in |
+| Google login on device B while already logged in on device A | Remains active | New session is created | Both devices stay signed in |
+| Register on device B with the same email as an existing account | Remains active | Registration is rejected | User must log in instead |
+| Google login on device B for an email that already has an email/password account | Remains active | Existing account is reused | Google is linked to the existing account instead of creating a duplicate |
+| Logout on one device | That device signs out | Other active device sessions remain active unless all sessions are explicitly revoked | Single-device logout by default |
+| Password change | Other existing sessions should be revoked as part of the security flow | User must re-authenticate on other devices | Sensitive credential change |
+
+### Notes
+
+- Backend login creates a separate `sessionId` per successful login, so multiple active sessions are supported by design.
+- Duplicate registration for the same email is not supported.
+- Account-linking behavior now prefers reusing an existing email account when the same email later signs in with Google.
+- Session revocation is server-side for logout and sensitive actions, but the product does not currently enforce single-device-only login.

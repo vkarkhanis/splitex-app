@@ -1,4 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAuth } from 'firebase/auth';
+import { ENV } from '../config/env';
 
 import {
   api,
@@ -154,8 +156,26 @@ describe('mobile api client', () => {
     expect(await getResolvedApiBaseUrl()).toContain(':3001');
   });
 
+  it('uses the build-time emulator default when no local override is stored', async () => {
+    const AsyncStorageModule = require('@react-native-async-storage/async-storage');
+    await AsyncStorageModule.clear();
+
+    const originalDefault = ENV.FIREBASE_EMULATOR_DEFAULT;
+    (ENV as any).FIREBASE_EMULATOR_DEFAULT = true;
+
+    try {
+      expect(await isFirebaseEmulatorEnabled()).toBe(true);
+      expect(await getResolvedApiBaseUrl()).toContain(':3002');
+    } finally {
+      (ENV as any).FIREBASE_EMULATOR_DEFAULT = originalDefault;
+    }
+  });
+
   it('refreshes access token after a 401 and retries once', async () => {
     await setTokens('expired-token', 'refresh-123');
+    (getAuth as jest.Mock).mockReturnValueOnce({
+      currentUser: null,
+    });
 
     fetchMock
       .mockResolvedValueOnce({

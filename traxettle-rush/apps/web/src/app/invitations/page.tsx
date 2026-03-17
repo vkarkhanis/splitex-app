@@ -16,6 +16,7 @@ import {
 } from '@traxettle/ui';
 import { api } from '../../utils/api';
 import type { Invitation } from '@traxettle/shared';
+import { toUserFriendlyError } from '../../utils/errorMessages';
 
 const Page = styled.div`
   width: 100%;
@@ -95,12 +96,12 @@ export default function InvitationsPage() {
     try {
       const url = nextMode === 'active'
         ? '/api/invitations/my?filter=active'
-        : '/api/invitations/my?limit=5';
+        : '/api/invitations/my?filter=active&limit=5';
       const res = await api.get<Invitation[]>(url);
       setInvitations(res.data || []);
       setMode(nextMode);
     } catch (err: any) {
-      setError(err.message || 'Failed to load invitations');
+      setError(toUserFriendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -118,7 +119,7 @@ export default function InvitationsPage() {
         router.push(`/events/${res.data.eventId}`);
       }
     } catch (err: any) {
-      pushToast({ type: 'error', title: 'Error', message: err.message });
+      pushToast({ type: 'error', title: 'Error', message: toUserFriendlyError(err) });
     }
   };
 
@@ -128,7 +129,7 @@ export default function InvitationsPage() {
       pushToast({ type: 'success', title: 'Invitation Declined', message: 'You have declined the invitation.' });
       fetchInvitations();
     } catch (err: any) {
-      pushToast({ type: 'error', title: 'Error', message: err.message });
+      pushToast({ type: 'error', title: 'Error', message: toUserFriendlyError(err) });
     }
   };
 
@@ -137,7 +138,7 @@ export default function InvitationsPage() {
       await api.post('/api/invitations/history-email', {});
       pushToast({ type: 'success', title: 'Email sent', message: 'Invitation history has been emailed to you.' });
     } catch (err: any) {
-      pushToast({ type: 'error', title: 'Email failed', message: err.message || 'Unable to email invitation history.' });
+      pushToast({ type: 'error', title: 'Email failed', message: toUserFriendlyError(err) });
     }
   };
 
@@ -145,7 +146,7 @@ export default function InvitationsPage() {
     <Page data-testid="invitations-page">
       <CardHeader>
         <CardTitle>My Invitations</CardTitle>
-        <CardSubtitle>Showing {mode === 'active' ? 'all active invitations' : 'your latest 5 invitations'}.</CardSubtitle>
+        <CardSubtitle>Showing {mode === 'active' ? 'all active invitations' : 'your newest 5 active invitations'}.</CardSubtitle>
       </CardHeader>
 
       {loading ? (

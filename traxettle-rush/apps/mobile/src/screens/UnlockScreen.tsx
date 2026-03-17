@@ -12,9 +12,24 @@ export default function UnlockScreen() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const handleBiometricUnlock = async () => {
+    setSubmitting(true);
+    setError('');
+    try {
+      const ok = await unlockWithBiometrics();
+      if (!ok) {
+        setError('Biometric unlock was not completed. Try again or use your PIN instead.');
+      }
+    } catch {
+      setError('Biometric unlock is unavailable right now. Please use your PIN instead.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     if (!biometricsEnabled) return;
-    unlockWithBiometrics().catch(() => {});
+    handleBiometricUnlock().catch(() => {});
   }, [biometricsEnabled, unlockWithBiometrics]);
 
   const handleUnlock = async () => {
@@ -70,7 +85,8 @@ export default function UnlockScreen() {
           <Pressable
             testID="unlock-biometrics-button"
             style={[styles.secondaryButton, { borderColor: c.border }]}
-            onPress={() => unlockWithBiometrics()}
+            disabled={submitting}
+            onPress={handleBiometricUnlock}
           >
             <Text style={[styles.secondaryButtonText, { color: c.text }]}>Use biometrics instead</Text>
           </Pressable>

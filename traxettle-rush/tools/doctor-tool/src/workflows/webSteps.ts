@@ -184,6 +184,7 @@ export const webSteps: WorkflowStep[] = [
     instructions: [
       'Run the guided script below once.',
       'It will ask you for: GCP project id, Firebase project id, service-account email + key file path, JWT secrets, RevenueCat webhook secret.',
+      'It now also asks for the Firebase client runtime fields used by mobile startup: apiKey, authDomain, messagingSenderId, appId, and optional databaseURL/measurementId.',
       'Tip: Utilities → Firebase has a step called “Find the exact values needed by the configure scripts”.',
     ],
     scripts: [{ label: 'Configure staging API', command: 'bash scripts/api-deployment/configure-staging.sh' }],

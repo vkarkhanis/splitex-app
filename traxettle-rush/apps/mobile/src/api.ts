@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAuth } from 'firebase/auth';
 import { ENV, getApiUrl, getEmulatorApiUrl, isLocalLikeEnv } from './config/env';
 
 const TOKEN_KEY = '@traxettle_token';
@@ -66,7 +67,10 @@ export function registerAuthFailureHandler(handler: AuthFailureHandler | null): 
 
 export async function isFirebaseEmulatorEnabled(): Promise<boolean> {
   if (!isLocalLikeEnv() || !ENV.LOCAL_DEV_OPTIONS_ENABLED) return false;
-  return (await AsyncStorage.getItem(FIREBASE_EMULATOR_KEY)) === 'true';
+  const storedValue = await AsyncStorage.getItem(FIREBASE_EMULATOR_KEY);
+  if (storedValue === 'true') return true;
+  if (storedValue === 'false') return false;
+  return ENV.FIREBASE_EMULATOR_DEFAULT;
 }
 
 export async function setFirebaseEmulatorEnabled(enabled: boolean): Promise<void> {
@@ -93,7 +97,12 @@ export async function setStagingModeEnabled(enabled: boolean): Promise<void> {
 export async function getResolvedApiBaseUrl(): Promise<string> {
   if (isLocalLikeEnv() && ENV.LOCAL_DEV_OPTIONS_ENABLED) {
     const useEmulator = await isFirebaseEmulatorEnabled();
-    return useEmulator ? getEmulatorApiUrl() : getApiUrl();
+    if (useEmulator) return getEmulatorApiUrl();
+
+    const useStaging = await isStagingModeEnabled();
+    if (useStaging) return ENV.STAGING_API_URL;
+
+    return getApiUrl();
   }
 
   const useStaging = await isStagingModeEnabled();
@@ -171,7 +180,6 @@ async function refreshAccessToken(): Promise<string | null> {
 
   refreshInFlight = (async () => {
     try {
-      const [{ getAuth }] = await Promise.all([import('firebase/auth')]);
       const auth = getAuth();
       if (auth.currentUser) {
         const firebaseToken = await auth.currentUser.getIdToken(true);
