@@ -13,6 +13,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { spacing, radii, fontSizes } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../api';
+import { toUserFriendlyError } from '../utils/errorMessages';
 
 interface EnrichedInvitation {
   id: string;
@@ -49,10 +50,13 @@ export default function InvitationsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [showAllActive, setShowAllActive] = useState(false);
+  const [emailingHistory, setEmailingHistory] = useState(false);
 
   const fetchInvitations = useCallback(async () => {
     try {
-      const { data } = await api.get<EnrichedInvitation[]>('/api/invitations/my');
+      const query = showAllActive ? '/api/invitations/my?filter=active' : '/api/invitations/my?filter=active&limit=5';
+      const { data } = await api.get<EnrichedInvitation[]>(query);
       setInvitations(data || []);
     } catch {
       // silently fail
@@ -60,7 +64,7 @@ export default function InvitationsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [showAllActive]);
 
   useFocusEffect(
     useCallback(() => {
@@ -75,7 +79,7 @@ export default function InvitationsScreen() {
       Alert.alert('Accepted', `You've joined "${inv.eventName || 'the event'}".`);
       fetchInvitations();
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to accept invitation');
+      Alert.alert('Error', toUserFriendlyError(err));
     } finally {
       setActionLoading(null);
     }
@@ -91,7 +95,7 @@ export default function InvitationsScreen() {
             await api.post(`/api/invitations/${inv.id}/decline`, {});
             fetchInvitations();
           } catch (err: any) {
-            Alert.alert('Error', err.message || 'Failed to decline invitation');
+            Alert.alert('Error', toUserFriendlyError(err));
           } finally {
             setActionLoading(null);
           }
@@ -161,6 +165,35 @@ export default function InvitationsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
+      <View style={[styles.toolbar, { borderBottomColor: c.border }]}>
+        <TouchableOpacity
+          style={[styles.toolbarButton, { borderColor: c.primary }]}
+          onPress={() => setShowAllActive((prev) => !prev)}
+        >
+          <Text style={[styles.toolbarButtonText, { color: c.primary }]}>
+            {showAllActive ? 'Show newest 5' : 'See all active'}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toolbarButton, { borderColor: c.primary, opacity: emailingHistory ? 0.7 : 1 }]}
+          onPress={async () => {
+            setEmailingHistory(true);
+            try {
+              await api.post('/api/invitations/history-email', {});
+              Alert.alert('Email sent', 'Invitation history from the last 3 months has been emailed to you.');
+            } catch (err: any) {
+              Alert.alert('Email failed', toUserFriendlyError(err));
+            } finally {
+              setEmailingHistory(false);
+            }
+          }}
+          disabled={emailingHistory}
+        >
+          <Text style={[styles.toolbarButtonText, { color: c.primary }]}>
+            {emailingHistory ? 'Emailing…' : 'Email 3-month history'}
+          </Text>
+        </TouchableOpacity>
+      </View>
       <FlatList
         data={invitations}
         keyExtractor={(item) => item.id}
@@ -170,7 +203,7 @@ export default function InvitationsScreen() {
           <View style={styles.empty}>
             <Text style={[styles.emptyTitle, { color: c.text }]}>No Invitations</Text>
             <Text style={[styles.emptyDesc, { color: c.textSecondary }]}>
-              You don't have any pending invitations.
+              You don't have any active invitations.
             </Text>
           </View>
         }
@@ -186,6 +219,23 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   list: { padding: spacing.xl, paddingBottom: spacing.xxxl },
+  toolbar: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+  },
+  toolbarButton: {
+    borderWidth: 1,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  toolbarButtonText: {
+    fontSize: fontSizes.sm,
+    fontWeight: '600',
+  },
   card: {
     borderRadius: radii.md,
     padding: spacing.lg,

@@ -7,13 +7,24 @@ jest.mock('../../api', () => ({
     post: jest.fn(),
   },
   setToken: jest.fn(async () => {}),
+  setTokens: jest.fn(async () => {}),
   clearToken: jest.fn(async () => {}),
+  clearTokens: jest.fn(async () => {}),
   getToken: jest.fn(async () => null),
+  registerAuthFailureHandler: jest.fn(),
 }));
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthProvider, useAuth } from '../../context/AuthContext';
-import { api, clearToken, getToken, setToken } from '../../api';
+import { api, clearTokens, getToken, setTokens } from '../../api';
+import {
+  createUserWithEmailAndPassword,
+  fetchSignInMethodsForEmail,
+  signInWithCustomToken,
+  signInWithEmailAndPassword,
+  signInWithEmailLink,
+  updateProfile,
+} from 'firebase/auth';
 
 describe('AuthContext', () => {
   let captured: ReturnType<typeof useAuth> | null = null;
@@ -34,6 +45,28 @@ describe('AuthContext', () => {
     captured = null;
     jest.clearAllMocks();
     (getToken as jest.Mock).mockResolvedValue(null);
+    (signInWithEmailAndPassword as jest.Mock).mockResolvedValue({
+      user: {
+        getIdToken: jest.fn(async () => 'firebase-id-token'),
+      },
+    });
+    (createUserWithEmailAndPassword as jest.Mock).mockResolvedValue({
+      user: {
+        getIdToken: jest.fn(async () => 'firebase-register-token'),
+      },
+    });
+    (updateProfile as jest.Mock).mockResolvedValue(undefined);
+    (fetchSignInMethodsForEmail as jest.Mock).mockResolvedValue(['password']);
+    (signInWithCustomToken as jest.Mock).mockResolvedValue({
+      user: {
+        getIdToken: jest.fn(async () => 'custom-token'),
+      },
+    });
+    (signInWithEmailLink as jest.Mock).mockResolvedValue({
+      user: {
+        getIdToken: jest.fn(async () => 'email-link-token'),
+      },
+    });
   });
 
   afterEach(async () => {
@@ -88,7 +121,6 @@ describe('AuthContext', () => {
   });
 
   it('login stores token then reloads profile', async () => {
-    (api.post as jest.Mock).mockResolvedValueOnce({ data: { accessToken: 'new-token' } });
     (api.get as jest.Mock).mockResolvedValue({
       data: {
         userId: 'u2',
@@ -99,7 +131,7 @@ describe('AuthContext', () => {
         capabilities: { multiCurrencySettlement: false },
       },
     });
-    (getToken as jest.Mock).mockResolvedValue('new-token');
+    (getToken as jest.Mock).mockResolvedValue('firebase-id-token');
 
     await act(async () => {
       renderer = create(
@@ -114,17 +146,15 @@ describe('AuthContext', () => {
       await captured?.login('u2@test.com', 'pass1234');
     });
 
-    expect(api.post).toHaveBeenCalledWith('/api/auth/login', {
-      identifier: 'u2@test.com',
-      password: 'pass1234',
-      provider: 'email',
-    });
-    expect(setToken).toHaveBeenCalledWith('new-token');
+    expect(signInWithEmailAndPassword).toHaveBeenCalled();
+    expect(setTokens).toHaveBeenCalledWith('firebase-id-token', null);
     expect(captured?.user?.userId).toBe('u2');
   });
 
-  it('login falls back to data.token when accessToken is absent', async () => {
-    (api.post as jest.Mock).mockResolvedValueOnce({ data: { token: 'fallback-token' } });
+  it('login falls back to backend bootstrap when Firebase auth misses the account', async () => {
+    (signInWithEmailAndPassword as jest.Mock).mockRejectedValueOnce(new Error('missing'));
+    (fetchSignInMethodsForEmail as jest.Mock).mockResolvedValueOnce([]);
+    (api.post as jest.Mock).mockResolvedValueOnce({ data: { firebaseCustomToken: 'firebase-custom-token' } });
     (api.get as jest.Mock).mockResolvedValue({
       data: {
         userId: 'u2b',
@@ -135,7 +165,7 @@ describe('AuthContext', () => {
         capabilities: { multiCurrencySettlement: false },
       },
     });
-    (getToken as jest.Mock).mockResolvedValue('fallback-token');
+    (getToken as jest.Mock).mockResolvedValue('custom-token');
 
     await act(async () => {
       renderer = create(
@@ -150,7 +180,12 @@ describe('AuthContext', () => {
       await captured?.login('u2b@test.com', 'pass1234');
     });
 
-    expect(setToken).toHaveBeenCalledWith('fallback-token');
+    expect(api.post).toHaveBeenCalledWith('/api/auth/login', {
+      identifier: 'u2b@test.com',
+      password: 'pass1234',
+      provider: 'email',
+    });
+    expect(setTokens).toHaveBeenCalledWith('custom-token', null);
     expect(captured?.user?.userId).toBe('u2b');
   });
 
@@ -166,12 +201,12 @@ describe('AuthContext', () => {
     });
     await flush();
 
-    await expect(captured!.loginWithGoogle('id-token')).rejects.toThrow('No token received from server');
+    await expect(captured!.loginWithGoogle('id-token')).rejects.toThrow('No Firebase session received from server');
   });
 
   it('google login accepts nested token and loads profile', async () => {
-    (api.post as jest.Mock).mockResolvedValueOnce({ data: { tokens: { accessToken: 'google-token' } } });
-    (getToken as jest.Mock).mockResolvedValue('google-token');
+    (api.post as jest.Mock).mockResolvedValueOnce({ data: { firebaseCustomToken: 'firebase-custom-token' } });
+    (getToken as jest.Mock).mockResolvedValue('custom-token');
     (api.get as jest.Mock).mockResolvedValue({
       data: {
         userId: 'u-google',
@@ -196,13 +231,12 @@ describe('AuthContext', () => {
       await captured?.loginWithGoogle('id-token');
     });
 
-    expect(setToken).toHaveBeenCalledWith('google-token');
+    expect(setTokens).toHaveBeenCalledWith('custom-token', null);
     expect(captured?.user?.userId).toBe('u-google');
   });
 
   it('register stores token and loads profile', async () => {
-    (api.post as jest.Mock).mockResolvedValueOnce({ data: { token: 'reg-token' } });
-    (getToken as jest.Mock).mockResolvedValue('reg-token');
+    (getToken as jest.Mock).mockResolvedValue('firebase-register-token');
     (api.get as jest.Mock).mockResolvedValue({
       data: {
         userId: 'u3',
@@ -227,13 +261,9 @@ describe('AuthContext', () => {
       await captured?.register('u3@test.com', 'pass1234', 'User Three');
     });
 
-    expect(api.post).toHaveBeenCalledWith('/api/auth/register', {
-      email: 'u3@test.com',
-      password: 'pass1234',
-      displayName: 'User Three',
-      provider: 'email',
-    });
-    expect(setToken).toHaveBeenCalledWith('reg-token');
+    expect(createUserWithEmailAndPassword).toHaveBeenCalled();
+    expect(updateProfile).toHaveBeenCalled();
+    expect(setTokens).toHaveBeenCalledWith('firebase-register-token', null);
     expect(captured?.user?.userId).toBe('u3');
   });
 
@@ -268,7 +298,7 @@ describe('AuthContext', () => {
       await captured?.logout();
     });
 
-    expect(clearToken).toHaveBeenCalled();
+    expect(clearTokens).toHaveBeenCalled();
     expect(captured?.user).toBeNull();
   });
 
@@ -300,10 +330,7 @@ describe('AuthContext', () => {
     (AsyncStorage.getItem as jest.Mock).mockResolvedValue('stored@test.com');
     (AsyncStorage.removeItem as jest.Mock).mockResolvedValue(undefined);
 
-    (api.post as jest.Mock).mockResolvedValueOnce({
-      data: { tokens: { accessToken: 'link-token' } },
-    });
-    (getToken as jest.Mock).mockResolvedValue('link-token');
+    (getToken as jest.Mock).mockResolvedValue('email-link-token');
     (api.get as jest.Mock).mockResolvedValue({
       data: {
         userId: 'u-link',
@@ -328,11 +355,8 @@ describe('AuthContext', () => {
       await captured?.completeEmailLinkSignIn('https://app.test?oobCode=abc&mode=signIn');
     });
 
-    expect(api.post).toHaveBeenCalledWith('/api/auth/email-link/complete', {
-      email: 'stored@test.com',
-      link: 'https://app.test?oobCode=abc&mode=signIn',
-    });
-    expect(setToken).toHaveBeenCalledWith('link-token');
+    expect(signInWithEmailLink).toHaveBeenCalledWith(expect.anything(), 'stored@test.com', 'https://app.test?oobCode=abc&mode=signIn');
+    expect(setTokens).toHaveBeenCalledWith('email-link-token', null);
     expect(AsyncStorage.removeItem).toHaveBeenCalledWith('@traxettle_pending_email_link_email');
   });
 
@@ -340,10 +364,7 @@ describe('AuthContext', () => {
     (AsyncStorage.getItem as jest.Mock).mockResolvedValue('stored@test.com');
     (AsyncStorage.removeItem as jest.Mock).mockResolvedValue(undefined);
 
-    (api.post as jest.Mock).mockResolvedValueOnce({
-      data: { accessToken: 'link-token-2' },
-    });
-    (getToken as jest.Mock).mockResolvedValue('link-token-2');
+    (getToken as jest.Mock).mockResolvedValue('email-link-token');
     (api.get as jest.Mock).mockResolvedValue({
       data: {
         userId: 'u-override',
@@ -371,10 +392,7 @@ describe('AuthContext', () => {
       );
     });
 
-    expect(api.post).toHaveBeenCalledWith('/api/auth/email-link/complete', {
-      email: 'override@test.com',
-      link: 'https://app.test?oobCode=abc&mode=signIn',
-    });
+    expect(signInWithEmailLink).toHaveBeenCalledWith(expect.anything(), 'override@test.com', 'https://app.test?oobCode=abc&mode=signIn');
   });
 
   it('completeEmailLinkSignIn throws when no email available', async () => {
@@ -394,9 +412,9 @@ describe('AuthContext', () => {
     ).rejects.toThrow('Enter your email');
   });
 
-  it('completeEmailLinkSignIn throws when server returns no token', async () => {
+  it('completeEmailLinkSignIn throws when Firebase link completion fails', async () => {
     (AsyncStorage.getItem as jest.Mock).mockResolvedValue('notoken@test.com');
-    (api.post as jest.Mock).mockResolvedValueOnce({ data: {} });
+    (signInWithEmailLink as jest.Mock).mockRejectedValueOnce(new Error('Invalid or expired sign-in link'));
 
     await act(async () => {
       renderer = create(
@@ -409,7 +427,7 @@ describe('AuthContext', () => {
 
     await expect(
       captured!.completeEmailLinkSignIn('https://app.test?oobCode=abc&mode=signIn')
-    ).rejects.toThrow('No token received');
+    ).rejects.toThrow('Invalid or expired sign-in link');
   });
 
   it('refreshProfile updates user data', async () => {
@@ -506,10 +524,7 @@ describe('AuthContext', () => {
     (AsyncStorage.getItem as jest.Mock).mockResolvedValue('deep@test.com');
     (AsyncStorage.removeItem as jest.Mock).mockResolvedValue(undefined);
 
-    (api.post as jest.Mock).mockResolvedValueOnce({
-      data: { tokens: { accessToken: 'deep-token' } },
-    });
-    (getToken as jest.Mock).mockResolvedValue('deep-token');
+    (getToken as jest.Mock).mockResolvedValue('email-link-token');
     (api.get as jest.Mock).mockResolvedValue({
       data: {
         userId: 'u-deep',
@@ -531,10 +546,7 @@ describe('AuthContext', () => {
     await flush();
 
     // The deep link should have triggered completeEmailLinkSignIn
-    expect(api.post).toHaveBeenCalledWith('/api/auth/email-link/complete', {
-      email: 'deep@test.com',
-      link: emailLinkUrl,
-    });
+    expect(signInWithEmailLink).toHaveBeenCalledWith(expect.anything(), 'deep@test.com', emailLinkUrl);
   });
 
   it('deep link useEffect handles non-email-link URLs gracefully', async () => {
@@ -615,7 +627,7 @@ describe('AuthContext', () => {
     });
     await flush();
 
-    expect(clearToken).toHaveBeenCalled();
+    expect(clearTokens).toHaveBeenCalled();
     expect(captured?.loading).toBe(false);
   });
 });

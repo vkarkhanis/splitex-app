@@ -129,14 +129,25 @@ export default function RegisterPage() {
     setError('');
 
     try {
-      const { createUserWithEmailAndPassword, updateProfile } = await import('firebase/auth');
+      const { createUserWithEmailAndPassword, fetchSignInMethodsForEmail, updateProfile } = await import('firebase/auth');
       const services = getFirebaseServices();
 
-      const credential = await createUserWithEmailAndPassword(
-        services.auth,
-        formData.email,
-        formData.password
-      );
+      let credential;
+      try {
+        credential = await createUserWithEmailAndPassword(
+          services.auth,
+          formData.email,
+          formData.password
+        );
+      } catch (err: any) {
+        if (err?.code === 'auth/email-already-in-use') {
+          const methods: string[] = await fetchSignInMethodsForEmail(services.auth, formData.email.trim().toLowerCase()).catch(() => [] as string[]);
+          if (methods.includes('google.com') && !methods.includes('password')) {
+            throw new Error('This email is already registered with Google. Sign in with Google or set a password first.');
+          }
+        }
+        throw err;
+      }
 
       // Set display name on the Firebase user
       if (formData.displayName) {

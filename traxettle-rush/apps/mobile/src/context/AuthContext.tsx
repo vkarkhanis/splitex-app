@@ -1,8 +1,34 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Linking } from 'react-native';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { AppState, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api, setToken, clearToken, getToken } from '../api';
+import {
+  createUserWithEmailAndPassword,
+  fetchSignInMethodsForEmail,
+  getAuth,
+  signInWithCustomToken,
+  signInWithEmailAndPassword,
+  signInWithEmailLink,
+  signOut,
+  updateProfile,
+} from 'firebase/auth';
+import {
+  api,
+  setTokens,
+  clearTokens,
+  getToken,
+  getResolvedApiBaseUrl,
+  registerAuthFailureHandler,
+} from '../api';
 import { ENV, isLocalLikeEnv } from '../config/env';
+import {
+  getLocalUnlockState,
+  hasStoredPin,
+  isBiometricSupported,
+  saveLocalUnlockPreferences,
+  setBiometricsPreference,
+  tryBiometricUnlock,
+  verifyPin,
+} from '../services/local-session';
 
 interface AuthUser {
   userId: string;
@@ -21,6 +47,10 @@ interface AuthContextType {
   capabilities: AuthCapabilities;
   internalTester: boolean;
   preferredCurrency: string;
+  sessionLocked: boolean;
+  pinSetupRequired: boolean;
+  biometricsAvailable: boolean;
+  biometricsEnabled: boolean;
   login: (email: string, password: string) => Promise<void>;
   sendEmailLinkSignIn: (email: string) => Promise<void>;
   completeEmailLinkSignIn: (url: string, email?: string) => Promise<void>;
@@ -29,6 +59,11 @@ interface AuthContextType {
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   switchTier: (tier: 'free' | 'pro') => Promise<void>;
+  setupPin: (pin: string, enableBiometrics: boolean) => Promise<void>;
+  unlockWithPin: (pin: string) => Promise<boolean>;
+  unlockWithBiometrics: () => Promise<boolean>;
+  toggleBiometrics: (enabled: boolean) => Promise<void>;
+  lockSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -38,6 +73,10 @@ const AuthContext = createContext<AuthContextType>({
   capabilities: { multiCurrencySettlement: false },
   internalTester: false,
   preferredCurrency: 'USD',
+  sessionLocked: false,
+  pinSetupRequired: false,
+  biometricsAvailable: false,
+  biometricsEnabled: false,
   login: async () => {},
   sendEmailLinkSignIn: async () => {},
   completeEmailLinkSignIn: async () => {},
@@ -46,6 +85,11 @@ const AuthContext = createContext<AuthContextType>({
   logout: async () => {},
   refreshProfile: async () => {},
   switchTier: async () => {},
+  setupPin: async () => {},
+  unlockWithPin: async () => false,
+  unlockWithBiometrics: async () => false,
+  toggleBiometrics: async () => {},
+  lockSession: () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -66,6 +110,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [internalTester, setInternalTester] = useState(false);
   const [preferredCurrency, setPreferredCurrency] = useState('USD');
+  const [sessionLocked, setSessionLocked] = useState(false);
+  const [pinSetupRequired, setPinSetupRequired] = useState(false);
+  const [biometricsAvailable, setBiometricsAvailable] = useState(false);
+  const [biometricsEnabled, setBiometricsEnabled] = useState(false);
+  const backgroundedAtRef = useRef<number | null>(null);
 
   const applyProfile = useCallback((data: any) => {
     setUser({ userId: data.userId, email: data.email, displayName: data.displayName });
@@ -99,9 +148,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     applyProfile(data);
   }, [applyProfile]);
 
+  const syncLocalUnlockState = useCallback(async () => {
+    const [supported, pinStored, localState] = await Promise.all([
+      isBiometricSupported(),
+      hasStoredPin(),
+      getLocalUnlockState(),
+    ]);
+    setBiometricsAvailable(supported);
+    setBiometricsEnabled(localState.biometricsEnabled && supported);
+    setPinSetupRequired(Boolean(user) && !pinStored);
+    if (!user) {
+      setSessionLocked(false);
+    }
+  }, [user]);
+
   const loadUser = useCallback(async () => {
     try {
-      const token = await getToken();
+      let token = await getToken();
+      if (!token) {
+        try {
+          const auth = getAuth();
+          if (auth.currentUser) {
+            token = await auth.currentUser.getIdToken();
+            await setTokens(token, null);
+          }
+        } catch {
+          // Ignore Firebase lookup errors and fall back to signed-out state.
+        }
+      }
       if (!token) { setLoading(false); return; }
 
       try {
@@ -111,21 +185,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw fetchErr;
       }
     } catch {
-      await clearToken();
+      await clearTokens();
     } finally {
       setLoading(false);
     }
   }, [applyProfile]);
 
   useEffect(() => { loadUser(); }, [loadUser]);
+  useEffect(() => { syncLocalUnlockState().catch(() => {}); }, [syncLocalUnlockState]);
 
   const login = async (email: string, password: string) => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const auth = getAuth();
+
+    try {
+      const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+      const idToken = await credential.user.getIdToken();
+      await setTokens(idToken, null);
+      await loadUser();
+      return;
+    } catch (firebaseError: any) {
+      try {
+        const methods: string[] = await fetchSignInMethodsForEmail(auth, normalizedEmail);
+        if (methods.includes('google.com') && !methods.includes('password')) {
+          throw new Error('This account uses Google sign-in. Sign in with Google or set a password first.');
+        }
+        if (methods.includes('password')) {
+          throw firebaseError;
+        }
+      } catch (providerError) {
+        if (providerError instanceof Error && providerError.message.includes('Google sign-in')) {
+          throw providerError;
+        }
+      }
+    }
+
     const { data } = await api.post('/api/auth/login', {
-      identifier: email,
+      identifier: normalizedEmail,
       password,
       provider: 'email',
     });
-    await setToken(data.accessToken || data.token);
+    const firebaseCustomToken = data.firebaseCustomToken as string | undefined;
+    if (!firebaseCustomToken) {
+      throw new Error('Unable to establish a secure session. Please try again.');
+    }
+    const credential = await signInWithCustomToken(auth, firebaseCustomToken);
+    const idToken = await credential.user.getIdToken();
+    await setTokens(idToken, null);
     await loadUser();
   };
 
@@ -142,46 +248,129 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error('Enter your email first, then tap the sign-in link from your inbox.');
     }
 
-    const { data } = await api.post('/api/auth/email-link/complete', { email, link: url });
-    const token = data.tokens?.accessToken || data.accessToken || data.token;
-    if (!token) throw new Error('No token received from server');
-
-    await setToken(token);
+    const auth = getAuth();
+    const credential = await signInWithEmailLink(auth, email, url);
+    const token = await credential.user.getIdToken(true);
+    await setTokens(token, null);
     await AsyncStorage.removeItem(EMAIL_LINK_PENDING_EMAIL_KEY);
     await loadUser();
   }, [loadUser]);
 
   const loginWithGoogle = async (idToken: string) => {
+    const auth = getAuth();
     try {
+      console.log('[AuthContext] Starting backend Google login exchange');
       const { data } = await api.post('/api/auth/google', { token: idToken });
-      const token = data.tokens?.accessToken || data.accessToken || data.token;
-      if (!token) throw new Error('No token received from server');
-      await setToken(token);
+      const firebaseCustomToken = data.firebaseCustomToken as string | undefined;
+      if (!firebaseCustomToken) {
+        throw new Error('No Firebase session received from server');
+      }
+      console.log('[AuthContext] Received Firebase custom token from backend');
+      // --- DEBUG: log Firebase client config for custom-token-mismatch investigation ---
+      try {
+        const fbApp = auth.app;
+        console.log('[AuthContext] Firebase client config', {
+          projectId: fbApp.options.projectId,
+          apiKey: fbApp.options.apiKey?.substring(0, 15) + '...',
+          appId: fbApp.options.appId,
+          authDomain: fbApp.options.authDomain,
+        });
+      } catch (e) { console.warn('[AuthContext] Could not read Firebase app options', e); }
+      // --- END DEBUG ---
+      const credential = await signInWithCustomToken(auth, firebaseCustomToken);
+      console.log('[AuthContext] Firebase custom-token sign-in succeeded');
+      const token = await credential.user.getIdToken();
+      await setTokens(token, null);
       await loadUser();
-    } catch (err: any) {
-      throw err;
+    } catch (error: any) {
+      // --- DEBUG: exhaustive diagnostics on custom-token-mismatch ---
+      const fbApp = auth.app;
+      const fullApiKey = fbApp.options.apiKey || '(none)';
+      console.error('[AuthContext] ===== CUSTOM TOKEN SIGN-IN FAILED =====');
+      console.error('[AuthContext] Error:', error?.code, error?.message);
+      console.error('[AuthContext] Firebase app name:', fbApp.name);
+      console.error('[AuthContext] Full apiKey:', fullApiKey);
+      console.error('[AuthContext] projectId:', fbApp.options.projectId);
+      console.error('[AuthContext] appId:', fbApp.options.appId);
+      console.error('[AuthContext] authDomain:', fbApp.options.authDomain);
+      // Also try a direct REST call to see if it works outside the SDK
+      try {
+        const itUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${fullApiKey}`;
+        console.error('[AuthContext] Trying direct REST call to:', itUrl.substring(0, 80) + '...');
+        const directRes = await fetch(itUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: firebaseCustomToken, returnSecureToken: true }),
+        });
+        const directBody = await directRes.json();
+        console.error('[AuthContext] Direct REST result:', directRes.status, JSON.stringify(directBody).substring(0, 200));
+      } catch (restErr: any) {
+        console.error('[AuthContext] Direct REST call also failed:', restErr.message);
+      }
+      console.error('[AuthContext] ===== END DIAGNOSTICS =====');
+      // --- END DEBUG ---
+      throw error;
     }
   };
 
   const register = async (email: string, password: string, displayName: string) => {
-    const { data } = await api.post('/api/auth/register', {
-      email,
-      password,
-      displayName,
-      provider: 'email',
-    });
-    await setToken(data.accessToken || data.token);
+    const normalizedEmail = email.trim().toLowerCase();
+    const auth = getAuth();
+
+    try {
+      const credential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+      if (displayName.trim()) {
+        await updateProfile(credential.user, { displayName: displayName.trim() });
+      }
+      const token = await credential.user.getIdToken(true);
+      await setTokens(token, null);
+    } catch (error: any) {
+      if (error?.code === 'auth/email-already-in-use') {
+        const methods: string[] = await fetchSignInMethodsForEmail(auth, normalizedEmail).catch(() => [] as string[]);
+        if (methods.includes('google.com') && !methods.includes('password')) {
+          throw new Error('This email is already registered with Google. Sign in with Google or set a password first.');
+        }
+      }
+      throw error;
+    }
+
     await loadUser();
   };
 
-  const logout = async () => {
-    await clearToken();
+  const logout = useCallback(async () => {
+    const token = await getToken();
+    if (token) {
+      try {
+        const apiBase = await getResolvedApiBaseUrl();
+        await fetch(`${apiBase}/api/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      } catch {
+        // Best-effort server logout
+      }
+    }
+
+    try {
+      await signOut(getAuth());
+    } catch {
+      // Ignore Firebase sign-out failures during local cleanup.
+    }
+
+    await clearTokens();
     setUser(null);
     setTier('free');
     setCapabilities({ multiCurrencySettlement: false });
     setInternalTester(false);
     setPreferredCurrency('USD');
-  };
+    setSessionLocked(false);
+    setPinSetupRequired(false);
+    setBiometricsEnabled(false);
+    backgroundedAtRef.current = null;
+  }, []);
 
   const switchTier = async (nextTier: 'free' | 'pro') => {
     await api.post('/api/internal/entitlements/switch', { tier: nextTier });
@@ -211,6 +400,67 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [completeEmailLinkSignIn]);
 
+  useEffect(() => {
+    registerAuthFailureHandler(async (error) => {
+      if (error.status !== 401) return;
+      await logout();
+    });
+    return () => registerAuthFailureHandler(null);
+  }, [logout]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background' || state === 'inactive') {
+        backgroundedAtRef.current = Date.now();
+        return;
+      }
+
+      if (state === 'active' && user) {
+        const backgroundedAt = backgroundedAtRef.current;
+        backgroundedAtRef.current = null;
+        if (backgroundedAt && Date.now() - backgroundedAt >= 5 * 60 * 1000) {
+          setSessionLocked(true);
+        }
+      }
+    });
+
+    return () => sub.remove();
+  }, [user]);
+
+  const setupPin = useCallback(async (pin: string, enableBiometrics: boolean) => {
+    await saveLocalUnlockPreferences(pin, enableBiometrics);
+    setPinSetupRequired(false);
+    setSessionLocked(false);
+    await syncLocalUnlockState();
+  }, [syncLocalUnlockState]);
+
+  const unlockWithPin = useCallback(async (pin: string) => {
+    const ok = await verifyPin(pin);
+    if (ok) {
+      setSessionLocked(false);
+    }
+    return ok;
+  }, []);
+
+  const unlockWithBiometrics = useCallback(async () => {
+    const ok = await tryBiometricUnlock();
+    if (ok) {
+      setSessionLocked(false);
+    }
+    return ok;
+  }, []);
+
+  const toggleBiometrics = useCallback(async (enabled: boolean) => {
+    await setBiometricsPreference(enabled);
+    await syncLocalUnlockState();
+  }, [syncLocalUnlockState]);
+
+  const lockSession = useCallback(() => {
+    if (user) {
+      setSessionLocked(true);
+    }
+  }, [user]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -220,6 +470,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         capabilities,
         internalTester,
         preferredCurrency,
+        sessionLocked,
+        pinSetupRequired,
+        biometricsAvailable,
+        biometricsEnabled,
         login,
         sendEmailLinkSignIn,
         completeEmailLinkSignIn,
@@ -228,6 +482,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         refreshProfile,
         switchTier,
+        setupPin,
+        unlockWithPin,
+        unlockWithBiometrics,
+        toggleBiometrics,
+        lockSession,
       }}
     >
       {children}

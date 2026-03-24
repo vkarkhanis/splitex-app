@@ -50,6 +50,10 @@ describe('Profile page notifications toggle', () => {
     colors: {
       muted: '#666',
       error: '#c00',
+      border: '#ddd',
+    },
+    radii: {
+      md: '12px',
     },
   };
 

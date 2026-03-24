@@ -255,6 +255,48 @@ describe('InvitationService.getUserInvitations', () => {
   });
 });
 
+describe('InvitationService — email normalization', () => {
+  it('should normalize inviteeEmail to lowercase on create', async () => {
+    const inv = await service.createInvitation('u1', {
+      eventId: 'evt-norm',
+      inviteeEmail: '  Friend@TEST.com  ',
+    });
+    expect(inv.inviteeEmail).toBe('friend@test.com');
+  });
+
+  it('should find invitations when lookup email has different casing', async () => {
+    mockInvitations['inv-case'] = {
+      eventId: 'evt-c', invitedBy: 'other', inviteeEmail: 'bob@test.com',
+      inviteePhone: null, inviteeUserId: null, role: 'member',
+      status: 'pending', token: 'tok-case', message: null,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      respondedAt: null,
+    };
+    const result = await service.getUserInvitations('nobody', 'Bob@Test.COM');
+    expect(result.length).toBe(1);
+    expect(result[0].inviteeEmail).toBe('bob@test.com');
+  });
+
+  it('should find invitations when lookup email has whitespace', async () => {
+    mockInvitations['inv-ws'] = {
+      eventId: 'evt-ws', invitedBy: 'other', inviteeEmail: 'alice@test.com',
+      inviteePhone: null, inviteeUserId: null, role: 'member',
+      status: 'pending', token: 'tok-ws', message: null,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      respondedAt: null,
+    };
+    const result = await service.getUserInvitations('nobody', '  alice@test.com  ');
+    expect(result.length).toBe(1);
+  });
+
+  it('should handle empty/null email gracefully', async () => {
+    const result = await service.getUserInvitations('u1', '');
+    expect(Array.isArray(result)).toBe(true);
+  });
+});
+
 describe('InvitationService.acceptInvitation', () => {
   it('should return null for non-existent invitation', async () => {
     const result = await service.acceptInvitation('nonexistent', 'u1');

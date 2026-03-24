@@ -55,6 +55,8 @@ export const ENV = {
     ((process.env as any).EXPO_PUBLIC_INTERNAL_FEATURES_ENABLED || 'false') === 'true',
   LOCAL_DEV_OPTIONS_ENABLED:
     ((process.env as any).EXPO_PUBLIC_LOCAL_DEV_OPTIONS_ENABLED || 'true') === 'true',
+  FIREBASE_EMULATOR_DEFAULT:
+    ((process.env as any).EXPO_PUBLIC_FIREBASE_USE_EMULATOR || 'false') === 'true',
 
   /**
    * RevenueCat API Keys for in-app purchases.

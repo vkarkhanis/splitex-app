@@ -163,6 +163,13 @@ ACTIVE_PLIST="$PLIST_FALLBACK"
 
 EXTRACTED_IOS_CLIENT_ID=""
 EXTRACTED_WEB_CLIENT_ID=""
+EXTRACTED_ANDROID_CLIENT_ID=""
+EXTRACTED_API_KEY=""
+EXTRACTED_APP_ID=""
+EXTRACTED_MESSAGING_SENDER_ID=""
+EXTRACTED_PROJECT_ID=""
+EXTRACTED_STORAGE_BUCKET=""
+EXTRACTED_AUTH_DOMAIN=""
 
 if [ -f "$ACTIVE_PLIST" ]; then
   EXTRACTED_IOS_CLIENT_ID=$(grep -A1 '<key>CLIENT_ID</key>' "$ACTIVE_PLIST" | grep '<string>' | sed 's/.*<string>//;s/<\/string>.*//' | head -1)
@@ -171,6 +178,48 @@ fi
 # Extract web client ID from google-services.json (oauth_client with client_type 3)
 ACTIVE_GS="$GOOGLE_SERVICES_DST"
 if [ -f "$ACTIVE_GS" ]; then
+  EXTRACTED_API_KEY=$(python3 -c "
+import json
+with open('$ACTIVE_GS') as f:
+    data = json.load(f)
+client = (data.get('client') or [{}])[0]
+api_keys = client.get('api_key') or []
+print((api_keys[0] or {}).get('current_key', ''))
+" 2>/dev/null || echo "")
+
+  EXTRACTED_APP_ID=$(python3 -c "
+import json
+with open('$ACTIVE_GS') as f:
+    data = json.load(f)
+client = (data.get('client') or [{}])[0]
+info = client.get('client_info') or {}
+print(info.get('mobilesdk_app_id', ''))
+" 2>/dev/null || echo "")
+
+  EXTRACTED_MESSAGING_SENDER_ID=$(python3 -c "
+import json
+with open('$ACTIVE_GS') as f:
+    data = json.load(f)
+info = data.get('project_info') or {}
+print(info.get('project_number', ''))
+" 2>/dev/null || echo "")
+
+  EXTRACTED_PROJECT_ID=$(python3 -c "
+import json
+with open('$ACTIVE_GS') as f:
+    data = json.load(f)
+info = data.get('project_info') or {}
+print(info.get('project_id', ''))
+" 2>/dev/null || echo "")
+
+  EXTRACTED_STORAGE_BUCKET=$(python3 -c "
+import json
+with open('$ACTIVE_GS') as f:
+    data = json.load(f)
+info = data.get('project_info') or {}
+print(info.get('storage_bucket', ''))
+" 2>/dev/null || echo "")
+
   # client_type 3 = web client
   EXTRACTED_WEB_CLIENT_ID=$(python3 -c "
 import json, sys
@@ -182,12 +231,96 @@ for client in data.get('client', []):
             print(oc['client_id'])
             sys.exit(0)
 " 2>/dev/null || echo "")
+
+  # client_type 1 = Android client
+  EXTRACTED_ANDROID_CLIENT_ID=$(python3 -c "
+import json, sys
+with open('$ACTIVE_GS') as f:
+    data = json.load(f)
+for client in data.get('client', []):
+    for oc in client.get('oauth_client', []):
+        if oc.get('client_type') == 1:
+            print(oc['client_id'])
+            sys.exit(0)
+" 2>/dev/null || echo "")
+
+  if [ -n "$EXTRACTED_PROJECT_ID" ]; then
+    EXTRACTED_AUTH_DOMAIN="${EXTRACTED_PROJECT_ID}.firebaseapp.com"
+  fi
+fi
+
+# --- Load Web-platform Firebase config ---
+# The Firebase JS SDK (used by the React Native mobile app) makes REST API
+# calls that require the Web API key and Web app ID, which are DIFFERENT from
+# the Android values in google-services.json.  Web configs are stored in
+# fb-web-configs/<project_id>.env alongside the service-account files.
+WEB_CONFIG_EXTRACTED_API_KEY=""
+WEB_CONFIG_EXTRACTED_APP_ID=""
+WEB_CONFIG_EXTRACTED_AUTH_DOMAIN=""
+WEB_CONFIG_EXTRACTED_STORAGE_BUCKET=""
+WEB_CONFIG_EXTRACTED_MESSAGING_SENDER_ID=""
+WEB_CONFIG_EXTRACTED_MEASUREMENT_ID=""
+
+if [ -n "$EXTRACTED_PROJECT_ID" ]; then
+  WEB_CONFIG_FILE="$ROOT_DIR/fb-web-configs/${EXTRACTED_PROJECT_ID}.env"
+  if [ -f "$WEB_CONFIG_FILE" ]; then
+    # Source the file in a subshell-safe way
+    while IFS='=' read -r key value; do
+      # Skip comments and empty lines
+      [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
+      # Strip surrounding quotes
+      value="${value%\"}"
+      value="${value#\"}"
+      case "$key" in
+        FIREBASE_WEB_API_KEY)              WEB_CONFIG_EXTRACTED_API_KEY="$value" ;;
+        FIREBASE_WEB_APP_ID)               WEB_CONFIG_EXTRACTED_APP_ID="$value" ;;
+        FIREBASE_WEB_AUTH_DOMAIN)           WEB_CONFIG_EXTRACTED_AUTH_DOMAIN="$value" ;;
+        FIREBASE_WEB_STORAGE_BUCKET)        WEB_CONFIG_EXTRACTED_STORAGE_BUCKET="$value" ;;
+        FIREBASE_WEB_MESSAGING_SENDER_ID)   WEB_CONFIG_EXTRACTED_MESSAGING_SENDER_ID="$value" ;;
+        FIREBASE_WEB_MEASUREMENT_ID)        WEB_CONFIG_EXTRACTED_MEASUREMENT_ID="$value" ;;
+      esac
+    done < "$WEB_CONFIG_FILE"
+    ok "Loaded Web Firebase config from ${WEB_CONFIG_FILE##*/}"
+  else
+    warn "No Web Firebase config at $WEB_CONFIG_FILE — falling back to Android API key"
+  fi
+fi
+
+# Prefer Web values; fall back to Android-extracted values
+FINAL_API_KEY="${WEB_CONFIG_EXTRACTED_API_KEY:-$EXTRACTED_API_KEY}"
+FINAL_APP_ID="${WEB_CONFIG_EXTRACTED_APP_ID:-$EXTRACTED_APP_ID}"
+FINAL_AUTH_DOMAIN="${WEB_CONFIG_EXTRACTED_AUTH_DOMAIN:-$EXTRACTED_AUTH_DOMAIN}"
+FINAL_STORAGE_BUCKET="${WEB_CONFIG_EXTRACTED_STORAGE_BUCKET:-$EXTRACTED_STORAGE_BUCKET}"
+FINAL_MESSAGING_SENDER_ID="${WEB_CONFIG_EXTRACTED_MESSAGING_SENDER_ID:-$EXTRACTED_MESSAGING_SENDER_ID}"
+FINAL_MEASUREMENT_ID="${WEB_CONFIG_EXTRACTED_MEASUREMENT_ID:-}"
+
+# ── 8. Resolve Firebase service account ──────────────────────────────────────
+SA_ENV_NAME="$FIREBASE_ENV"
+[ "$SA_ENV_NAME" = "local" ] && SA_ENV_NAME="test"
+BOOTSTRAP_SA_FILE="fb-service-accounts/traxettle-fb-sa-${SA_ENV_NAME}.json"
+BOOTSTRAP_SA_PATH="$ROOT_DIR/$BOOTSTRAP_SA_FILE"
+
+if [ -f "$BOOTSTRAP_SA_PATH" ]; then
+  ok "Service account: $BOOTSTRAP_SA_FILE"
+else
+  warn "Missing: $BOOTSTRAP_SA_FILE"
+  warn "  Download from Firebase Console → Project Settings → Service accounts → Generate new private key"
+  ERRORS=$((ERRORS + 1))
 fi
 
 {
   echo "# Auto-generated by bootstrap.sh — do not edit"
   echo "BOOTSTRAP_GOOGLE_IOS_CLIENT_ID=\"$EXTRACTED_IOS_CLIENT_ID\""
   echo "BOOTSTRAP_GOOGLE_WEB_CLIENT_ID=\"$EXTRACTED_WEB_CLIENT_ID\""
+  echo "BOOTSTRAP_GOOGLE_ANDROID_CLIENT_ID=\"$EXTRACTED_ANDROID_CLIENT_ID\""
+  echo "BOOTSTRAP_FIREBASE_API_KEY=\"$FINAL_API_KEY\""
+  echo "BOOTSTRAP_FIREBASE_APP_ID=\"$FINAL_APP_ID\""
+  echo "BOOTSTRAP_FIREBASE_MESSAGING_SENDER_ID=\"$FINAL_MESSAGING_SENDER_ID\""
+  echo "BOOTSTRAP_FIREBASE_PROJECT_ID=\"$EXTRACTED_PROJECT_ID\""
+  echo "BOOTSTRAP_FIREBASE_STORAGE_BUCKET=\"$FINAL_STORAGE_BUCKET\""
+  echo "BOOTSTRAP_FIREBASE_AUTH_DOMAIN=\"$FINAL_AUTH_DOMAIN\""
+  echo "BOOTSTRAP_FIREBASE_MEASUREMENT_ID=\"$FINAL_MEASUREMENT_ID\""
+  echo "BOOTSTRAP_FIREBASE_SA_FILE=\"$BOOTSTRAP_SA_FILE\""
 } > "$BOOTSTRAP_ENV"
 
 if [ -n "$EXTRACTED_IOS_CLIENT_ID" ]; then
@@ -195,6 +328,15 @@ if [ -n "$EXTRACTED_IOS_CLIENT_ID" ]; then
 fi
 if [ -n "$EXTRACTED_WEB_CLIENT_ID" ]; then
   ok "Web client ID: ${EXTRACTED_WEB_CLIENT_ID:0:30}…"
+fi
+if [ -n "$EXTRACTED_ANDROID_CLIENT_ID" ]; then
+  ok "Android client ID: ${EXTRACTED_ANDROID_CLIENT_ID:0:30}…"
+fi
+if [ -n "$FINAL_API_KEY" ]; then
+  ok "Firebase API key: ${FINAL_API_KEY:0:15}…"
+fi
+if [ -n "$FINAL_APP_ID" ]; then
+  ok "Firebase app ID: ${FINAL_APP_ID:0:30}…"
 fi
 
 echo ""

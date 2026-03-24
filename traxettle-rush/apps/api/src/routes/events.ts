@@ -70,7 +70,12 @@ router.post('/history-email', requireAuth, async (req: AuthenticatedRequest, res
       return res.status(400).json({ success: false, error: 'No email found for this account' } as ApiResponse);
     }
     const events = await eventService.getUserEvents(uid);
-    const history = (events || []).filter((e: any) => e?.status === 'closed');
+    const threeMonthsAgo = Date.now() - (1000 * 60 * 60 * 24 * 31 * 3);
+    const history = (events || []).filter((e: any) => {
+      if (e?.status !== 'closed') return false;
+      const ts = e?.updatedAt ? Date.parse(String(e.updatedAt)) : (e?.createdAt ? Date.parse(String(e.createdAt)) : 0);
+      return ts >= threeMonthsAgo;
+    });
     history.sort((a: any, b: any) => {
       const at = a?.updatedAt ? Date.parse(String(a.updatedAt)) : 0;
       const bt = b?.updatedAt ? Date.parse(String(b.updatedAt)) : 0;
@@ -91,7 +96,7 @@ router.post('/history-email', requireAuth, async (req: AuthenticatedRequest, res
     const subject = 'Your Traxettle event history';
     const html = `<!doctype html><html><body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;margin:24px;color:#111">
       <h1 style="margin:0 0 6px;font-size:18px">Event history (closed)</h1>
-      <div style="color:#666;font-size:12px;margin-bottom:14px">Closed events: ${history.length}</div>
+      <div style="color:#666;font-size:12px;margin-bottom:14px">Closed events from the last 3 months: ${history.length}</div>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr>
           <th style="text-align:left;border:1px solid #e5e7eb;padding:8px;background:#f8fafc">Event</th>
@@ -103,7 +108,7 @@ router.post('/history-email', requireAuth, async (req: AuthenticatedRequest, res
         <tbody>${rows || '<tr><td colspan="5" style="border:1px solid #e5e7eb;padding:8px;color:#666">No closed events.</td></tr>'}</tbody>
       </table>
     </body></html>`;
-    const text = `Event history (closed events: ${history.length})\n\n` + history.map((e: any) => {
+    const text = `Event history (closed events from the last 3 months: ${history.length})\n\n` + history.map((e: any) => {
       return `- ${e.name} | ${e.type} | ${e.currency} | ${e.startDate || ''} | ${e.updatedAt || ''}`;
     }).join('\n');
 

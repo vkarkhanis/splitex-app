@@ -30,8 +30,11 @@ describe('AuthContext local override behavior', () => {
         post: jest.fn(),
       },
       setToken: jest.fn(async () => {}),
+      setTokens: jest.fn(async () => {}),
       clearToken: jest.fn(async () => {}),
+      clearTokens: jest.fn(async () => {}),
       getToken: jest.fn(async () => 'token-local'),
+      registerAuthFailureHandler: jest.fn(),
     }));
 
     const React = require('react');

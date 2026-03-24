@@ -5,7 +5,7 @@ export interface User {
   phoneNumber: string;
   displayName: string;
   photoURL?: string;
-  authProviders: ('google' | 'microsoft' | 'phone')[];
+  authProviders: ('email' | 'google' | 'microsoft' | 'phone')[];
   preferences: UserPreferences;
   createdAt: Date;
   updatedAt: Date;
@@ -44,6 +44,8 @@ export interface UserProfile {
   email: string;
   phoneNumber?: string;
   photoURL?: string;
+  authProviders?: ('email' | 'google' | 'microsoft' | 'phone')[];
+  hasPassword?: boolean;
   tier: PlanTier;
   entitlementStatus: EntitlementStatus;
   entitlementExpiresAt?: Date | string | null;

@@ -29,6 +29,11 @@ JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-CHANGE_ME_STAGING_JWT_REFRESH_SECRET}"
 
 # Optional (required only for email-link passwordless sign-in)
 FIREBASE_WEB_API_KEY=""
+FIREBASE_AUTH_DOMAIN=""
+FIREBASE_DATABASE_URL=""
+FIREBASE_MESSAGING_SENDER_ID=""
+FIREBASE_APP_ID=""
+FIREBASE_MEASUREMENT_ID=""
 AUTH_EMAIL_LINK_CONTINUE_URL=""
 AUTH_ANDROID_PACKAGE_NAME=""
 AUTH_ANDROID_MIN_VERSION="1"
@@ -69,6 +74,11 @@ SECRET_FIREBASE_STORAGE_BUCKET="traxettle-stg-firebase-storage-bucket"
 SECRET_JWT_SECRET="traxettle-stg-jwt-secret"
 SECRET_JWT_REFRESH_SECRET="traxettle-stg-jwt-refresh-secret"
 SECRET_FIREBASE_WEB_API_KEY="traxettle-stg-firebase-web-api-key"
+SECRET_FIREBASE_AUTH_DOMAIN="traxettle-stg-firebase-auth-domain"
+SECRET_FIREBASE_DATABASE_URL="traxettle-stg-firebase-database-url"
+SECRET_FIREBASE_MESSAGING_SENDER_ID="traxettle-stg-firebase-messaging-sender-id"
+SECRET_FIREBASE_APP_ID="traxettle-stg-firebase-app-id"
+SECRET_FIREBASE_MEASUREMENT_ID="traxettle-stg-firebase-measurement-id"
 SECRET_REVENUECAT_WEBHOOK_SECRET="traxettle-stg-revenuecat-webhook-secret"
 SECRET_REVENUECAT_GOOGLE_API_KEY="traxettle-stg-revenuecat-google-api-key"
 SECRET_REVENUECAT_APPLE_API_KEY="traxettle-stg-revenuecat-apple-api-key"
@@ -152,6 +162,10 @@ require_not_placeholder "FIREBASE_PRIVATE_KEY_FILE" "$FIREBASE_PRIVATE_KEY_FILE"
 require_not_placeholder "JWT_SECRET" "$JWT_SECRET"
 require_not_placeholder "JWT_REFRESH_SECRET" "$JWT_REFRESH_SECRET"
 require_not_placeholder "REVENUECAT_WEBHOOK_SECRET" "${REVENUECAT_WEBHOOK_SECRET:-}"
+require_not_placeholder "FIREBASE_WEB_API_KEY" "${FIREBASE_WEB_API_KEY:-}"
+require_not_placeholder "FIREBASE_AUTH_DOMAIN" "${FIREBASE_AUTH_DOMAIN:-}"
+require_not_placeholder "FIREBASE_MESSAGING_SENDER_ID" "${FIREBASE_MESSAGING_SENDER_ID:-}"
+require_not_placeholder "FIREBASE_APP_ID" "${FIREBASE_APP_ID:-}"
 if [[ -n "$SMTP_SERVICE" ]]; then
   require_not_placeholder "SMTP_USER" "$SMTP_USER"
   if [[ -z "${SMTP_PASS:-}" ]]; then
@@ -209,6 +223,21 @@ fi
 if [[ -n "$FIREBASE_WEB_API_KEY" ]]; then
   upsert_secret_text "$SECRET_FIREBASE_WEB_API_KEY" "$FIREBASE_WEB_API_KEY"
 fi
+if [[ -n "$FIREBASE_AUTH_DOMAIN" ]]; then
+  upsert_secret_text "$SECRET_FIREBASE_AUTH_DOMAIN" "$FIREBASE_AUTH_DOMAIN"
+fi
+if [[ -n "$FIREBASE_DATABASE_URL" ]]; then
+  upsert_secret_text "$SECRET_FIREBASE_DATABASE_URL" "$FIREBASE_DATABASE_URL"
+fi
+if [[ -n "$FIREBASE_MESSAGING_SENDER_ID" ]]; then
+  upsert_secret_text "$SECRET_FIREBASE_MESSAGING_SENDER_ID" "$FIREBASE_MESSAGING_SENDER_ID"
+fi
+if [[ -n "$FIREBASE_APP_ID" ]]; then
+  upsert_secret_text "$SECRET_FIREBASE_APP_ID" "$FIREBASE_APP_ID"
+fi
+if [[ -n "$FIREBASE_MEASUREMENT_ID" ]]; then
+  upsert_secret_text "$SECRET_FIREBASE_MEASUREMENT_ID" "$FIREBASE_MEASUREMENT_ID"
+fi
 if [[ -n "$SMTP_SERVICE" ]]; then
   upsert_secret_text "$SECRET_SMTP_PASS" "$SMTP_PASS"
 fi
@@ -253,6 +282,21 @@ DEPLOY_CMD=(
 )
 if [[ -n "$FIREBASE_WEB_API_KEY" ]]; then
   DEPLOY_CMD+=(--set-secrets "FIREBASE_WEB_API_KEY=${SECRET_FIREBASE_WEB_API_KEY}:latest")
+fi
+if [[ -n "$FIREBASE_AUTH_DOMAIN" ]]; then
+  DEPLOY_CMD+=(--set-secrets "FIREBASE_AUTH_DOMAIN=${SECRET_FIREBASE_AUTH_DOMAIN}:latest")
+fi
+if [[ -n "$FIREBASE_DATABASE_URL" ]]; then
+  DEPLOY_CMD+=(--set-secrets "FIREBASE_DATABASE_URL=${SECRET_FIREBASE_DATABASE_URL}:latest")
+fi
+if [[ -n "$FIREBASE_MESSAGING_SENDER_ID" ]]; then
+  DEPLOY_CMD+=(--set-secrets "FIREBASE_MESSAGING_SENDER_ID=${SECRET_FIREBASE_MESSAGING_SENDER_ID}:latest")
+fi
+if [[ -n "$FIREBASE_APP_ID" ]]; then
+  DEPLOY_CMD+=(--set-secrets "FIREBASE_APP_ID=${SECRET_FIREBASE_APP_ID}:latest")
+fi
+if [[ -n "$FIREBASE_MEASUREMENT_ID" ]]; then
+  DEPLOY_CMD+=(--set-secrets "FIREBASE_MEASUREMENT_ID=${SECRET_FIREBASE_MEASUREMENT_ID}:latest")
 fi
 if [[ -n "$SMTP_SERVICE" || -n "$SMTP_HOST" ]]; then
   DEPLOY_CMD+=(--set-secrets "SMTP_PASS=${SECRET_SMTP_PASS}:latest")

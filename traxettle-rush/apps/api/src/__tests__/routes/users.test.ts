@@ -307,3 +307,63 @@ describe('PUT /api/users/profile', () => {
     expect(res.body.error).toBe('Failed to update profile');
   });
 });
+
+describe('GET /api/users/profile — authProviders & hasPassword', () => {
+  it('should return authProviders and hasPassword for email user', async () => {
+    mockData['mock-email-provider-user'] = {
+      displayName: 'Email User',
+      email: 'email@example.com',
+      authProviders: ['email'],
+      passwordHash: 'hashed',
+      preferences: { notifications: true, currency: 'USD', timezone: 'UTC' },
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/users/profile')
+      .set('Authorization', 'Bearer mock-email-provider-user');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.authProviders).toContain('email');
+    expect(res.body.data.hasPassword).toBe(true);
+  });
+
+  it('should return hasPassword false for google-only user', async () => {
+    mockData['mock-google-only-user'] = {
+      displayName: 'Google User',
+      email: 'google@example.com',
+      authProviders: ['google'],
+      preferences: { notifications: true, currency: 'USD', timezone: 'UTC' },
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/users/profile')
+      .set('Authorization', 'Bearer mock-google-only-user');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.authProviders).toContain('google');
+    // hasPassword depends on Firebase auth lookup which is mocked; the stored doc has no email provider
+    expect(res.body.data.authProviders).not.toContain('email');
+  });
+
+  it('should include both providers for user with google + email', async () => {
+    mockData['mock-mixed-provider-user'] = {
+      displayName: 'Mixed User',
+      email: 'mixed@example.com',
+      authProviders: ['email', 'google'],
+      passwordHash: 'hashed',
+      preferences: { notifications: true, currency: 'USD', timezone: 'UTC' },
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/users/profile')
+      .set('Authorization', 'Bearer mock-mixed-provider-user');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.authProviders).toContain('email');
+    expect(res.body.data.authProviders).toContain('google');
+    expect(res.body.data.hasPassword).toBe(true);
+  });
+});

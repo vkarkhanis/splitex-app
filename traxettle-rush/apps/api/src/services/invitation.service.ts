@@ -15,10 +15,18 @@ export class InvitationService {
     return crypto.randomBytes(32).toString('hex');
   }
 
+  private normalizeEmail(email?: string | null): string | undefined {
+    if (!email) return undefined;
+    const normalized = String(email).trim().toLowerCase();
+    return normalized || undefined;
+  }
+
   async createInvitation(userId: string, dto: CreateInvitationDto, inviterName?: string, eventName?: string): Promise<Invitation> {
     if (!dto.inviteeEmail && !dto.inviteePhone && !dto.inviteeUserId) {
       throw new Error('At least one of inviteeEmail, inviteePhone, or inviteeUserId is required');
     }
+
+    const normalizedInviteeEmail = this.normalizeEmail(dto.inviteeEmail);
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
@@ -28,7 +36,7 @@ export class InvitationService {
     const invitationData: Record<string, any> = {
       eventId: dto.eventId,
       invitedBy: userId,
-      inviteeEmail: dto.inviteeEmail || null,
+      inviteeEmail: normalizedInviteeEmail || null,
       inviteePhone: dto.inviteePhone || null,
       inviteeUserId: dto.inviteeUserId || null,
       groupId: dto.groupId || null,
@@ -46,9 +54,9 @@ export class InvitationService {
     const docRef = await db.collection(this.collection).add(invitationData);
 
     // Send invitation email if inviteeEmail is provided
-    if (dto.inviteeEmail) {
+    if (normalizedInviteeEmail) {
       const emailData: InvitationEmailData = {
-        inviteeEmail: dto.inviteeEmail,
+        inviteeEmail: normalizedInviteeEmail,
         inviterName: inviterName || 'A Traxettle user',
         eventName: eventName || 'an event',
         role: dto.role || 'member',
@@ -193,10 +201,11 @@ export class InvitationService {
       }
     }
 
-    // Also get invitations by email
-    if (email) {
+    // Also get invitations by email (normalize to avoid casing/whitespace mismatches)
+    const normalizedEmail = this.normalizeEmail(email);
+    if (normalizedEmail) {
       const emailSnap = await db.collection(this.collection)
-        .where('inviteeEmail', '==', email)
+        .where('inviteeEmail', '==', normalizedEmail)
         .get();
 
       if (!emailSnap.empty) {

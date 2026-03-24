@@ -4,6 +4,10 @@ name: Auth and Profile Smoke
 - launchApp:
     clearState: true
 - evalScript: ${output.runId = Date.now().toString()}
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 30000
 - tapOn:
     id: "dashboard-open-profile"
     optional: true
@@ -38,6 +42,18 @@ name: Auth and Profile Smoke
 - pressKey: Enter
 - extendedWaitUntil:
     visible:
+      id: "setup-pin-input"
+    timeout: 10000
+- tapOn:
+    id: "setup-pin-input"
+- inputText: "1234"
+- tapOn:
+    id: "setup-pin-confirm-input"
+- inputText: "1234"
+- tapOn:
+    id: "setup-pin-submit-button"
+- extendedWaitUntil:
+    visible:
       id: "dashboard-create-event-button"
     timeout: 30000
 - tapOn:
@@ -68,3 +84,65 @@ name: Auth and Profile Smoke
     visible:
       id: "dashboard-create-event-button"
     timeout: 30000
+- tapOn:
+    id: "dashboard-open-profile"
+# Verify Security section is visible (email/password user should see Change Password)
+- scrollUntilVisible:
+    element:
+      text: "Security"
+    direction: DOWN
+- assertVisible:
+    text: "Security"
+- assertVisible:
+    text: "Email/password"
+# Email/password users should see password fields
+- assertVisible:
+    text: "Change Password"
+    optional: true
+# If device supports biometrics, verify toggle is visible
+- assertVisible:
+    id: "profile-biometrics-switch"
+    optional: true
+# Scroll back up before developer tap sequence
+- scroll:
+    direction: UP
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- scrollUntilVisible:
+    element:
+      id: "profile-lock-session-button"
+    direction: DOWN
+- tapOn:
+    id: "profile-lock-session-button"
+- extendedWaitUntil:
+    visible:
+      id: "unlock-pin-input"
+    timeout: 10000
+- tapOn:
+    id: "unlock-pin-input"
+- inputText: "1234"
+- tapOn:
+    id: "unlock-pin-submit-button"
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 10000

@@ -2,8 +2,11 @@ import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, Auth, connectAuthEmulator } from 'firebase/auth';
 import { getFirestore, Firestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getStorage, FirebaseStorage, connectStorageEmulator } from 'firebase/storage';
+import { Platform } from 'react-native';
 import { getRuntimeConfig, RuntimeConfig } from '../config/runtime';
-import { isFirebaseEmulatorEnabled } from '../api';
+import { isFirebaseEmulatorEnabled, setRuntimeApiBaseUrl } from '../api';
+
+const EMULATOR_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
 
 class FirebaseService {
   private app: FirebaseApp | null = null;
@@ -25,6 +28,7 @@ class FirebaseService {
       
       // Get runtime configuration from API
       this.config = await this.getRuntimeConfig();
+      this.assertClientConfig(this.config);
       
       // Initialize Firebase app
       if (getApps().length === 0) {
@@ -46,7 +50,7 @@ class FirebaseService {
         
         try {
           // Connect Auth emulator
-          connectAuthEmulator(this.auth, 'http://localhost:9099');
+          connectAuthEmulator(this.auth, `http://${EMULATOR_HOST}:9099`);
           console.log('[Firebase] Auth emulator connected');
         } catch (error) {
           console.log('[Firebase] Auth emulator already connected or failed:', error);
@@ -54,7 +58,7 @@ class FirebaseService {
         
         try {
           // Connect Firestore emulator
-          connectFirestoreEmulator(this.firestore, 'localhost', 8080);
+          connectFirestoreEmulator(this.firestore, EMULATOR_HOST, 8080);
           console.log('[Firebase] Firestore emulator connected');
         } catch (error) {
           console.log('[Firebase] Firestore emulator already connected or failed:', error);
@@ -62,7 +66,7 @@ class FirebaseService {
         
         try {
           // Connect Storage emulator
-          connectStorageEmulator(this.storage, 'localhost', 9199);
+          connectStorageEmulator(this.storage, EMULATOR_HOST, 9199);
           console.log('[Firebase] Storage emulator connected');
         } catch (error) {
           console.log('[Firebase] Storage emulator already connected or failed:', error);
@@ -91,6 +95,17 @@ class FirebaseService {
     }
   }
 
+  private assertClientConfig(config: RuntimeConfig): void {
+    const missing = ['apiKey', 'appId', 'authDomain'].filter((key) => {
+      const value = config.firebaseConfig[key as keyof RuntimeConfig['firebaseConfig']];
+      return !value || `${value}`.trim() === '';
+    });
+
+    if (missing.length > 0) {
+      throw new Error(`Incomplete Firebase client config: missing ${missing.join(', ')}`);
+    }
+  }
+
   /**
    * Get runtime configuration from API
    */
@@ -103,10 +118,14 @@ class FirebaseService {
         console.log('[Firebase] Using emulator config (local development)');
         return {
           env: 'development',
-          apiUrl: 'http://localhost:3002', // Emulator API URL
+          apiUrl: `http://${EMULATOR_HOST}:3002`,
           firebaseConfig: {
             projectId: 'traxettle-emulator',
-            // Use minimal config for emulator
+            apiKey: 'demo-emulator-api-key',
+            authDomain: 'traxettle-emulator.firebaseapp.com',
+            storageBucket: 'traxettle-emulator.appspot.com',
+            messagingSenderId: '000000000000',
+            appId: '1:000000000000:web:emulator',
           },
           revenueCatConfig: {
             googleApiKey: '',
@@ -124,6 +143,12 @@ class FirebaseService {
         apiUrl: config.apiUrl,
         projectId: config.firebaseConfig.projectId
       });
+
+      // Lock the API client to the same server that provided this config,
+      // preventing mismatches when staging mode is stale in AsyncStorage.
+      if (config.apiUrl) {
+        setRuntimeApiBaseUrl(config.apiUrl);
+      }
 
       return config;
     } catch (error) {

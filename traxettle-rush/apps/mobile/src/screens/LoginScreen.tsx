@@ -18,6 +18,7 @@ import { spacing, radii, fontSizes } from '../theme';
 import { api, isStagingModeEnabled, setStagingModeEnabled } from '../api';
 import { ENV } from '../config/env';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import { toUserFriendlyError } from '../utils/errorMessages';
 
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
 
@@ -83,6 +84,11 @@ export default function LoginScreen({ navigation }: any) {
       }
       await loginWithGoogle(idToken);
     } catch (error: any) {
+      console.error('[LoginScreen] Google sign-in failed', {
+        code: error?.code,
+        status: error?.status,
+        message: error?.message,
+      });
       if (error.code === statusCodes.SIGN_IN_CANCELLED) {
         // user cancelled
       } else if (error.code === statusCodes.IN_PROGRESS) {
@@ -95,7 +101,7 @@ export default function LoginScreen({ navigation }: any) {
           'Android Developer Error (10): this build signature/SHA is not configured in Firebase Google Sign-In OAuth for this app. Add SHA-1/SHA-256 for the keystore used to sign this APK and download updated google-services.json.',
         );
       } else {
-        Alert.alert('Google Sign-In Failed', `${error?.code ?? 'UNKNOWN'}: ${error?.message ?? 'Unexpected error'}`);
+        Alert.alert('Google Sign-In Failed', toUserFriendlyError(error));
       }
     } finally {
       setGoogleLoading(false);
@@ -111,7 +117,7 @@ export default function LoginScreen({ navigation }: any) {
     try {
       await login(email.trim(), password);
     } catch (err: any) {
-      Alert.alert('Login Failed', err.message || 'Invalid credentials');
+      Alert.alert('Login Failed', toUserFriendlyError(err));
     } finally {
       setLoading(false);
     }

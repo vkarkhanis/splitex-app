@@ -4,6 +4,7 @@ import { ApiResponse, LoginRequest, RegisterRequest, User } from '@traxettle/sha
 import { auth, db } from '../config/firebase';
 import bcrypt from 'bcryptjs';
 import { EmailService } from '../services/email.service';
+import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 
 const router: Router = Router();
 const authService = new AuthService();
@@ -37,6 +38,78 @@ function extractOobCode(link?: string, code?: string): string | undefined {
   } catch {
     const match = link.match(/[?&]oobCode=([^&]+)/);
     return match ? decodeURIComponent(match[1]) : undefined;
+  }
+}
+
+async function ensureFirebaseUser(params: {
+  uid: string;
+  email?: string;
+  displayName?: string;
+  password?: string;
+}): Promise<void> {
+  const { uid, email, displayName, password } = params;
+  try {
+    const existing = await auth.getUser(uid);
+    const updates: Record<string, unknown> = {};
+    if (email && existing.email !== email) updates.email = email;
+    if (displayName && existing.displayName !== displayName) updates.displayName = displayName;
+    if (password) updates.password = password;
+    if (Object.keys(updates).length > 0) {
+      try {
+        await auth.updateUser(uid, updates);
+      } catch (error: any) {
+        if (error?.code !== 'auth/email-already-exists' || !email) {
+          throw error;
+        }
+
+        const emailOwner = await auth.getUserByEmail(email).catch(() => null);
+        if (!emailOwner || emailOwner.uid === uid) {
+          throw error;
+        }
+
+        // Legacy account bridge: keep the app UID stable even if a Firebase
+        // Auth user with this email already exists under another UID.
+        const safeUpdates: Record<string, unknown> = {};
+        if (displayName && existing.displayName !== displayName) {
+          safeUpdates.displayName = displayName;
+        }
+        if (password) safeUpdates.password = password;
+        if (Object.keys(safeUpdates).length > 0) {
+          await auth.updateUser(uid, safeUpdates);
+        }
+      }
+    }
+    return;
+  } catch (error: any) {
+    if (error?.code !== 'auth/user-not-found') {
+      throw error;
+    }
+  }
+
+  try {
+    await auth.createUser({
+      uid,
+      email,
+      displayName,
+      ...(password ? { password } : {}),
+    });
+  } catch (error: any) {
+    if (error?.code !== 'auth/email-already-exists' || !email) {
+      throw error;
+    }
+
+    const emailOwner = await auth.getUserByEmail(email).catch(() => null);
+    if (!emailOwner || emailOwner.uid === uid) {
+      throw error;
+    }
+
+    // Legacy account bridge: create the Firebase Auth principal for the app UID
+    // without reusing the already-linked email address from another provider UID.
+    await auth.createUser({
+      uid,
+      displayName,
+      ...(password ? { password } : {}),
+    });
   }
 }
 
@@ -150,13 +223,22 @@ router.post('/register', async (req, res) => {
       updatedAt: now
     });
 
+    await ensureFirebaseUser({
+      uid: userId,
+      email: normalizedEmail,
+      displayName: displayName.trim(),
+      password,
+    });
+
     const tokens = await authService.generateTokens(user);
+    const firebaseCustomToken = await auth.createCustomToken(userId);
 
     return res.json({
       success: true,
       data: {
         user,
         tokens,
+        firebaseCustomToken,
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         token: tokens.accessToken
@@ -238,12 +320,20 @@ router.post('/login', async (req, res) => {
     };
 
     const tokens = await authService.generateTokens(user);
+    await ensureFirebaseUser({
+      uid: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      password,
+    });
+    const firebaseCustomToken = await auth.createCustomToken(user.id);
 
     return res.json({
       success: true,
       data: {
         user,
         tokens,
+        firebaseCustomToken,
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         token: tokens.accessToken
@@ -392,55 +482,18 @@ router.post('/email-link/complete', async (req, res) => {
 
 // Send OTP
 router.post('/send-otp', async (req, res) => {
-  try {
-    const { phoneNumber } = req.body;
-    
-    if (!phoneNumber) {
-      return res.status(400).json({
-        success: false,
-        error: 'Phone number is required'
-      } as ApiResponse);
-    }
-
-    const otp = await authService.signInWithPhone(phoneNumber);
-    
-    res.json({
-      success: true,
-      data: { message: 'OTP sent successfully', otp } // Only in development
-    } as ApiResponse);
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: 'Failed to send OTP'
-    } as ApiResponse);
-  }
+  return res.status(410).json({
+    success: false,
+    error: 'Phone OTP sign-in is not available in phase 1'
+  } as ApiResponse);
 });
 
 // Verify OTP
 router.post('/verify-otp', async (req, res) => {
-  try {
-    const { phoneNumber, otp } = req.body;
-    
-    if (!phoneNumber || !otp) {
-      return res.status(400).json({
-        success: false,
-        error: 'Phone number and OTP are required'
-      } as ApiResponse);
-    }
-
-    const user = await authService.verifyOTP(phoneNumber, otp);
-    const tokens = await authService.generateTokens(user);
-    
-    res.json({
-      success: true,
-      data: { user, tokens }
-    } as ApiResponse);
-  } catch (error) {
-    res.status(401).json({
-      success: false,
-      error: 'Invalid OTP'
-    } as ApiResponse);
-  }
+  return res.status(410).json({
+    success: false,
+    error: 'Phone OTP sign-in is not available in phase 1'
+  } as ApiResponse);
 });
 
 // Google Sign-In
@@ -457,15 +510,29 @@ router.post('/google', async (req, res) => {
 
     const user = await authService.signInWithGoogle(token);
     const tokens = await authService.generateTokens(user);
-    
+    await ensureFirebaseUser({
+      uid: user.id,
+      email: user.email,
+      displayName: user.displayName,
+    });
+    const firebaseCustomToken = await auth.createCustomToken(user.id);
+
     res.json({
       success: true,
-      data: { user, tokens }
+      data: { user, tokens, firebaseCustomToken }
     } as ApiResponse);
   } catch (error: any) {
     const detail = error?.message || 'Google sign-in failed';
+    console.error('[auth/google] Sign-in failed', {
+      appEnv: process.env.APP_ENV,
+      nodeEnv: process.env.NODE_ENV,
+      detail,
+      stack: error?.stack,
+    });
     const includeDetail =
       process.env.APP_ENV === 'local' ||
+      process.env.APP_ENV === 'staging' ||
+      process.env.NODE_ENV === 'staging' ||
       process.env.NODE_ENV === 'development' ||
       process.env.NODE_ENV === 'test';
     res.status(401).json({
@@ -475,31 +542,45 @@ router.post('/google', async (req, res) => {
   }
 });
 
-// Microsoft Sign-In
-router.post('/microsoft', async (req, res) => {
+router.post('/bootstrap-firebase', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    const { token } = req.body;
-    
-    if (!token) {
-      return res.status(400).json({
-        success: false,
-        error: 'Microsoft token is required'
-      } as ApiResponse);
-    }
+    const userRef = db.collection('users').doc(req.user!.uid);
+    const snap = await userRef.get();
+    const data = snap.exists ? (snap.data() || {}) : {};
+    const password = typeof req.body?.password === 'string' && req.body.password ? req.body.password : undefined;
 
-    const user = await authService.signInWithMicrosoft(token);
-    const tokens = await authService.generateTokens(user);
-    
-    res.json({
+    const email = typeof data.email === 'string' ? data.email : req.user?.email;
+    const displayName =
+      typeof data.displayName === 'string' && data.displayName
+        ? data.displayName
+        : req.user?.name || email || 'User';
+
+    await ensureFirebaseUser({
+      uid: req.user!.uid,
+      email,
+      displayName,
+      password,
+    });
+    const firebaseCustomToken = await auth.createCustomToken(req.user!.uid);
+
+    return res.json({
       success: true,
-      data: { user, tokens }
+      data: { firebaseCustomToken }
     } as ApiResponse);
   } catch (error) {
-    res.status(401).json({
+    return res.status(500).json({
       success: false,
-      error: 'Microsoft sign-in failed'
+      error: 'Failed to bootstrap Firebase session'
     } as ApiResponse);
   }
+});
+
+// Microsoft Sign-In
+router.post('/microsoft', async (req, res) => {
+  return res.status(410).json({
+    success: false,
+    error: 'Microsoft sign-in is not available in phase 1'
+  } as ApiResponse);
 });
 
 // Refresh Token
@@ -518,29 +599,26 @@ router.post('/refresh', async (req, res) => {
     
     res.json({
       success: true,
-      data: { tokens }
+      data: {
+        tokens,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        token: tokens.accessToken,
+      }
     } as ApiResponse);
   } catch (error) {
     res.status(401).json({
       success: false,
-      error: 'Invalid refresh token'
+      error: 'Invalid refresh token',
+      code: 'AUTH_REFRESH_INVALID',
     } as ApiResponse);
   }
 });
 
 // Logout
-router.post('/logout', async (req, res) => {
+router.post('/logout', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    const { userId } = req.body;
-    
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: 'User ID is required'
-      } as ApiResponse);
-    }
-
-    await authService.logout(userId);
+    await authService.logout(req.user!.uid, req.user!.sessionId);
     
     res.json({
       success: true,
@@ -550,6 +628,22 @@ router.post('/logout', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Logout failed'
+    } as ApiResponse);
+  }
+});
+
+router.post('/revoke-sessions', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    await authService.logout(req.user!.uid);
+
+    return res.json({
+      success: true,
+      data: { message: 'All sessions revoked successfully' }
+    } as ApiResponse);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to revoke sessions'
     } as ApiResponse);
   }
 });

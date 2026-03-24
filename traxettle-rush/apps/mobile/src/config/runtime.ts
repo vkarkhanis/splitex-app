@@ -29,6 +29,23 @@ export class RuntimeConfigManager {
   private cachedConfig: RuntimeConfig | null = null;
   private cacheExpiry: number = 0;
 
+  private isFirebaseClientConfigComplete(config: RuntimeConfig | null): config is RuntimeConfig {
+    if (!config) return false;
+
+    const firebaseConfig = config.firebaseConfig || {};
+    const requiredKeys: Array<keyof RuntimeConfig['firebaseConfig']> = [
+      'projectId',
+      'apiKey',
+      'authDomain',
+      'appId',
+    ];
+
+    return requiredKeys.every((key) => {
+      const value = firebaseConfig[key];
+      return typeof value === 'string' && value.trim().length > 0;
+    });
+  }
+
   /**
    * Get runtime configuration from API or cache
    */
@@ -42,13 +59,28 @@ export class RuntimeConfigManager {
     }
 
     try {
-      // Try to load from AsyncStorage first
-      const storedConfig = await this.loadStoredConfig();
-      if (storedConfig) {
-        this.cachedConfig = storedConfig;
-        this.cacheExpiry = now + CONFIG_CACHE_DURATION;
-        console.log('[RuntimeConfig] Using stored config');
-        return storedConfig;
+      // In local dev mode, always fetch fresh config from the API.
+      // The Firebase project may change between runs (e.g. bootstrap.sh
+      // local vs staging) while the API URL stays the same, so persisted
+      // config cannot be trusted. The in-memory cache still prevents
+      // redundant fetches within a single session.
+      if (isLocalLikeEnv()) {
+        console.log('[RuntimeConfig] Local dev — skipping stored config, fetching fresh');
+        await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
+      } else {
+        // Try to load from AsyncStorage first (production / staging builds)
+        const storedConfig = await this.loadStoredConfig();
+        if (this.isFirebaseClientConfigComplete(storedConfig)) {
+          this.cachedConfig = storedConfig;
+          this.cacheExpiry = now + CONFIG_CACHE_DURATION;
+          console.log('[RuntimeConfig] Using stored config');
+          return storedConfig;
+        }
+
+        if (storedConfig) {
+          console.warn('[RuntimeConfig] Ignoring incomplete stored config and fetching fresh config');
+          await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
+        }
       }
 
       // Fetch fresh config from API
@@ -82,29 +114,50 @@ export class RuntimeConfigManager {
    * Fetch configuration from API
    */
   private async fetchConfig(): Promise<RuntimeConfig> {
-    // Check if developer mode is enabled for staging
     const useStaging = await this.isStagingModeEnabled();
 
     // In local-like environments, always use the locally configured API base.
-    // This avoids attempting production/staging Cloud Run endpoints during local dev.
+    // Retry a few times to handle the common case where the mobile app
+    // launches before the API server is ready (both start in parallel).
+    // We intentionally do NOT fall back to a hosted API because it serves
+    // a different Firebase project, causing auth/custom-token-mismatch.
     if (isLocalLikeEnv()) {
-      const apiBase = getApiUrlFromEnv();
-      const apiUrl = `${apiBase}/api/config`;
-      console.log(`[RuntimeConfig] Fetching config from: ${apiUrl} (local)`);
+      const localApiBase = getApiUrlFromEnv();
+      const apiUrl = `${localApiBase}/api/config`;
+      const maxRetries = 3;
+      const retryDelayMs = 2000;
+      let lastError: Error | null = null;
 
-      const response = await this.fetchWithTimeout(apiUrl);
-      if (!response.ok) {
-        throw new Error(`API responded with status: ${response.status}`);
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        console.log(`[RuntimeConfig] Fetching config from: ${apiUrl} (attempt ${attempt}/${maxRetries})`);
+
+        try {
+          const response = await this.fetchWithTimeout(apiUrl);
+          if (!response.ok) {
+            throw new Error(`API responded with status: ${response.status}`);
+          }
+
+          const data = await response.json();
+          if (!data.data) {
+            throw new Error('No configuration data received');
+          }
+
+          console.log(`[RuntimeConfig] Success with local API`);
+          console.log(`[RuntimeConfig] Environment: ${data.data.env}, projectId: ${data.data.firebaseConfig?.projectId}`);
+          return data.data;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+          console.warn(
+            `[RuntimeConfig] Local API fetch attempt ${attempt} failed:`,
+            lastError.message,
+          );
+          if (attempt < maxRetries) {
+            await new Promise((r) => setTimeout(r, retryDelayMs));
+          }
+        }
       }
 
-      const data = await response.json();
-      if (!data.data) {
-        throw new Error('No configuration data received');
-      }
-
-      console.log(`[RuntimeConfig] Success with API: ${apiUrl}`);
-      console.log(`[RuntimeConfig] Environment: ${data.data.env}`);
-      return data.data;
+      throw lastError || new Error('Local API unavailable — start the API server first');
     }
 
     // Production/Staging API URL (non-local builds)
@@ -240,7 +293,15 @@ export class RuntimeConfigManager {
   private async loadStoredConfig(): Promise<RuntimeConfig | null> {
     try {
       const stored = await AsyncStorage.getItem(RUNTIME_CONFIG_KEY);
-      return stored ? JSON.parse(stored) : null;
+      const parsed = stored ? JSON.parse(stored) : null;
+
+      if (parsed && !this.isFirebaseClientConfigComplete(parsed)) {
+        console.warn('[RuntimeConfig] Stored config is incomplete and will be ignored');
+        await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
+        return null;
+      }
+
+      return parsed;
     } catch (error) {
       console.error('[RuntimeConfig] Failed to load stored config:', error);
       return null;

@@ -1,12 +1,11 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import styled from 'styled-components';
 import { getFirebaseServices } from '../../../config/firebase-client';
 import { toUserFriendlyError } from '../../../utils/errorMessages';
-import type { ConfirmationResult, RecaptchaVerifier as RecaptchaVerifierType } from 'firebase/auth';
 
 import {
   Button,
@@ -20,8 +19,6 @@ import {
   Label,
   useToast,
 } from '@traxettle/ui';
-
-type SignInMethod = 'email' | 'phone';
 
 const Page = styled.div`
   min-height: 100vh;
@@ -69,41 +66,6 @@ const ErrorText = styled.div`
   font-weight: 500;
 `;
 
-const SuccessText = styled.div`
-  font-size: 12px;
-  color: ${(p) => p.theme.colors.success};
-  font-weight: 500;
-`;
-
-const ResendRow = styled.div`
-  display: flex;
-  gap: 10px;
-`;
-
-const TabRow = styled.div`
-  display: flex;
-  border-bottom: 1px solid ${(p) => p.theme.colors.border};
-  margin-bottom: 16px;
-`;
-
-const Tab = styled.button<{ $active: boolean }>`
-  flex: 1;
-  padding: 10px 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
-  font-family: inherit;
-  color: ${(p) => (p.$active ? p.theme.colors.primary : p.theme.colors.muted)};
-  border-bottom: 2px solid ${(p) => (p.$active ? p.theme.colors.primary : 'transparent')};
-  transition: color 0.15s, border-color 0.15s;
-
-  &:hover {
-    color: ${(p) => p.theme.colors.text};
-  }
-`;
-
 const FooterText = styled.div`
   text-align: center;
   font-size: 13px;
@@ -128,68 +90,11 @@ export default function LoginPage() {
   const { push } = useToast();
   const router = useRouter();
 
-  const [method, setMethod] = useState<SignInMethod>('email');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Email state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
-  // Phone state
-  const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-
-  const recaptchaVerifierRef = useRef<RecaptchaVerifierType | null>(null);
-  const confirmationResultRef = useRef<ConfirmationResult | null>(null);
-  const recaptchaWidgetId = useRef<number | null>(null);
-
-  // Cleanup recaptcha on unmount
-  useEffect(() => {
-    return () => {
-      if (recaptchaVerifierRef.current) {
-        try { recaptchaVerifierRef.current.clear(); } catch { /* ignore */ }
-        recaptchaVerifierRef.current = null;
-      }
-    };
-  }, []);
-
-  const switchMethod = (m: SignInMethod) => {
-    setMethod(m);
-    setError('');
-  };
-
-  const ensureRecaptcha = async () => {
-    const { RecaptchaVerifier } = await import('firebase/auth');
-    const services = getFirebaseServices();
-
-    // Only create a new verifier if we don't have one or it was cleared
-    if (!recaptchaVerifierRef.current) {
-      // Clear the container's innerHTML to avoid "already rendered" error
-      const container = document.getElementById('recaptcha-container');
-      if (container) container.innerHTML = '';
-
-      recaptchaVerifierRef.current = new RecaptchaVerifier(services.auth, 'recaptcha-container', {
-        size: 'invisible',
-      });
-      recaptchaWidgetId.current = await recaptchaVerifierRef.current.render();
-    }
-
-    return recaptchaVerifierRef.current;
-  };
-
-  const resetRecaptcha = () => {
-    if (recaptchaVerifierRef.current) {
-      try { recaptchaVerifierRef.current.clear(); } catch { /* ignore */ }
-      recaptchaVerifierRef.current = null;
-      recaptchaWidgetId.current = null;
-    }
-    const container = document.getElementById('recaptcha-container');
-    if (container) container.innerHTML = '';
-  };
-
-  // ── Email / Password ──
 
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -202,9 +107,18 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const { signInWithEmailAndPassword } = await import('firebase/auth');
+      const { fetchSignInMethodsForEmail, signInWithEmailAndPassword } = await import('firebase/auth');
       const services = getFirebaseServices();
-      const result = await signInWithEmailAndPassword(services.auth, email, password);
+      let result;
+      try {
+        result = await signInWithEmailAndPassword(services.auth, email, password);
+      } catch (err: unknown) {
+        const methods: string[] = await fetchSignInMethodsForEmail(services.auth, email.trim().toLowerCase()).catch(() => [] as string[]);
+        if (methods.includes('google.com') && !methods.includes('password')) {
+          throw new Error('This account uses Google sign-in. Sign in with Google or set a password first.');
+        }
+        throw err;
+      }
 
       const idToken = await result.user.getIdToken();
       localStorage.setItem('traxettle.authToken', idToken);
@@ -222,84 +136,6 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
-
-  // ── Phone OTP ──
-
-  const handleSendOtp = async () => {
-    if (!phone.trim()) {
-      setError('Please enter a phone number.');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const { signInWithPhoneNumber } = await import('firebase/auth');
-      const services = getFirebaseServices();
-
-      const verifier = await ensureRecaptcha();
-
-      const confirmation = await signInWithPhoneNumber(services.auth, phone, verifier);
-      confirmationResultRef.current = confirmation;
-      setOtpSent(true);
-      push({ type: 'success', title: 'OTP Sent', message: `Verification code sent to ${phone}.` });
-    } catch (err: unknown) {
-      console.error('Send OTP error:', err);
-      const friendly = toUserFriendlyError(err);
-      setError(friendly);
-      push({ type: 'error', title: 'Could not send code', message: friendly });
-      resetRecaptcha();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResendOtp = async () => {
-    setOtp('');
-    setError('');
-    setOtpSent(false);
-    confirmationResultRef.current = null;
-    resetRecaptcha();
-    // Small delay to let DOM settle after clearing container
-    await new Promise((r) => setTimeout(r, 100));
-    await handleSendOtp();
-  };
-
-  const handleVerifyOtp = async () => {
-    if (!otp.trim()) {
-      setError('Please enter the verification code.');
-      return;
-    }
-    if (!confirmationResultRef.current) {
-      setError('Your verification session has expired. Please request a new code.');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const result = await confirmationResultRef.current.confirm(otp);
-
-      const idToken = await result.user.getIdToken();
-      localStorage.setItem('traxettle.authToken', idToken);
-      localStorage.setItem('traxettle.uid', result.user.uid);
-      window.dispatchEvent(new Event('traxettle:authChange'));
-
-      push({ type: 'success', title: 'Sign-In Successful', message: 'Welcome back!' });
-      router.push('/');
-    } catch (err: unknown) {
-      console.error('Verify OTP error:', err);
-      const friendly = toUserFriendlyError(err);
-      setError(friendly);
-      push({ type: 'error', title: 'Verification Failed', message: friendly });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ── Google ──
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
@@ -332,8 +168,6 @@ export default function LoginPage() {
     }
   };
 
-  // ── Render ──
-
   return (
     <Page>
       <Stack>
@@ -344,136 +178,46 @@ export default function LoginPage() {
           </CardHeader>
 
           <CardBody>
-            <div id="recaptcha-container" />
+            <Form onSubmit={handleEmailSignIn}>
+              <Field>
+                <Label htmlFor="email">Email Address</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="john@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={loading}
+                  $hasError={Boolean(error) && !email}
+                />
+              </Field>
 
-            <TabRow>
-              <Tab $active={method === 'email'} onClick={() => switchMethod('email')}>
-                Email
-              </Tab>
-              <Tab $active={method === 'phone'} onClick={() => switchMethod('phone')}>
-                Phone
-              </Tab>
-            </TabRow>
+              <Field>
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={loading}
+                  $hasError={Boolean(error) && !password}
+                />
+              </Field>
 
-            {/* ── Email / Password Tab ── */}
-            {method === 'email' && (
-              <Form onSubmit={handleEmailSignIn}>
-                <Field>
-                  <Label htmlFor="email">Email Address</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="john@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    disabled={loading}
-                    $hasError={Boolean(error) && !email}
-                  />
-                </Field>
+              <ForgotLink href="/auth/forgot-password">Forgot password?</ForgotLink>
 
-                <Field>
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    disabled={loading}
-                    $hasError={Boolean(error) && !password}
-                  />
-                </Field>
+              {error ? <ErrorText>{error}</ErrorText> : null}
 
-                <ForgotLink href="/auth/forgot-password">Forgot password?</ForgotLink>
-
-                {error ? <ErrorText>{error}</ErrorText> : null}
-
-                <Button
-                  type="submit"
-                  $variant="primary"
-                  $fullWidth
-                  disabled={loading || !email.trim() || !password.trim()}
-                >
-                  {loading ? 'Signing in...' : 'Sign In'}
-                </Button>
-              </Form>
-            )}
-
-            {/* ── Phone OTP Tab ── */}
-            {method === 'phone' && (
-              <Form onSubmit={(e) => { e.preventDefault(); otpSent ? handleVerifyOtp() : handleSendOtp(); }}>
-                <Field>
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    placeholder="+1234567890"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    disabled={loading || otpSent}
-                    $hasError={Boolean(error) && !phone}
-                  />
-                </Field>
-
-                {!otpSent ? (
-                  <Button
-                    type="submit"
-                    $variant="primary"
-                    $fullWidth
-                    disabled={loading || !phone.trim()}
-                  >
-                    {loading ? 'Sending...' : 'Send Verification Code'}
-                  </Button>
-                ) : (
-                  <>
-                    <SuccessText>Code sent to {phone}</SuccessText>
-                    <Field>
-                      <Label htmlFor="otp">Verification Code</Label>
-                      <Input
-                        id="otp"
-                        type="text"
-                        placeholder="Enter 6-digit code"
-                        value={otp}
-                        onChange={(e) => setOtp(e.target.value)}
-                        disabled={loading}
-                        $hasError={Boolean(error) && !otp}
-                      />
-                    </Field>
-
-                    <Button
-                      type="submit"
-                      $variant="primary"
-                      $fullWidth
-                      disabled={loading || !otp.trim()}
-                    >
-                      {loading ? 'Verifying...' : 'Verify & Sign In'}
-                    </Button>
-
-                    <ResendRow>
-                      <Button type="button" $variant="outline" disabled={loading} onClick={handleResendOtp}>
-                        Resend Code
-                      </Button>
-                      <Button
-                        type="button"
-                        $variant="outline"
-                        disabled={loading}
-                        onClick={() => {
-                          setOtpSent(false);
-                          setOtp('');
-                          setError('');
-                          confirmationResultRef.current = null;
-                          resetRecaptcha();
-                        }}
-                      >
-                        Change Number
-                      </Button>
-                    </ResendRow>
-                  </>
-                )}
-
-                {error ? <ErrorText>{error}</ErrorText> : null}
-              </Form>
-            )}
+              <Button
+                type="submit"
+                $variant="primary"
+                $fullWidth
+                disabled={loading || !email.trim() || !password.trim()}
+              >
+                {loading ? 'Signing in...' : 'Sign In'}
+              </Button>
+            </Form>
 
             <Divider>
               <DividerLine />

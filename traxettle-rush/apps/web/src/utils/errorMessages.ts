@@ -28,6 +28,8 @@ const FIREBASE_ERROR_MAP: Record<string, string> = {
 };
 
 const NETWORK_ERROR_PATTERNS: Array<[RegExp, string]> = [
+  [/email address is already in use by another account/i, 'This email is already linked to another sign-in method. Please use that method to sign in.'],
+  [/google sign-in failed/i, 'Google sign-in could not be completed. Please try again.'],
   [/failed to fetch/i, 'Unable to connect to the server. Please check your internet connection or try again later.'],
   [/network\s*(error|request\s*failed)/i, 'Network error. Please check your internet connection and try again.'],
   [/timeout/i, 'The request timed out. Please try again.'],

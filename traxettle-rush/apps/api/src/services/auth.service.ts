@@ -1,10 +1,20 @@
-import { User, TokenPair, LoginRequest, RegisterRequest, ApiResponse } from '@traxettle/shared';
-import { auth } from '../config/firebase';
+import { User, TokenPair } from '@traxettle/shared';
+import { auth, db } from '../config/firebase';
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
+
+type TokenPayload = {
+  userId: string;
+  email: string;
+  displayName: string;
+  sessionId: string;
+};
 
 export class AuthService {
   private auth = auth;
+  private getSessionRef(userId: string, sessionId: string) {
+    return db.collection('users').doc(userId).collection('sessions').doc(sessionId);
+  }
 
   async signInWithPhone(phoneNumber: string): Promise<string> {
     try {
@@ -75,12 +85,22 @@ export class AuthService {
 
       let user = await this.findUserById(uid);
       if (!user) {
+        user = await this.findUserByEmail(email);
+      }
+      if (!user) {
         user = await this.createUser({
           uid,
           email,
           displayName,
           photoURL,
           provider: 'google'
+        });
+      } else if (!user.authProviders.includes('google')) {
+        user = await this.updateUser(user.id, {
+          email,
+          displayName,
+          photoURL,
+          authProviders: Array.from(new Set([...(user.authProviders || []), 'google'])) as any,
         });
       }
       
@@ -122,15 +142,27 @@ export class AuthService {
     }
   }
 
-  async generateTokens(user: User): Promise<TokenPair> {
+  async generateTokens(user: User, existingSessionId?: string): Promise<TokenPair> {
+    const sessionId = existingSessionId || randomUUID();
     const payload = {
       userId: user.id,
       email: user.email,
-      displayName: user.displayName
+      displayName: user.displayName,
+      sessionId,
     };
 
     const accessToken = jwt.sign(payload, process.env.JWT_SECRET!, { expiresIn: '1h' });
     const refreshToken = jwt.sign(payload, process.env.JWT_REFRESH_SECRET!, { expiresIn: '7d' });
+
+    const now = new Date().toISOString();
+    await this.getSessionRef(user.id, sessionId).set({
+      sessionId,
+      userId: user.id,
+      createdAt: now,
+      updatedAt: now,
+      revokedAt: null,
+      lastRefreshedAt: existingSessionId ? now : null,
+    }, { merge: true });
 
     return {
       accessToken,
@@ -141,46 +173,186 @@ export class AuthService {
 
   async refreshTokens(refreshToken: string): Promise<TokenPair> {
     try {
-      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as any;
+      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as TokenPayload;
       const user = await this.findUserById(decoded.userId);
       
       if (!user) {
         throw new Error('User not found');
       }
 
-      return this.generateTokens(user);
+      const isActive = await this.isSessionActive(decoded.userId, decoded.sessionId);
+      if (!isActive) {
+        throw new Error('Session revoked');
+      }
+
+      return this.generateTokens(user, decoded.sessionId);
     } catch (error) {
       throw new Error('Invalid refresh token');
     }
   }
 
-  async logout(userId: string): Promise<void> {
+  async logout(userId: string, sessionId?: string): Promise<void> {
     try {
-      // In a real implementation, you might:
-      // - Revoke Firebase tokens
-      // - Add refresh token to blacklist
-      // - Clear user sessions
-      console.log(`User ${userId} logged out`);
+      const now = new Date().toISOString();
+      if (sessionId) {
+        await this.getSessionRef(userId, sessionId).set({
+          revokedAt: now,
+          updatedAt: now,
+        }, { merge: true });
+        return;
+      }
+
+      const snap = await db.collection('users').doc(userId).collection('sessions').get();
+      if (snap.empty) return;
+      const batch = db.batch();
+      snap.docs.forEach((doc) => {
+        batch.set(doc.ref, { revokedAt: now, updatedAt: now }, { merge: true });
+      });
+      await batch.commit();
+
+      if (typeof (this.auth as any).revokeRefreshTokens === 'function') {
+        await (this.auth as any).revokeRefreshTokens(userId);
+      }
     } catch (error) {
       throw new Error('Logout failed');
     }
   }
 
+  async isSessionActive(userId: string, sessionId?: string): Promise<boolean> {
+    if (!sessionId) return true;
+    try {
+      const snap = await this.getSessionRef(userId, sessionId).get();
+      if (!snap.exists) return false;
+      const data = snap.data() || {};
+      return !data.revokedAt;
+    } catch {
+      return false;
+    }
+  }
+
   private async findUserById(userId: string): Promise<User | null> {
-    // Implementation would query Firestore
-    return null; // Mock
+    try {
+      const snap = await db.collection('users').doc(userId).get();
+      if (!snap.exists) return null;
+      const data = snap.data() || {};
+      return {
+        id: (data.userId as string) || userId,
+        email: (data.email as string) || '',
+        phoneNumber: (data.phoneNumber as string) || '',
+        displayName: (data.displayName as string) || (data.email as string) || 'User',
+        photoURL: typeof data.photoURL === 'string' ? data.photoURL : '',
+        authProviders: (Array.isArray(data.authProviders) ? data.authProviders : ['email']) as any,
+        preferences: data.preferences || {
+          notifications: true,
+          currency: 'USD',
+          timezone: 'UTC',
+        },
+        createdAt: data.createdAt ? new Date(data.createdAt) : new Date(),
+        updatedAt: data.updatedAt ? new Date(data.updatedAt) : new Date(),
+      };
+    } catch {
+      return null;
+    }
   }
 
   private async findUserByPhone(phoneNumber: string): Promise<User | null> {
-    // Implementation would query Firestore
-    return null; // Mock
+    try {
+      const snap = await db.collection('users')
+        .where('phoneNumber', '==', phoneNumber)
+        .limit(1)
+        .get();
+      if (snap.empty) return null;
+      const doc = snap.docs[0];
+      const data = doc.data() || {};
+      return {
+        id: (data.userId as string) || doc.id,
+        email: (data.email as string) || `${phoneNumber}@example.com`,
+        phoneNumber: (data.phoneNumber as string) || phoneNumber,
+        displayName: (data.displayName as string) || `User ${phoneNumber.slice(-4)}`,
+        photoURL: typeof data.photoURL === 'string' ? data.photoURL : '',
+        authProviders: (Array.isArray(data.authProviders) ? data.authProviders : ['phone']) as any,
+        preferences: data.preferences || {
+          notifications: true,
+          currency: 'USD',
+          timezone: 'UTC',
+        },
+        createdAt: data.createdAt ? new Date(data.createdAt) : new Date(),
+        updatedAt: data.updatedAt ? new Date(data.updatedAt) : new Date(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async findUserByEmail(email: string): Promise<User | null> {
+    try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const snap = await db.collection('users')
+        .where('email', '==', normalizedEmail)
+        .limit(1)
+        .get();
+      if (snap.empty) return null;
+      const doc = snap.docs[0];
+      const data = doc.data() || {};
+      return {
+        id: (data.userId as string) || doc.id,
+        email: (data.email as string) || normalizedEmail,
+        phoneNumber: (data.phoneNumber as string) || '',
+        displayName: (data.displayName as string) || normalizedEmail.split('@')[0],
+        photoURL: typeof data.photoURL === 'string' ? data.photoURL : '',
+        authProviders: (Array.isArray(data.authProviders) ? data.authProviders : ['email']) as any,
+        preferences: data.preferences || {
+          notifications: true,
+          currency: 'USD',
+          timezone: 'UTC',
+        },
+        createdAt: data.createdAt ? new Date(data.createdAt) : new Date(),
+        updatedAt: data.updatedAt ? new Date(data.updatedAt) : new Date(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async updateUser(
+    userId: string,
+    updates: Partial<Pick<User, 'email' | 'displayName' | 'photoURL' | 'authProviders'>>
+  ): Promise<User> {
+    const existing = await this.findUserById(userId);
+    if (!existing) {
+      throw new Error('User not found');
+    }
+
+    const now = new Date().toISOString();
+    const nextDoc = {
+      userId,
+      email: updates.email || existing.email,
+      phoneNumber: existing.phoneNumber || '',
+      displayName: updates.displayName || existing.displayName,
+      photoURL: updates.photoURL ?? existing.photoURL ?? '',
+      authProviders: updates.authProviders || existing.authProviders,
+      preferences: existing.preferences,
+      updatedAt: now,
+    };
+
+    await db.collection('users').doc(userId).set(nextDoc, { merge: true });
+
+    return {
+      ...existing,
+      email: nextDoc.email,
+      displayName: nextDoc.displayName,
+      photoURL: nextDoc.photoURL,
+      authProviders: nextDoc.authProviders as any,
+      updatedAt: new Date(now),
+    };
   }
 
   private async createUser(userData: any): Promise<User> {
+    const now = new Date().toISOString();
     const user: User = {
       id: userData.uid || `user-${Date.now()}`,
       email: userData.email,
-      phoneNumber: userData.phoneNumber,
+      phoneNumber: userData.phoneNumber || '',
       displayName: userData.displayName,
       photoURL: userData.photoURL,
       authProviders: [userData.provider],
@@ -189,12 +361,27 @@ export class AuthService {
         currency: 'USD',
         timezone: 'UTC'
       },
-      createdAt: new Date(),
-      updatedAt: new Date()
+      createdAt: new Date(now),
+      updatedAt: new Date(now)
     };
 
-    // In real implementation, save to Firestore
-    console.log('Created user:', user);
+    await db.collection('users').doc(user.id).set({
+      userId: user.id,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      displayName: user.displayName,
+      photoURL: user.photoURL || '',
+      authProviders: user.authProviders,
+      tier: 'free',
+      entitlementStatus: 'active',
+      entitlementExpiresAt: null,
+      entitlementSource: 'system',
+      internalTester: false,
+      preferences: user.preferences,
+      createdAt: now,
+      updatedAt: now,
+    }, { merge: true });
+
     return user;
   }
 }

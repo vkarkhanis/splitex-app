@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { ApiResponse, UserProfile, UserPreferences } from '@traxettle/shared';
-import { db } from '../config/firebase';
+import { auth, db } from '../config/firebase';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { EntitlementService } from '../services/entitlement.service';
 
@@ -17,6 +17,11 @@ interface UserPaymentMethod {
   createdAt?: string;
   updatedAt?: string;
 }
+
+type ExtendedUserProfile = UserProfile & {
+  authProviders?: ('email' | 'google' | 'microsoft' | 'phone')[];
+  hasPassword?: boolean;
+};
 
 function normalizePaymentMethods(raw: any): UserPaymentMethod[] {
   if (!Array.isArray(raw)) return [];
@@ -45,6 +50,48 @@ function sortPaymentMethods(methods: UserPaymentMethod[]): UserPaymentMethod[] {
     if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
     return (a.label || '').localeCompare(b.label || '');
   });
+}
+
+type AuthProviderId = 'email' | 'google' | 'microsoft' | 'phone';
+
+async function getAuthProviderSummary(uid: string, existing: any): Promise<{ authProviders: AuthProviderId[]; hasPassword: boolean }> {
+  const storedProviders = Array.isArray(existing?.authProviders)
+    ? existing.authProviders.filter((provider: unknown): provider is AuthProviderId =>
+        provider === 'email' || provider === 'google' || provider === 'microsoft' || provider === 'phone'
+      )
+    : [];
+  const storedHasPassword = Boolean(existing?.passwordHash) || storedProviders.includes('email');
+
+  try {
+    const userRecord = await auth.getUser(uid);
+    // Build provider list purely from Firebase Auth (source of truth),
+    // not from potentially stale Firestore data.
+    const providerMap = new Set<AuthProviderId>();
+
+    // Only infer email provider for custom-token users if they actually
+    // have a password set.  Google sign-in users have an email but no
+    // password and no providerData — don't mark them as email/password.
+    if (userRecord.providerData.length === 0 && userRecord.email && userRecord.passwordHash) {
+      providerMap.add('email');
+    }
+
+    userRecord.providerData.forEach((provider) => {
+      if (provider.providerId === 'password') providerMap.add('email');
+      if (provider.providerId === 'google.com') providerMap.add('google');
+      if (provider.providerId === 'phone') providerMap.add('phone');
+      if (provider.providerId === 'microsoft.com') providerMap.add('microsoft');
+    });
+
+    return {
+      authProviders: Array.from(providerMap),
+      hasPassword: providerMap.has('email') || Boolean(userRecord.passwordHash),
+    };
+  } catch {
+    return {
+      authProviders: storedProviders,
+      hasPassword: storedHasPassword,
+    };
+  }
 }
 
 // Debug endpoint to check entitlement details
@@ -81,7 +128,7 @@ router.get('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
       timezone: 'UTC'
     };
 
-    const baseProfile: UserProfile = {
+    const baseProfile: ExtendedUserProfile = {
       userId: uid,
       displayName: req.user?.name || req.user?.email || 'User',
       email: req.user?.email || '',
@@ -108,12 +155,15 @@ router.get('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
     const data = snap.data() || {};
     const entitlement = await entitlementService.getEntitlement(uid);
     const capabilities = entitlementService.computeCapabilities(entitlement);
-    const profile: UserProfile = {
+    const { authProviders, hasPassword } = await getAuthProviderSummary(uid, data);
+    const profile: ExtendedUserProfile = {
       userId: uid,
       displayName: typeof data.displayName === 'string' ? data.displayName : baseProfile.displayName,
       email: typeof data.email === 'string' ? data.email : baseProfile.email,
       phoneNumber: typeof data.phoneNumber === 'string' ? data.phoneNumber : undefined,
       photoURL: typeof data.photoURL === 'string' ? data.photoURL : undefined,
+      authProviders,
+      hasPassword,
       tier: entitlement.tier,
       entitlementStatus: entitlement.entitlementStatus,
       entitlementExpiresAt: entitlement.entitlementExpiresAt,
@@ -126,7 +176,7 @@ router.get('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
       },
     };
 
-    return res.json({ success: true, data: profile } as ApiResponse<UserProfile>);
+    return res.json({ success: true, data: profile } as ApiResponse<ExtendedUserProfile>);
   } catch (err) {
     console.error('GET /profile error:', err);
     return res.status(500).json({ success: false, error: 'Failed to load profile' } as ApiResponse);
@@ -184,12 +234,18 @@ router.put('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
 
     const entitlement = await entitlementService.getEntitlement(uid);
     const capabilities = entitlementService.computeCapabilities(entitlement);
-    const profile: UserProfile = {
+    const { authProviders, hasPassword } = await getAuthProviderSummary(uid, {
+      ...existing,
+      ...updatedDoc,
+    });
+    const profile: ExtendedUserProfile = {
       userId: uid,
       displayName: updatedDoc.displayName,
       email: updatedDoc.email,
       phoneNumber: updatedDoc.phoneNumber,
       photoURL: updatedDoc.photoURL,
+      authProviders,
+      hasPassword,
       tier: entitlement.tier,
       entitlementStatus: entitlement.entitlementStatus,
       entitlementExpiresAt: entitlement.entitlementExpiresAt,
@@ -199,7 +255,7 @@ router.put('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
       preferences: updatedDoc.preferences,
     };
 
-    return res.json({ success: true, data: profile } as ApiResponse<UserProfile>);
+    return res.json({ success: true, data: profile } as ApiResponse<ExtendedUserProfile>);
   } catch (err) {
     console.error('PUT /profile error:', err);
     return res.status(500).json({ success: false, error: 'Failed to update profile' } as ApiResponse);

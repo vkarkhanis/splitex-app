@@ -1,4 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import {
+  EmailAuthProvider,
+  GoogleAuthProvider,
+  getAuth,
+  linkWithCredential,
+  reauthenticateWithCredential,
+  signInWithCustomToken,
+  updatePassword,
+} from 'firebase/auth';
 import {
   View,
   Text,
@@ -22,10 +32,12 @@ import {
   getResolvedApiBaseUrl,
   isFirebaseEmulatorEnabled,
   isStagingModeEnabled,
+  setTokens,
   setFirebaseEmulatorEnabled,
   setStagingModeEnabled,
 } from '../api';
 import { ENV, isLocalLikeEnv } from '../config/env';
+import { toUserFriendlyError } from '../utils/errorMessages';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
 const PAYMENT_METHOD_TYPES = ['upi', 'bank', 'paypal', 'wise', 'swift', 'other'] as const;
@@ -46,6 +58,8 @@ interface UserProfile {
   email: string;
   phoneNumber?: string;
   photoURL?: string;
+  authProviders?: ('email' | 'google' | 'microsoft' | 'phone')[];
+  hasPassword?: boolean;
   tier: 'free' | 'pro';
   internalTester?: boolean;
   capabilities?: {
@@ -59,7 +73,7 @@ interface UserProfile {
 }
 
 export default function ProfileScreen({ navigation }: any) {
-  const { user, logout, tier, switchTier, internalTester, refreshProfile } = useAuth();
+  const { user, logout, tier, switchTier, internalTester, refreshProfile, lockSession, biometricsAvailable, biometricsEnabled, toggleBiometrics } = useAuth();
   const { theme, themeName, setThemeName } = useTheme();
   const c = theme.colors;
   const { isPro, priceString } = usePurchase();
@@ -70,7 +84,6 @@ export default function ProfileScreen({ navigation }: any) {
   const [saving, setSaving] = useState(false);
   const [tierSwitching, setTierSwitching] = useState(false);
   const [useStaging, setUseStaging] = useState(false);
-  const [envTapCount, setEnvTapCount] = useState(0);
   const [devTapCount, setDevTapCount] = useState(0);
   const [devOptionsUnlocked, setDevOptionsUnlocked] = useState(false);
   const [useFirebaseEmulator, setUseFirebaseEmulator] = useState(false);
@@ -87,6 +100,19 @@ export default function ProfileScreen({ navigation }: any) {
   const [methodType, setMethodType] = useState<PaymentMethodType>('bank');
   const [methodDetails, setMethodDetails] = useState('');
   const [methodsLoading, setMethodsLoading] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const isGoogleOnlyProfile = Boolean(
+    profile &&
+    profile.authProviders?.includes('google') &&
+    !profile.authProviders?.includes('email') &&
+    !profile.hasPassword
+  );
+  const showPasswordSection = Boolean(
+    profile?.authProviders?.includes('email') || profile?.hasPassword
+  );
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -249,43 +275,32 @@ export default function ProfileScreen({ navigation }: any) {
   };
 
   const handleVersionTap = () => {
-    if (canShowHiddenDevOptions) {
-      const next = devTapCount + 1;
-      if (next >= 7) {
-        setDevOptionsUnlocked(true);
-        setDevTapCount(0);
-        Alert.alert('Developer options unlocked', 'Hidden local tools are now visible.');
-        return;
-      }
-      setDevTapCount(next);
-      return;
-    }
-
-    const next = envTapCount + 1;
+    const next = devTapCount + 1;
     if (next >= 7) {
-      setEnvTapCount(0);
-      (async () => {
-        try {
-          const wasStaging = await isStagingModeEnabled();
-          console.log('[ProfileScreen] Toggling environment from:', wasStaging);
-          await setStagingModeEnabled(!wasStaging);
-          const apiBase = await getResolvedApiBaseUrl();
-          setActiveApiBase(apiBase);
-          const newStaging = !wasStaging;
-          setUseStaging(newStaging);
-          console.log('[ProfileScreen] Environment toggled to:', newStaging);
-          pushToast(
-            'success',
-            'Environment Switched',
-            `Now using ${wasStaging ? 'PRODUCTION' : 'STAGING'} API.`
-          );
-        } catch {
-          pushToast('error', 'Error', 'Failed to switch environment. Please try again.');
-        }
-      })();
+      setDevOptionsUnlocked(true);
+      setDevTapCount(0);
+      Alert.alert('Developer options unlocked', 'Hidden tools are now visible.');
       return;
     }
-    setEnvTapCount(next);
+    setDevTapCount(next);
+  };
+
+  const handleEnvironmentToggle = async () => {
+    try {
+      const wasStaging = await isStagingModeEnabled();
+      await setStagingModeEnabled(!wasStaging);
+      const apiBase = await getResolvedApiBaseUrl();
+      setActiveApiBase(apiBase);
+      const newStaging = !wasStaging;
+      setUseStaging(newStaging);
+      pushToast(
+        'success',
+        'Environment Switched',
+        `Now using ${wasStaging ? 'PRODUCTION' : 'STAGING'} API.`
+      );
+    } catch {
+      pushToast('error', 'Error', 'Failed to switch environment. Please try again.');
+    }
   };
 
   const handleFirebaseEmulatorToggle = async (enabled: boolean) => {
@@ -335,6 +350,115 @@ export default function ProfileScreen({ navigation }: any) {
         Linking.openURL('https://support.google.com/googleplay/answer/7018481');
       }
     });
+  };
+
+  const ensureFirebaseSecurityUser = async (passwordHint?: string) => {
+    const auth = getAuth();
+    if (auth.currentUser) return auth.currentUser;
+
+    const response = await api.post<{ firebaseCustomToken: string }>('/api/auth/bootstrap-firebase', passwordHint ? { password: passwordHint } : {});
+    const firebaseCustomToken = response.data?.firebaseCustomToken;
+    if (!firebaseCustomToken) {
+      throw new Error('Please sign in again to manage your password.');
+    }
+
+    const credential = await signInWithCustomToken(auth, firebaseCustomToken);
+    const idToken = await credential.user.getIdToken(true);
+    await setTokens(idToken, null);
+    return credential.user;
+  };
+
+  const providerLabels = (profile?.authProviders || []).map((provider) => {
+    if (provider === 'email') return 'Email/password';
+    if (provider === 'google') return 'Google';
+    if (provider === 'phone') return 'Phone';
+    return 'Microsoft';
+  });
+
+  const handlePasswordUpdate = async () => {
+    if (!profile) return;
+    if (!newPassword || !confirmPassword) {
+      Alert.alert('Missing fields', 'Enter and confirm your new password.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Passwords do not match', 'Your confirmation password must match.');
+      return;
+    }
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(newPassword)) {
+      Alert.alert('Weak password', 'Use at least 8 characters with uppercase, lowercase, and a number.');
+      return;
+    }
+    if (profile.hasPassword && !currentPassword) {
+      Alert.alert('Current password required', 'Enter your current password to continue.');
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      const firebaseUser = await ensureFirebaseSecurityUser(profile.hasPassword ? currentPassword : undefined);
+
+      if (profile.hasPassword) {
+        const credential = EmailAuthProvider.credential(profile.email, currentPassword);
+        await reauthenticateWithCredential(firebaseUser, credential);
+        await updatePassword(firebaseUser, newPassword);
+      } else {
+        if (profile.authProviders?.includes('google')) {
+          if (Platform.OS === 'android') {
+            await GoogleSignin.hasPlayServices();
+          }
+          await GoogleSignin.signOut().catch(() => {});
+          const result: any = await GoogleSignin.signIn();
+          const googleIdToken = result?.data?.idToken || result?.idToken;
+          if (!googleIdToken) {
+            throw new Error('Google re-authentication failed. Please try again.');
+          }
+          const googleCredential = GoogleAuthProvider.credential(googleIdToken);
+          await reauthenticateWithCredential(firebaseUser, googleCredential);
+        }
+        const credential = EmailAuthProvider.credential(profile.email, newPassword);
+        await linkWithCredential(firebaseUser, credential);
+      }
+
+      const freshToken = await firebaseUser.getIdToken(true);
+      await setTokens(freshToken, null);
+      await api.post('/api/auth/revoke-sessions', {});
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      Alert.alert(
+        profile.hasPassword ? 'Password Changed' : 'Password Set',
+        'Please sign in again with your updated credentials.',
+        [{ text: 'OK', onPress: () => { logout().catch(() => {}); } }]
+      );
+    } catch (err: any) {
+      const msg = err?.message || '';
+      if (
+        msg.includes('CREDENTIAL_TOO_OLD_LOGIN_AGAIN') ||
+        msg.includes('auth/requires-recent-login') ||
+        msg.includes('reauthenticate')
+      ) {
+        Alert.alert('Re-authentication Required', 'Please sign out and sign in again, then retry.');
+      } else if (
+        msg.includes('auth/provider-already-linked') ||
+        msg.includes('FEDERATED_USER_ID_ALREADY_LINKED')
+      ) {
+        Alert.alert('Already Linked', 'An email/password credential is already linked to this account.');
+      } else if (
+        profile?.authProviders?.includes('google') &&
+        !profile?.authProviders?.includes('email') &&
+        !profile?.hasPassword
+      ) {
+        Alert.alert(
+          'Not Available',
+          'You signed in with Google. To set a password, use "Forgot Password" on the login screen with your Google email address.',
+        );
+      } else {
+        Alert.alert('Password Update Failed', toUserFriendlyError(err));
+      }
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   if (loading) {
@@ -421,6 +545,102 @@ export default function ProfileScreen({ navigation }: any) {
           <Text style={[styles.toggleLabel, { color: c.text }]}>Notifications</Text>
           <Switch value={notifications} onValueChange={handleToggleNotifications} trackColor={{ true: c.primary }} />
         </View>
+      </View>
+
+      <View style={[styles.card, { backgroundColor: c.surface }]}>
+        <Text style={[styles.cardTitle, { color: c.text }]}>Security</Text>
+        <Text style={[styles.cardSub, { color: c.muted }]}>
+          Sign-in methods: {providerLabels.length > 0 ? providerLabels.join(', ') : 'Unknown'}
+        </Text>
+        {showPasswordSection ? (
+          <Text style={[styles.cardSub, { color: c.muted }]}>
+            {profile?.hasPassword
+              ? 'Changing your password requires your current password and signs out all active sessions.'
+              : 'Set a password to enable email/password login alongside your current sign-in provider.'}
+          </Text>
+        ) : (
+          <Text style={[styles.cardSub, { color: c.muted }]}>
+            Password management is available only for email/password accounts.
+          </Text>
+        )}
+
+        {showPasswordSection && profile?.hasPassword && (
+          <>
+            <Text style={[styles.label, { color: c.textSecondary }]}>Current Password</Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
+              placeholder="Current password"
+              placeholderTextColor={c.muted}
+              secureTextEntry
+            />
+          </>
+        )}
+
+        {showPasswordSection && (
+          <>
+            <Text style={[styles.label, { color: c.textSecondary }]}>
+              {profile?.hasPassword ? 'New Password' : 'Set Password'}
+            </Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+              value={newPassword}
+              onChangeText={setNewPassword}
+              placeholder="New password"
+              placeholderTextColor={c.muted}
+              secureTextEntry
+            />
+
+            <Text style={[styles.label, { color: c.textSecondary }]}>Confirm Password</Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="Confirm password"
+              placeholderTextColor={c.muted}
+              secureTextEntry
+            />
+
+            <TouchableOpacity
+              style={[styles.saveBtn, styles.passwordActionBtn, { backgroundColor: c.primary }, passwordSaving && styles.saveBtnDisabled]}
+              onPress={handlePasswordUpdate}
+              disabled={passwordSaving}
+            >
+              {passwordSaving ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={styles.saveBtnText}>{profile?.hasPassword ? 'Change Password' : 'Set Password'}</Text>
+              )}
+            </TouchableOpacity>
+          </>
+        )}
+
+        {showPasswordSection && profile?.hasPassword && (
+          <TouchableOpacity
+            style={[styles.signOutBtn, { borderColor: c.primary, marginTop: spacing.md }]}
+            onPress={() => navigation.navigate('ForgotPassword')}
+          >
+            <Text style={[styles.signOutText, { color: c.primary }]}>Forgot Password</Text>
+          </TouchableOpacity>
+        )}
+
+        {biometricsAvailable && (
+          <View style={[styles.toggleRow, { marginTop: spacing.md }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.toggleLabel, { color: c.text }]}>Biometric Unlock</Text>
+              <Text style={{ fontSize: fontSizes.xs, color: c.muted, marginTop: 2 }}>
+                Use Face ID or fingerprint to unlock the app
+              </Text>
+            </View>
+            <Switch
+              testID="profile-biometrics-switch"
+              value={biometricsEnabled}
+              onValueChange={toggleBiometrics}
+              trackColor={{ true: c.primary }}
+            />
+          </View>
+        )}
       </View>
 
       <View style={[styles.card, { backgroundColor: c.surface }]}>
@@ -640,20 +860,38 @@ export default function ProfileScreen({ navigation }: any) {
         </View>
       )}
 
-      {devOptionsUnlocked && canShowHiddenDevOptions && (
+      {devOptionsUnlocked && (
         <View style={[styles.card, { backgroundColor: c.surface }]}>
           <Text style={[styles.cardTitle, { color: c.text }]}>Developer (Hidden)</Text>
-          <Text style={[styles.cardSub, { color: c.muted }]}>Local-only tooling for Firebase Emulator Suite.</Text>
-          <View style={styles.toggleRow}>
-            <Text style={[styles.toggleLabel, { color: c.text }]}>Use Firebase Emulator</Text>
-            <Switch
-              testID="profile-firebase-emulator-switch"
-              value={useFirebaseEmulator}
-              onValueChange={handleFirebaseEmulatorToggle}
-              trackColor={{ true: c.primary }}
-            />
-          </View>
+          <Text style={[styles.cardSub, { color: c.muted }]}>Environment and session QA tools.</Text>
+          <TouchableOpacity
+            style={[styles.signOutBtn, { borderColor: c.primary }]}
+            onPress={handleEnvironmentToggle}
+          >
+            <Text style={[styles.signOutText, { color: c.primary }]}>
+              Switch to {useStaging ? 'Production API' : 'Staging API'}
+            </Text>
+          </TouchableOpacity>
+          {canShowHiddenDevOptions && (
+            <View style={styles.toggleRow}>
+              <Text style={[styles.toggleLabel, { color: c.text }]}>Use Firebase Emulator</Text>
+              <Switch
+                testID="profile-firebase-emulator-switch"
+                value={useFirebaseEmulator}
+                onValueChange={handleFirebaseEmulatorToggle}
+                trackColor={{ true: c.primary }}
+              />
+            </View>
+          )}
+          <TouchableOpacity
+            testID="profile-lock-session-button"
+            style={[styles.signOutBtn, { borderColor: c.primary, marginTop: spacing.md }]}
+            onPress={lockSession}
+          >
+            <Text style={[styles.signOutText, { color: c.primary }]}>Lock Session Now</Text>
+          </TouchableOpacity>
           <Text style={[styles.cardSub, { color: c.muted, marginBottom: 0 }]}>API target: {activeApiBase || 'Loading...'}</Text>
+          <Text style={[styles.cardSub, { color: c.muted, marginBottom: 0 }]}>Auto-lock after 5 minutes in background.</Text>
         </View>
       )}
 
@@ -780,6 +1018,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.md, padding: spacing.lg, alignItems: 'center',
     marginBottom: spacing.md,
   },
+  passwordActionBtn: { marginTop: spacing.md },
   saveBtnDisabled: { opacity: 0.6 },
   saveBtnText: { color: '#ffffff', fontSize: fontSizes.md, fontWeight: '600' },
   signOutBtn: {

@@ -306,7 +306,55 @@ const Separator = styled.div`
   }
 `;
 
+const LockOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: rgba(15, 23, 42, 0.58);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+`;
+
+const LockCard = styled.div`
+  width: min(420px, 100%);
+  border-radius: ${(p) => p.theme.radii.xl};
+  border: 1px solid ${(p) => p.theme.colors.border};
+  background: ${(p) => p.theme.colors.surface};
+  box-shadow: ${(p) => p.theme.shadows.xl};
+  padding: 24px;
+`;
+
+const LockTitle = styled.h2`
+  margin: 0 0 8px;
+  font-size: 22px;
+  color: ${(p) => p.theme.colors.text};
+`;
+
+const LockText = styled.p`
+  margin: 0;
+  font-size: 14px;
+  color: ${(p) => p.theme.colors.textSecondary};
+  line-height: 1.5;
+`;
+
+const LockActions = styled.div`
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+`;
+
 type ProfileData = { userId: string; displayName?: string; email?: string; photoURL?: string };
+const SOFT_LOCK_MS = 5 * 60 * 1000;
+const HARD_LOGOUT_MS = 30 * 60 * 1000;
+const PUBLIC_PATHS = ['/', '/auth/login', '/auth/register', '/auth/forgot-password', '/help'];
+
+function isProtectedPath(pathname?: string | null): boolean {
+  const path = pathname || '/';
+  return !PUBLIC_PATHS.some((publicPath) => path === publicPath || path.startsWith(`${publicPath}/`));
+}
 
 function initialsFromName(name?: string): string {
   const n = (name || '').trim();
@@ -328,11 +376,16 @@ export function WebAppShell(props: { children: React.ReactNode }) {
   const [userId, setUserId] = useState<string | undefined>(undefined);
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [sessionLocked, setSessionLocked] = useState(false);
+  const [unlockLoading, setUnlockLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const softLockTimerRef = useRef<number | null>(null);
+  const hardLogoutTimerRef = useRef<number | null>(null);
 
   const displayName = profile?.displayName || profile?.email || 'User';
   const email = profile?.email || '';
   const avatarInitials = useMemo(() => initialsFromName(displayName), [displayName]);
+  const protectedRoute = isProtectedPath(pathname);
 
   useEffect(() => {
     const token = typeof window !== 'undefined' ? window.localStorage.getItem('traxettle.authToken') : null;
@@ -391,6 +444,22 @@ export function WebAppShell(props: { children: React.ReactNode }) {
   });
 
   const handleSignOut = useCallback(async () => {
+    if (typeof window !== 'undefined') {
+      const token = window.localStorage.getItem('traxettle.authToken');
+      if (token) {
+        try {
+          await fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+        } catch {
+          // Best-effort server logout before local cleanup.
+        }
+      }
+    }
+
     try {
       const { getAuth, signOut } = await import('firebase/auth');
       const auth = getAuth();
@@ -408,6 +477,81 @@ export function WebAppShell(props: { children: React.ReactNode }) {
     push({ type: 'success', title: 'Signed out', message: 'You have been signed out.' });
     router.push('/');
   }, [push, router]);
+
+  const resetSessionTimers = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    if (!isAuthenticated || !protectedRoute) return;
+
+    if (softLockTimerRef.current) window.clearTimeout(softLockTimerRef.current);
+    if (hardLogoutTimerRef.current) window.clearTimeout(hardLogoutTimerRef.current);
+
+    softLockTimerRef.current = window.setTimeout(() => {
+      setSessionLocked(true);
+    }, SOFT_LOCK_MS);
+
+    hardLogoutTimerRef.current = window.setTimeout(() => {
+      handleSignOut().catch(() => {});
+      push({ type: 'info', title: 'Session expired', message: 'You were signed out after 30 minutes of inactivity.' });
+    }, HARD_LOGOUT_MS);
+  }, [handleSignOut, isAuthenticated, protectedRoute, push]);
+
+  const handleUnlock = useCallback(async () => {
+    setUnlockLoading(true);
+    try {
+      await api.get('/api/users/profile');
+      setSessionLocked(false);
+      resetSessionTimers();
+    } catch (error: any) {
+      await handleSignOut();
+      push({ type: 'error', title: 'Session expired', message: error?.message || 'Please sign in again.' });
+    } finally {
+      setUnlockLoading(false);
+    }
+  }, [handleSignOut, push, resetSessionTimers]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleUnauthorized = () => {
+      if (protectedRoute) {
+        setSessionLocked(true);
+      }
+    };
+    window.addEventListener('traxettle:webAuthUnauthorized', handleUnauthorized as EventListener);
+    return () => window.removeEventListener('traxettle:webAuthUnauthorized', handleUnauthorized as EventListener);
+  }, [protectedRoute]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!isAuthenticated || !protectedRoute) {
+      setSessionLocked(false);
+      if (softLockTimerRef.current) window.clearTimeout(softLockTimerRef.current);
+      if (hardLogoutTimerRef.current) window.clearTimeout(hardLogoutTimerRef.current);
+      return;
+    }
+
+    const markActivity = () => {
+      if (!sessionLocked) {
+        resetSessionTimers();
+      }
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && !sessionLocked) {
+        resetSessionTimers();
+      }
+    };
+
+    const events: Array<keyof WindowEventMap> = ['mousemove', 'keydown', 'scroll', 'click', 'touchstart', 'focus'];
+    events.forEach((eventName) => window.addEventListener(eventName, markActivity, { passive: true }));
+    document.addEventListener('visibilitychange', handleVisibility);
+    resetSessionTimers();
+
+    return () => {
+      events.forEach((eventName) => window.removeEventListener(eventName, markActivity));
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (softLockTimerRef.current) window.clearTimeout(softLockTimerRef.current);
+      if (hardLogoutTimerRef.current) window.clearTimeout(hardLogoutTimerRef.current);
+    };
+  }, [isAuthenticated, protectedRoute, resetSessionTimers, sessionLocked]);
 
   return (
     <Wrapper suppressHydrationWarning>
@@ -540,6 +684,24 @@ export function WebAppShell(props: { children: React.ReactNode }) {
       </Header>
 
       <Main>{children}</Main>
+      {isAuthenticated && protectedRoute && sessionLocked && (
+        <LockOverlay>
+          <LockCard>
+            <LockTitle>Session locked</LockTitle>
+            <LockText>
+              Your session is locked due to inactivity. Continue to revalidate your session and return to where you left off.
+            </LockText>
+            <LockActions>
+              <Button onClick={() => handleUnlock()} disabled={unlockLoading}>
+                {unlockLoading ? 'Checking session...' : 'Continue'}
+              </Button>
+              <Button $variant="ghost" onClick={() => handleSignOut()}>
+                Log out
+              </Button>
+            </LockActions>
+          </LockCard>
+        </LockOverlay>
+      )}
     </Wrapper>
   );
 }

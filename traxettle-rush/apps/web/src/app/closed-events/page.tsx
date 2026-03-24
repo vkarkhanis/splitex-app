@@ -6,7 +6,7 @@ import styled from 'styled-components';
 import { Badge, Button, Card, CardBody, CardHeader, CardSubtitle, CardTitle, EmptyState, useToast } from '@traxettle/ui';
 import { api } from '../../utils/api';
 import type { Event as TraxettleEvent } from '@traxettle/shared';
-import { buildClosedEventsCsv, buildClosedEventsPrintHtml } from '../../utils/closed-events-export';
+import { toUserFriendlyError } from '../../utils/errorMessages';
 
 const Page = styled.div`
   width: 100%;
@@ -91,7 +91,7 @@ export default function ClosedEventsPage() {
       const res = await api.get<TraxettleEvent[]>('/api/events');
       setEvents((res.data || []).filter((e) => e.status === 'closed'));
     } catch (err: any) {
-      setError(err.message || 'Failed to load closed events');
+      setError(toUserFriendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -107,34 +107,16 @@ export default function ClosedEventsPage() {
       const bt = b.updatedAt ? Date.parse(String(b.updatedAt)) : 0;
       if (at !== bt) return bt - at;
       return (a.name || '').localeCompare(b.name || '');
-    });
+    }).slice(0, 5);
   }, [events]);
 
-  const exportExcel = () => {
-    const csv = buildClosedEventsCsv(sorted);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `closed-events-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    pushToast({ type: 'success', title: 'Exported', message: 'Your Excel/CSV download should start automatically.' });
-  };
-
-  const exportPdf = () => {
-    const html = buildClosedEventsPrintHtml(sorted);
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const w = window.open(url, '_blank');
-    if (!w) {
-      URL.revokeObjectURL(url);
-      pushToast({ type: 'error', title: 'Popup blocked', message: 'Please allow popups to export PDF.' });
-      return;
+  const emailHistory = async () => {
+    try {
+      await api.post('/api/events/history-email', {});
+      pushToast({ type: 'success', title: 'Email sent', message: 'Closed events from the last 3 months have been emailed to you.' });
+    } catch (err: any) {
+      pushToast({ type: 'error', title: 'Email failed', message: toUserFriendlyError(err) });
     }
-    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
   };
 
   return (
@@ -142,8 +124,7 @@ export default function ClosedEventsPage() {
       <TopBar>
         <PageTitle>Closed Events</PageTitle>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <Button type="button" $variant="outline" onClick={exportExcel} disabled={sorted.length === 0}>Export to Excel</Button>
-          <Button type="button" $variant="outline" onClick={exportPdf} disabled={sorted.length === 0}>Export to PDF</Button>
+          <Button type="button" $variant="outline" onClick={emailHistory} disabled={events.length === 0}>Email last 3 months</Button>
           <Button type="button" $variant="outline" onClick={() => router.push('/dashboard')}>Back to Dashboard</Button>
         </div>
       </TopBar>

@@ -2,13 +2,13 @@ import { test, expect } from '@playwright/test';
 import { loginAsMockUser, logout } from '../helpers/auth';
 
 test.describe('Authentication Pages', () => {
-  test('login page renders with email/phone tabs', async ({ page }) => {
+  test('login page renders supported sign-in options', async ({ page }) => {
     await page.goto('/auth/login');
     await expect(page.getByText('Welcome Back')).toBeVisible();
-    await expect(page.getByText('Email')).toBeVisible();
-    await expect(page.getByText('Phone')).toBeVisible();
     await expect(page.getByLabel('Email Address')).toBeVisible();
     await expect(page.getByLabel('Password')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Google/i })).toBeVisible();
+    await expect(page.getByText('Phone')).toHaveCount(0);
   });
 
   test('login submit is disabled when fields are empty', async ({ page }) => {
@@ -57,13 +57,6 @@ test.describe('Authentication Pages', () => {
     await page.goto('/auth/register');
     await expect(page.getByRole('button', { name: /Google/i })).toBeVisible();
   });
-
-  test('login page phone tab shows phone input', async ({ page }) => {
-    await page.goto('/auth/login');
-    await page.getByText('Phone').click();
-    await expect(page.getByLabel('Phone Number')).toBeVisible();
-    await expect(page.getByRole('button', { name: /Send Verification Code/i })).toBeVisible();
-  });
 });
 
 test.describe('Profile Page', () => {
@@ -91,5 +84,17 @@ test.describe('Profile Page', () => {
     await page.waitForTimeout(500);
     await page.goto('/');
     await expect(page.getByTestId('nav-signin')).toBeVisible();
+  });
+
+  test('web session shows lock overlay when auth is invalidated', async ({ page }) => {
+    await loginAsMockUser(page);
+    await page.goto('/dashboard');
+
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('traxettle:webAuthUnauthorized'));
+    });
+
+    await expect(page.getByText('Session locked')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
   });
 });

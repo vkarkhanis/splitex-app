@@ -1,5 +1,9 @@
 import { initializeFirebase, getEnvironment, getApiUrl } from '../services/firebase';
 
+jest.mock('../api', () => ({
+  isFirebaseEmulatorEnabled: jest.fn().mockResolvedValue(false),
+}));
+
 // Mock the runtime config
 jest.mock('../config/runtime', () => ({
   getRuntimeConfig: jest.fn().mockResolvedValue({
@@ -42,6 +46,21 @@ jest.mock('firebase/storage', () => ({
 describe('Firebase Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    const { getRuntimeConfig } = require('../config/runtime');
+    const { isFirebaseEmulatorEnabled } = require('../api');
+    getRuntimeConfig.mockResolvedValue({
+      env: 'production',
+      apiUrl: 'https://prod-api.traxettle.app',
+      firebaseConfig: {
+        projectId: 'traxettle-prod',
+        apiKey: 'test-api-key',
+        authDomain: 'traxettle-prod.firebaseapp.com',
+        storageBucket: 'traxettle-prod.firebasestorage.app',
+        messagingSenderId: '123456789',
+        appId: '1:123456789:web:abcdef'
+      }
+    });
+    isFirebaseEmulatorEnabled.mockResolvedValue(false);
   });
 
   describe('initializeFirebase', () => {
@@ -73,6 +92,23 @@ describe('Firebase Service', () => {
 
       await expect(initializeFirebase()).rejects.toThrow('Failed to load Firebase configuration');
     });
+
+    it('should initialize Firebase with emulator-safe config when emulator mode is enabled', async () => {
+      const { initializeApp } = require('firebase/app');
+      const { isFirebaseEmulatorEnabled } = require('../api');
+      isFirebaseEmulatorEnabled.mockResolvedValue(true);
+
+      await initializeFirebase();
+
+      expect(initializeApp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: 'traxettle-emulator',
+          apiKey: 'demo-emulator-api-key',
+          authDomain: 'traxettle-emulator.firebaseapp.com',
+          appId: '1:000000000000:web:emulator',
+        }),
+      );
+    });
   });
 
   describe('environment helpers', () => {
@@ -87,7 +123,9 @@ describe('Firebase Service', () => {
         apiUrl: 'https://prod-api.traxettle.app',
         firebaseConfig: {
           projectId: 'traxettle-prod',
-          apiKey: 'test-api-key'
+          apiKey: 'test-api-key',
+          authDomain: 'traxettle-prod.firebaseapp.com',
+          appId: '1:123456789:web:abcdef'
         }
       });
 

@@ -21,7 +21,8 @@ function loadServiceAccountJson(): ServiceAccountJson | null {
   const keyFile = process.env.FIREBASE_PRIVATE_KEY_FILE || process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (!keyFile) return null;
   try {
-    const absPath = path.isAbsolute(keyFile) ? keyFile : path.resolve(process.cwd(), keyFile);
+    const rootDir = path.resolve(__dirname, '..', '..', '..', '..');
+    const absPath = path.isAbsolute(keyFile) ? keyFile : path.resolve(rootDir, keyFile);
     const raw = fs.readFileSync(absPath, 'utf8');
     return JSON.parse(raw) as ServiceAccountJson;
   } catch (error) {
@@ -32,9 +33,17 @@ function loadServiceAccountJson(): ServiceAccountJson | null {
 
 const serviceAccount = loadServiceAccountJson();
 
+// When a service account JSON file is explicitly loaded, its credentials take
+// priority over individual env vars (which may come from a stale .env.local
+// for a different Firebase project).
+const saFileExplicit = !!(process.env.FIREBASE_PRIVATE_KEY_FILE || process.env.GOOGLE_APPLICATION_CREDENTIALS);
 const firebaseProjectId = process.env.FIREBASE_PROJECT_ID || serviceAccount?.project_id;
-const firebaseClientEmail = process.env.FIREBASE_CLIENT_EMAIL || serviceAccount?.client_email;
-const firebasePrivateKey = (process.env.FIREBASE_PRIVATE_KEY || serviceAccount?.private_key)?.replace(/\\n/g, '\n');
+const firebaseClientEmail = (saFileExplicit && serviceAccount?.client_email)
+  ? serviceAccount.client_email
+  : (process.env.FIREBASE_CLIENT_EMAIL || serviceAccount?.client_email);
+const firebasePrivateKey = ((saFileExplicit && serviceAccount?.private_key)
+  ? serviceAccount.private_key
+  : (process.env.FIREBASE_PRIVATE_KEY || serviceAccount?.private_key))?.replace(/\\n/g, '\n');
 
 const firebaseConfig = {
   projectId: firebaseProjectId,
