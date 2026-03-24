@@ -73,7 +73,7 @@ interface UserProfile {
 }
 
 export default function ProfileScreen({ navigation }: any) {
-  const { user, logout, tier, switchTier, internalTester, refreshProfile, lockSession } = useAuth();
+  const { user, logout, tier, switchTier, internalTester, refreshProfile, lockSession, biometricsAvailable, biometricsEnabled, toggleBiometrics } = useAuth();
   const { theme, themeName, setThemeName } = useTheme();
   const c = theme.colors;
   const { isPro, priceString } = usePurchase();
@@ -109,6 +109,9 @@ export default function ProfileScreen({ navigation }: any) {
     profile.authProviders?.includes('google') &&
     !profile.authProviders?.includes('email') &&
     !profile.hasPassword
+  );
+  const showPasswordSection = Boolean(
+    profile?.authProviders?.includes('email') || profile?.hasPassword
   );
 
   const fetchProfile = useCallback(async () => {
@@ -429,7 +432,30 @@ export default function ProfileScreen({ navigation }: any) {
         [{ text: 'OK', onPress: () => { logout().catch(() => {}); } }]
       );
     } catch (err: any) {
-      Alert.alert('Password Update Failed', toUserFriendlyError(err));
+      const msg = err?.message || '';
+      if (
+        msg.includes('CREDENTIAL_TOO_OLD_LOGIN_AGAIN') ||
+        msg.includes('auth/requires-recent-login') ||
+        msg.includes('reauthenticate')
+      ) {
+        Alert.alert('Re-authentication Required', 'Please sign out and sign in again, then retry.');
+      } else if (
+        msg.includes('auth/provider-already-linked') ||
+        msg.includes('FEDERATED_USER_ID_ALREADY_LINKED')
+      ) {
+        Alert.alert('Already Linked', 'An email/password credential is already linked to this account.');
+      } else if (
+        profile?.authProviders?.includes('google') &&
+        !profile?.authProviders?.includes('email') &&
+        !profile?.hasPassword
+      ) {
+        Alert.alert(
+          'Not Available',
+          'You signed in with Google. To set a password, use "Forgot Password" on the login screen with your Google email address.',
+        );
+      } else {
+        Alert.alert('Password Update Failed', toUserFriendlyError(err));
+      }
     } finally {
       setPasswordSaving(false);
     }
@@ -526,15 +552,19 @@ export default function ProfileScreen({ navigation }: any) {
         <Text style={[styles.cardSub, { color: c.muted }]}>
           Sign-in methods: {providerLabels.length > 0 ? providerLabels.join(', ') : 'Unknown'}
         </Text>
-        <Text style={[styles.cardSub, { color: c.muted }]}>
-          {isGoogleOnlyProfile
-            ? 'Password management is available only for email/password accounts.'
-            : profile?.hasPassword
+        {showPasswordSection ? (
+          <Text style={[styles.cardSub, { color: c.muted }]}>
+            {profile?.hasPassword
               ? 'Changing your password requires your current password and signs out all active sessions.'
               : 'Set a password to enable email/password login alongside your current sign-in provider.'}
-        </Text>
+          </Text>
+        ) : (
+          <Text style={[styles.cardSub, { color: c.muted }]}>
+            Password management is available only for email/password accounts.
+          </Text>
+        )}
 
-        {profile?.hasPassword && !isGoogleOnlyProfile && (
+        {showPasswordSection && profile?.hasPassword && (
           <>
             <Text style={[styles.label, { color: c.textSecondary }]}>Current Password</Text>
             <TextInput
@@ -548,7 +578,7 @@ export default function ProfileScreen({ navigation }: any) {
           </>
         )}
 
-        {!isGoogleOnlyProfile && (
+        {showPasswordSection && (
           <>
             <Text style={[styles.label, { color: c.textSecondary }]}>
               {profile?.hasPassword ? 'New Password' : 'Set Password'}
@@ -586,13 +616,30 @@ export default function ProfileScreen({ navigation }: any) {
           </>
         )}
 
-        {profile?.hasPassword && !isGoogleOnlyProfile && (
+        {showPasswordSection && profile?.hasPassword && (
           <TouchableOpacity
             style={[styles.signOutBtn, { borderColor: c.primary, marginTop: spacing.md }]}
             onPress={() => navigation.navigate('ForgotPassword')}
           >
             <Text style={[styles.signOutText, { color: c.primary }]}>Forgot Password</Text>
           </TouchableOpacity>
+        )}
+
+        {biometricsAvailable && (
+          <View style={[styles.toggleRow, { marginTop: spacing.md }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.toggleLabel, { color: c.text }]}>Biometric Unlock</Text>
+              <Text style={{ fontSize: fontSizes.xs, color: c.muted, marginTop: 2 }}>
+                Use Face ID or fingerprint to unlock the app
+              </Text>
+            </View>
+            <Switch
+              testID="profile-biometrics-switch"
+              value={biometricsEnabled}
+              onValueChange={toggleBiometrics}
+              trackColor={{ true: c.primary }}
+            />
+          </View>
         )}
       </View>
 

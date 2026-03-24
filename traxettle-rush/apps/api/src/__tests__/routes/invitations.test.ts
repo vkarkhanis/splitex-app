@@ -445,6 +445,177 @@ describe('GET /api/invitations/my', () => {
   });
 });
 
+describe('GET /api/invitations/my — active filter & email normalization', () => {
+  it('should filter out invitations for closed events when filter=active', async () => {
+    mockInvitations['inv-closed-evt'] = {
+      eventId: 'evt-closed',
+      invitedBy: 'other-user',
+      inviteeUserId: 'mock-user-1',
+      inviteeEmail: null,
+      inviteePhone: null,
+      role: 'member',
+      status: 'pending',
+      token: 'tok-closed-evt',
+      message: null,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      respondedAt: null,
+    };
+    mockEvents['evt-closed'] = {
+      name: 'Closed Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'closed',
+      createdBy: 'other-user',
+      admins: ['other-user'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/invitations/my?filter=active')
+      .set('Authorization', 'Bearer mock-user-1');
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBe(0);
+  });
+
+  it('should include invitations for active events when filter=active', async () => {
+    mockInvitations['inv-active-evt'] = {
+      eventId: 'evt-active',
+      invitedBy: 'other-user',
+      inviteeUserId: 'mock-user-1',
+      inviteeEmail: null,
+      inviteePhone: null,
+      role: 'member',
+      status: 'pending',
+      token: 'tok-active-evt',
+      message: null,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      respondedAt: null,
+    };
+    mockEvents['evt-active'] = {
+      name: 'Active Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'active',
+      createdBy: 'other-user',
+      admins: ['other-user'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/invitations/my?filter=active')
+      .set('Authorization', 'Bearer mock-user-1');
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBe(1);
+    expect(res.body.data[0].eventStatus).toBe('active');
+  });
+
+  it('should filter out expired invitations when filter=active', async () => {
+    mockInvitations['inv-expired'] = {
+      eventId: 'evt-exp',
+      invitedBy: 'other-user',
+      inviteeUserId: 'mock-user-1',
+      inviteeEmail: null,
+      inviteePhone: null,
+      role: 'member',
+      status: 'pending',
+      token: 'tok-expired',
+      message: null,
+      createdAt: new Date(Date.now() - 86400000 * 10).toISOString(),
+      expiresAt: new Date(Date.now() - 86400000).toISOString(),
+      respondedAt: null,
+    };
+    mockEvents['evt-exp'] = {
+      name: 'Exp Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'active',
+      createdBy: 'other-user',
+      admins: ['other-user'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/invitations/my?filter=active')
+      .set('Authorization', 'Bearer mock-user-1');
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBe(0);
+  });
+
+  it('should respect the limit query parameter', async () => {
+    for (let i = 0; i < 3; i++) {
+      mockInvitations[`inv-lim-${i}`] = {
+        eventId: `evt-lim-${i}`,
+        invitedBy: 'other-user',
+        inviteeUserId: 'mock-user-1',
+        inviteeEmail: null,
+        inviteePhone: null,
+        role: 'member',
+        status: 'pending',
+        token: `tok-lim-${i}`,
+        message: null,
+        createdAt: new Date(Date.now() - i * 1000).toISOString(),
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+        respondedAt: null,
+      };
+      mockEvents[`evt-lim-${i}`] = {
+        name: `Lim Event ${i}`,
+        type: 'event',
+        startDate: '2025-01-01',
+        currency: 'USD',
+        status: 'active',
+        createdBy: 'other-user',
+        admins: ['other-user'],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/invitations/my?filter=active&limit=2')
+      .set('Authorization', 'Bearer mock-user-1');
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBe(2);
+  });
+
+  it('should normalize email on create so invitee can find invitation', async () => {
+    mockEvents['evt-norm'] = {
+      name: 'Norm Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'active',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const createRes = await request(app)
+      .post('/api/invitations')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({
+        eventId: 'evt-norm',
+        inviteeEmail: '  FRIEND@Test.COM  ',
+        role: 'member',
+      });
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.data.inviteeEmail).toBe('friend@test.com');
+  });
+});
+
 describe('GET /api/invitations/event/:eventId', () => {
   it('should return invitations for an event', async () => {
     mockInvitations['inv-2'] = {

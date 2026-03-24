@@ -274,4 +274,14 @@ test.describe('Invitation Lifecycle — Full E2E', () => {
     expect(declineRes.success).toBe(false);
     expect(declineRes.error).toContain('already been');
   });
+
+  test('invitation email is normalized to lowercase on create', async () => {
+    const eventRes = await createTestEvent('mock-norm-admin');
+    const eventId = eventRes.data?.id;
+    if (!eventId) { test.skip(true, 'No event created'); return; }
+
+    const invRes = await createTestInvitation(eventId, '  UPPER@Example.COM  ', 'mock-norm-admin');
+    expect(invRes.success).toBe(true);
+    expect(invRes.data?.inviteeEmail).toBe('upper@example.com');
+  });
 });

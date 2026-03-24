@@ -12,6 +12,17 @@ type AuthFailureHandler = (error: ApiRequestError) => void | Promise<void>;
 let authFailureHandler: AuthFailureHandler | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
 
+// After RuntimeConfig loads, this is set so that api.ts requests go to the
+// same server that provided the Firebase config. Without this, api.ts resolves
+// its URL independently (e.g. via staging-mode AsyncStorage flag) and can end
+// up talking to a different Firebase project than the client SDK.
+let runtimeApiBaseUrlOverride: string | null = null;
+
+export function setRuntimeApiBaseUrl(url: string): void {
+  runtimeApiBaseUrlOverride = url;
+  console.log(`[api] Runtime API base URL override set: ${url}`);
+}
+
 export class ApiRequestError extends Error {
   status: number;
   code?: string;
@@ -95,6 +106,12 @@ export async function setStagingModeEnabled(enabled: boolean): Promise<void> {
 }
 
 export async function getResolvedApiBaseUrl(): Promise<string> {
+  // If RuntimeConfig has set an override, always use it.
+  // This ensures API calls go to the same server that served the Firebase config.
+  if (runtimeApiBaseUrlOverride) {
+    return runtimeApiBaseUrlOverride;
+  }
+
   if (isLocalLikeEnv() && ENV.LOCAL_DEV_OPTIONS_ENABLED) {
     const useEmulator = await isFirebaseEmulatorEnabled();
     if (useEmulator) return getEmulatorApiUrl();

@@ -104,8 +104,7 @@ export default function ForgotPasswordScreen({ navigation }: any) {
           Enter your email address and we'll send you a link to reset your password.
         </Text>
 
-        <TextInput
-          style={[styles.label, { color: c.textSecondary }]}>Email</TextInput>
+        <Text style={[styles.label, { color: c.textSecondary }]}>Email</Text>
         <TextInput
           style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
           value={email}

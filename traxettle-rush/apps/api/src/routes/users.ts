@@ -64,9 +64,14 @@ async function getAuthProviderSummary(uid: string, existing: any): Promise<{ aut
 
   try {
     const userRecord = await auth.getUser(uid);
-    const providerMap = new Set<AuthProviderId>(storedProviders);
+    // Build provider list purely from Firebase Auth (source of truth),
+    // not from potentially stale Firestore data.
+    const providerMap = new Set<AuthProviderId>();
 
-    if (userRecord.providerData.length === 0 && userRecord.email) {
+    // Only infer email provider for custom-token users if they actually
+    // have a password set.  Google sign-in users have an email but no
+    // password and no providerData — don't mark them as email/password.
+    if (userRecord.providerData.length === 0 && userRecord.email && userRecord.passwordHash) {
       providerMap.add('email');
     }
 
@@ -79,7 +84,7 @@ async function getAuthProviderSummary(uid: string, existing: any): Promise<{ aut
 
     return {
       authProviders: Array.from(providerMap),
-      hasPassword: providerMap.has('email') || storedHasPassword,
+      hasPassword: providerMap.has('email') || Boolean(userRecord.passwordHash),
     };
   } catch {
     return {

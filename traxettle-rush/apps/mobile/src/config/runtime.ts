@@ -59,18 +59,28 @@ export class RuntimeConfigManager {
     }
 
     try {
-      // Try to load from AsyncStorage first
-      const storedConfig = await this.loadStoredConfig();
-      if (this.isFirebaseClientConfigComplete(storedConfig)) {
-        this.cachedConfig = storedConfig;
-        this.cacheExpiry = now + CONFIG_CACHE_DURATION;
-        console.log('[RuntimeConfig] Using stored config');
-        return storedConfig;
-      }
-
-      if (storedConfig) {
-        console.warn('[RuntimeConfig] Ignoring incomplete stored config and fetching fresh config');
+      // In local dev mode, always fetch fresh config from the API.
+      // The Firebase project may change between runs (e.g. bootstrap.sh
+      // local vs staging) while the API URL stays the same, so persisted
+      // config cannot be trusted. The in-memory cache still prevents
+      // redundant fetches within a single session.
+      if (isLocalLikeEnv()) {
+        console.log('[RuntimeConfig] Local dev — skipping stored config, fetching fresh');
         await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
+      } else {
+        // Try to load from AsyncStorage first (production / staging builds)
+        const storedConfig = await this.loadStoredConfig();
+        if (this.isFirebaseClientConfigComplete(storedConfig)) {
+          this.cachedConfig = storedConfig;
+          this.cacheExpiry = now + CONFIG_CACHE_DURATION;
+          console.log('[RuntimeConfig] Using stored config');
+          return storedConfig;
+        }
+
+        if (storedConfig) {
+          console.warn('[RuntimeConfig] Ignoring incomplete stored config and fetching fresh config');
+          await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
+        }
       }
 
       // Fetch fresh config from API
@@ -107,19 +117,19 @@ export class RuntimeConfigManager {
     const useStaging = await this.isStagingModeEnabled();
 
     // In local-like environments, always use the locally configured API base.
-    // If the local API is unavailable, fall back to hosted config so the app
-    // can still initialize and the tester can switch environments from UI.
+    // Retry a few times to handle the common case where the mobile app
+    // launches before the API server is ready (both start in parallel).
+    // We intentionally do NOT fall back to a hosted API because it serves
+    // a different Firebase project, causing auth/custom-token-mismatch.
     if (isLocalLikeEnv()) {
-      const candidateBases = [
-        getApiUrlFromEnv(),
-        useStaging ? ENV.STAGING_API_URL : ENV.PROD_API_URL,
-      ];
-
+      const localApiBase = getApiUrlFromEnv();
+      const apiUrl = `${localApiBase}/api/config`;
+      const maxRetries = 3;
+      const retryDelayMs = 2000;
       let lastError: Error | null = null;
 
-      for (const apiBase of candidateBases) {
-        const apiUrl = `${apiBase}/api/config`;
-        console.log(`[RuntimeConfig] Fetching config from: ${apiUrl}`);
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        console.log(`[RuntimeConfig] Fetching config from: ${apiUrl} (attempt ${attempt}/${maxRetries})`);
 
         try {
           const response = await this.fetchWithTimeout(apiUrl);
@@ -132,19 +142,22 @@ export class RuntimeConfigManager {
             throw new Error('No configuration data received');
           }
 
-          console.log(`[RuntimeConfig] Success with API: ${apiUrl}`);
-          console.log(`[RuntimeConfig] Environment: ${data.data.env}`);
+          console.log(`[RuntimeConfig] Success with local API`);
+          console.log(`[RuntimeConfig] Environment: ${data.data.env}, projectId: ${data.data.firebaseConfig?.projectId}`);
           return data.data;
         } catch (error) {
           lastError = error instanceof Error ? error : new Error(String(error));
-          console.error(
-            `[RuntimeConfig] API fetch failed for ${apiUrl}:`,
+          console.warn(
+            `[RuntimeConfig] Local API fetch attempt ${attempt} failed:`,
             lastError.message,
           );
+          if (attempt < maxRetries) {
+            await new Promise((r) => setTimeout(r, retryDelayMs));
+          }
         }
       }
 
-      throw lastError || new Error('Failed to fetch configuration');
+      throw lastError || new Error('Local API unavailable — start the API server first');
     }
 
     // Production/Staging API URL (non-local builds)

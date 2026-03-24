@@ -25,6 +25,7 @@ import {
   hasStoredPin,
   isBiometricSupported,
   saveLocalUnlockPreferences,
+  setBiometricsPreference,
   tryBiometricUnlock,
   verifyPin,
 } from '../services/local-session';
@@ -61,6 +62,7 @@ interface AuthContextType {
   setupPin: (pin: string, enableBiometrics: boolean) => Promise<void>;
   unlockWithPin: (pin: string) => Promise<boolean>;
   unlockWithBiometrics: () => Promise<boolean>;
+  toggleBiometrics: (enabled: boolean) => Promise<void>;
   lockSession: () => void;
 }
 
@@ -86,6 +88,7 @@ const AuthContext = createContext<AuthContextType>({
   setupPin: async () => {},
   unlockWithPin: async () => false,
   unlockWithBiometrics: async () => false,
+  toggleBiometrics: async () => {},
   lockSession: () => {},
 });
 
@@ -263,17 +266,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('No Firebase session received from server');
       }
       console.log('[AuthContext] Received Firebase custom token from backend');
+      // --- DEBUG: log Firebase client config for custom-token-mismatch investigation ---
+      try {
+        const fbApp = auth.app;
+        console.log('[AuthContext] Firebase client config', {
+          projectId: fbApp.options.projectId,
+          apiKey: fbApp.options.apiKey?.substring(0, 15) + '...',
+          appId: fbApp.options.appId,
+          authDomain: fbApp.options.authDomain,
+        });
+      } catch (e) { console.warn('[AuthContext] Could not read Firebase app options', e); }
+      // --- END DEBUG ---
       const credential = await signInWithCustomToken(auth, firebaseCustomToken);
       console.log('[AuthContext] Firebase custom-token sign-in succeeded');
       const token = await credential.user.getIdToken();
       await setTokens(token, null);
       await loadUser();
     } catch (error: any) {
-      console.error('[AuthContext] Google login failed', {
-        message: error?.message,
-        code: error?.code,
-        status: error?.status,
-      });
+      // --- DEBUG: exhaustive diagnostics on custom-token-mismatch ---
+      const fbApp = auth.app;
+      const fullApiKey = fbApp.options.apiKey || '(none)';
+      console.error('[AuthContext] ===== CUSTOM TOKEN SIGN-IN FAILED =====');
+      console.error('[AuthContext] Error:', error?.code, error?.message);
+      console.error('[AuthContext] Firebase app name:', fbApp.name);
+      console.error('[AuthContext] Full apiKey:', fullApiKey);
+      console.error('[AuthContext] projectId:', fbApp.options.projectId);
+      console.error('[AuthContext] appId:', fbApp.options.appId);
+      console.error('[AuthContext] authDomain:', fbApp.options.authDomain);
+      // Also try a direct REST call to see if it works outside the SDK
+      try {
+        const itUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${fullApiKey}`;
+        console.error('[AuthContext] Trying direct REST call to:', itUrl.substring(0, 80) + '...');
+        const directRes = await fetch(itUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: firebaseCustomToken, returnSecureToken: true }),
+        });
+        const directBody = await directRes.json();
+        console.error('[AuthContext] Direct REST result:', directRes.status, JSON.stringify(directBody).substring(0, 200));
+      } catch (restErr: any) {
+        console.error('[AuthContext] Direct REST call also failed:', restErr.message);
+      }
+      console.error('[AuthContext] ===== END DIAGNOSTICS =====');
+      // --- END DEBUG ---
       throw error;
     }
   };
@@ -415,6 +450,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return ok;
   }, []);
 
+  const toggleBiometrics = useCallback(async (enabled: boolean) => {
+    await setBiometricsPreference(enabled);
+    await syncLocalUnlockState();
+  }, [syncLocalUnlockState]);
+
   const lockSession = useCallback(() => {
     if (user) {
       setSessionLocked(true);
@@ -445,6 +485,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setupPin,
         unlockWithPin,
         unlockWithBiometrics,
+        toggleBiometrics,
         lockSession,
       }}
     >

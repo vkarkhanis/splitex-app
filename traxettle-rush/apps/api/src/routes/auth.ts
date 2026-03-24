@@ -516,7 +516,7 @@ router.post('/google', async (req, res) => {
       displayName: user.displayName,
     });
     const firebaseCustomToken = await auth.createCustomToken(user.id);
-    
+
     res.json({
       success: true,
       data: { user, tokens, firebaseCustomToken }

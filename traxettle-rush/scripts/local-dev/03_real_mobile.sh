@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────────────────────
+# 03_real_mobile.sh — Run mobile app + API against real Firebase
+#
+# Usage:
+#   ./scripts/local-dev/03_real_mobile.sh [local|staging]
+#   Default: local
+# ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
+
+FIREBASE_ENV="${1:-local}"
+if [[ "$FIREBASE_ENV" != "local" && "$FIREBASE_ENV" != "staging" ]]; then
+  echo "Usage: $0 [local|staging]"
+  exit 1
+fi
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 FLAGS_FILE="$ROOT_DIR/scripts/local-dev/.runtime.env"
@@ -13,10 +26,35 @@ if [[ -f "$FLAGS_FILE" ]]; then
   source "$FLAGS_FILE"
 fi
 
-echo "[local-dev] mode=real-firebase+mobile tier=$DEV_TIER real_payments=$DEV_REAL_PAYMENTS"
+echo "[local-dev] mode=real-firebase+mobile env=$FIREBASE_ENV tier=$DEV_TIER real_payments=$DEV_REAL_PAYMENTS"
 
 # ── Bootstrap: validate & copy Firebase config files ──
-sh "$ROOT_DIR/scripts/local-dev/bootstrap.sh" local
+sh "$ROOT_DIR/scripts/local-dev/bootstrap.sh" "$FIREBASE_ENV"
+
+# ── Detect environment switch → warn about native rebuild ──
+LAST_ENV_FILE="$ROOT_DIR/scripts/local-dev/.last-mobile-env"
+NEEDS_REBUILD=false
+if [[ -f "$LAST_ENV_FILE" ]]; then
+  LAST_ENV="$(cat "$LAST_ENV_FILE")"
+  if [[ "$LAST_ENV" != "$FIREBASE_ENV" ]]; then
+    NEEDS_REBUILD=true
+  fi
+fi
+echo "$FIREBASE_ENV" > "$LAST_ENV_FILE"
+
+if [[ "$NEEDS_REBUILD" == "true" ]]; then
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════════╗"
+  echo "║  ⚠  ENVIRONMENT SWITCHED ($LAST_ENV → $FIREBASE_ENV)          "
+  echo "║                                                                  ║"
+  echo "║  google-services.json changed. You MUST rebuild the native app:  ║"
+  echo "║    cd apps/mobile && npx expo run:android                        ║"
+  echo "║                                                                  ║"
+  echo "║  Without a rebuild, Google Sign-In will fail (DEVELOPER_ERROR).  ║"
+  echo "╚══════════════════════════════════════════════════════════════════╝"
+  echo ""
+  read -r -p "Press Enter to continue (Metro only) or Ctrl+C to stop and rebuild first... "
+fi
 
 [ -f "$RC_LOADER" ] || { echo "[local-dev] Missing RevenueCat loader: $RC_LOADER"; exit 1; }
 source "$RC_LOADER" local
@@ -70,6 +108,7 @@ trap cleanup EXIT INT TERM
   REVENUECAT_WEBHOOK_SECRET="${REVENUECAT_WEBHOOK_SECRET:-}" \
   REVENUECAT_PRO_ENTITLEMENT_ID="${REVENUECAT_PRO_ENTITLEMENT_ID:-pro}" \
   FIREBASE_USE_EMULATOR=false \
+  FIREBASE_PRIVATE_KEY_FILE="${BOOTSTRAP_FIREBASE_SA_FILE:-fb-service-accounts/traxettle-fb-sa-test.json}" \
   FIREBASE_PROJECT_ID="${BOOTSTRAP_FIREBASE_PROJECT_ID:-traxettle-test}" \
   FIREBASE_STORAGE_BUCKET="${BOOTSTRAP_FIREBASE_STORAGE_BUCKET:-}" \
   FIREBASE_WEB_API_KEY="${BOOTSTRAP_FIREBASE_API_KEY:-}" \

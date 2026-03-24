@@ -4,7 +4,7 @@ import { getFirestore, Firestore, connectFirestoreEmulator } from 'firebase/fire
 import { getStorage, FirebaseStorage, connectStorageEmulator } from 'firebase/storage';
 import { Platform } from 'react-native';
 import { getRuntimeConfig, RuntimeConfig } from '../config/runtime';
-import { isFirebaseEmulatorEnabled } from '../api';
+import { isFirebaseEmulatorEnabled, setRuntimeApiBaseUrl } from '../api';
 
 const EMULATOR_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
 
@@ -143,6 +143,12 @@ class FirebaseService {
         apiUrl: config.apiUrl,
         projectId: config.firebaseConfig.projectId
       });
+
+      // Lock the API client to the same server that provided this config,
+      // preventing mismatches when staging mode is stale in AsyncStorage.
+      if (config.apiUrl) {
+        setRuntimeApiBaseUrl(config.apiUrl);
+      }
 
       return config;
     } catch (error) {

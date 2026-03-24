@@ -21,8 +21,14 @@ function parseLimit(v: any): number | null {
 }
 
 function isActiveInvitation(inv: any): boolean {
-  if (!inv || inv.status !== 'pending') return false;
-  if (inv.expiresAt) {
+  if (!inv) return false;
+  if (!inv.eventId) return false;
+  // Hide invitations for closed, deleted, or missing events.
+  if (!inv.eventStatus) return false;
+  const status = String(inv.eventStatus);
+  if (status === 'closed' || status === 'deleted') return false;
+  // Hide expired pending invitations.
+  if (inv.status === 'pending' && inv.expiresAt) {
     const ts = Date.parse(String(inv.expiresAt));
     if (!Number.isNaN(ts) && ts < Date.now()) return false;
   }
@@ -40,10 +46,12 @@ router.get('/my', requireAuth, async (req: AuthenticatedRequest, res) => {
     const enriched = await Promise.all(
       invitations.map(async (inv) => {
         let eventName: string | undefined;
+        let eventStatus: string | undefined;
         let inviterName: string | undefined;
         try {
           const event = await eventService.getEvent(inv.eventId);
           eventName = event?.name;
+          eventStatus = event?.status;
         } catch { /* non-fatal */ }
         try {
           const inviterDoc = await db.collection('users').doc(inv.invitedBy).get();
@@ -52,7 +60,7 @@ router.get('/my', requireAuth, async (req: AuthenticatedRequest, res) => {
             inviterName = d?.displayName || d?.email || undefined;
           }
         } catch { /* non-fatal */ }
-        return { ...inv, eventName, inviterName };
+        return { ...inv, eventName, eventStatus, inviterName };
       })
     );
 

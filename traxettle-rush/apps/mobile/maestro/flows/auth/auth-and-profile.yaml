@@ -86,6 +86,26 @@ name: Auth and Profile Smoke
     timeout: 30000
 - tapOn:
     id: "dashboard-open-profile"
+# Verify Security section is visible (email/password user should see Change Password)
+- scrollUntilVisible:
+    element:
+      text: "Security"
+    direction: DOWN
+- assertVisible:
+    text: "Security"
+- assertVisible:
+    text: "Email/password"
+# Email/password users should see password fields
+- assertVisible:
+    text: "Change Password"
+    optional: true
+# If device supports biometrics, verify toggle is visible
+- assertVisible:
+    id: "profile-biometrics-switch"
+    optional: true
+# Scroll back up before developer tap sequence
+- scroll:
+    direction: UP
 - tapOn:
     text: "Traxettle v"
     optional: true

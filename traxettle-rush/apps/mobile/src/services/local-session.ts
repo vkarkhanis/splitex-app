@@ -39,6 +39,10 @@ export async function getLocalUnlockState(): Promise<{ biometricsEnabled: boolea
   };
 }
 
+export async function setBiometricsPreference(enabled: boolean): Promise<void> {
+  await SecureStore.setItemAsync(BIOMETRICS_ENABLED_KEY, enabled ? 'true' : 'false');
+}
+
 export async function tryBiometricUnlock(): Promise<boolean> {
   const { biometricsEnabled } = await getLocalUnlockState();
   if (!biometricsEnabled) return false;
