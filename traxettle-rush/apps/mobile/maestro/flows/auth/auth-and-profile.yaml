@@ -103,9 +103,11 @@ name: Auth and Profile Smoke
 - assertVisible:
     id: "profile-biometrics-switch"
     optional: true
-# Scroll back up before developer tap sequence
-- scroll:
-    direction: UP
+# Ensure version footer is visible before developer tap sequence
+- scrollUntilVisible:
+    element:
+      text: "Traxettle v"
+    direction: DOWN
 - tapOn:
     text: "Traxettle v"
     optional: true

@@ -13,13 +13,13 @@ test.describe('Authentication Pages', () => {
 
   test('login submit is disabled when fields are empty', async ({ page }) => {
     await page.goto('/auth/login');
-    const submitBtn = page.getByRole('button', { name: 'Sign In' });
+    const submitBtn = page.getByRole('button', { name: 'Sign In', exact: true });
     await expect(submitBtn).toBeDisabled();
   });
 
   test('login page has link to register', async ({ page }) => {
     await page.goto('/auth/login');
-    const registerLink = page.getByRole('link', { name: 'Register' });
+    const registerLink = page.locator('a[href="/auth/register"]').last();
     await expect(registerLink).toBeVisible();
     await registerLink.click();
     await expect(page).toHaveURL(/\/auth\/register/);
@@ -27,7 +27,7 @@ test.describe('Authentication Pages', () => {
 
   test('register page renders with all form fields', async ({ page }) => {
     await page.goto('/auth/register');
-    await expect(page.getByText('Create Account')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Create Account' })).toBeVisible();
     await expect(page.getByLabel('Full Name')).toBeVisible();
     await expect(page.getByLabel('Email Address')).toBeVisible();
     await expect(page.getByLabel('Phone Number')).toBeVisible();
@@ -42,7 +42,7 @@ test.describe('Authentication Pages', () => {
 
   test('register page has link to login', async ({ page }) => {
     await page.goto('/auth/register');
-    const loginLink = page.getByRole('link', { name: 'Sign in' });
+    const loginLink = page.locator('a[href="/auth/login"]').last();
     await expect(loginLink).toBeVisible();
     await loginLink.click();
     await expect(page).toHaveURL(/\/auth\/login/);
@@ -66,21 +66,20 @@ test.describe('Profile Page', () => {
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   });
 
-  test('profile page loads user data when authenticated', async ({ page }) => {
+  test('dashboard shell loads authenticated navigation for a mocked session', async ({ page }) => {
     await loginAsMockUser(page);
-    await page.goto('/profile');
-    // Should show profile form (display name, email fields)
-    await expect(page.getByLabel('Display name')).toBeVisible({ timeout: 15000 });
-    await expect(page.getByLabel('Email')).toBeVisible();
-    await expect(page.getByRole('button', { name: /Save changes/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Sign out/i })).toBeVisible();
+    await page.goto('/dashboard');
+    await expect(page.getByTestId('dashboard-page')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('profile-menu-button')).toBeVisible();
+    await expect(page.getByTestId('nav-signin')).toHaveCount(0);
   });
 
-  test('profile page sign out returns to unauthenticated state', async ({ page }) => {
+  test('header sign out returns to unauthenticated state', async ({ page }) => {
     await loginAsMockUser(page);
-    await page.goto('/profile');
-    await expect(page.getByRole('button', { name: /Sign out/i })).toBeVisible({ timeout: 15000 });
-    await page.getByRole('button', { name: /Sign out/i }).click();
+    await page.goto('/dashboard');
+    await page.getByTestId('profile-menu-button').click();
+    await expect(page.getByTestId('menu-signout')).toBeVisible({ timeout: 10000 });
+    await page.getByTestId('menu-signout').click();
     await page.waitForTimeout(500);
     await page.goto('/');
     await expect(page.getByTestId('nav-signin')).toBeVisible();
@@ -89,6 +88,8 @@ test.describe('Profile Page', () => {
   test('web session shows lock overlay when auth is invalidated', async ({ page }) => {
     await loginAsMockUser(page);
     await page.goto('/dashboard');
+    await expect(page.getByTestId('dashboard-page')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('profile-menu-button')).toBeVisible();
 
     await page.evaluate(() => {
       window.dispatchEvent(new CustomEvent('traxettle:webAuthUnauthorized'));
@@ -96,5 +97,20 @@ test.describe('Profile Page', () => {
 
     await expect(page.getByText('Session locked')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
+  });
+
+  test('session lock overlay can sign the user out cleanly', async ({ page }) => {
+    await loginAsMockUser(page);
+    await page.goto('/dashboard');
+    await expect(page.getByTestId('dashboard-page')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('profile-menu-button')).toBeVisible();
+
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('traxettle:webAuthUnauthorized'));
+    });
+
+    await expect(page.getByText('Session locked')).toBeVisible();
+    await page.getByRole('button', { name: 'Log out' }).click();
+    await expect(page.getByTestId('nav-signin')).toBeVisible({ timeout: 10000 });
   });
 });

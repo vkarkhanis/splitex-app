@@ -149,6 +149,15 @@ export default function InvitationsPage() {
         <CardSubtitle>Showing {mode === 'active' ? 'all active invitations' : 'your newest 5 active invitations'}.</CardSubtitle>
       </CardHeader>
 
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+        {mode !== 'active' ? (
+          <Button type="button" $variant="outline" onClick={() => fetchInvitations('active')}>See all active invitations</Button>
+        ) : (
+          <Button type="button" $variant="outline" onClick={() => fetchInvitations('latest')}>Back to latest 5</Button>
+        )}
+        <Button type="button" $variant="outline" onClick={emailHistory}>View history (email me)</Button>
+      </div>
+
       {loading ? (
         <LoadingText>Loading invitations...</LoadingText>
       ) : error ? (
@@ -162,14 +171,6 @@ export default function InvitationsPage() {
       ) : (
         <Card>
           <CardBody>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-              {mode !== 'active' ? (
-                <Button type="button" $variant="outline" onClick={() => fetchInvitations('active')}>See all active invitations</Button>
-              ) : (
-                <Button type="button" $variant="outline" onClick={() => fetchInvitations('latest')}>Back to latest 5</Button>
-              )}
-              <Button type="button" $variant="outline" onClick={emailHistory}>View history (email me)</Button>
-            </div>
             {invitations.map((inv) => (
               <ListItem key={inv.id} data-testid={`invitation-row-${inv.id}`}>
                 <ListItemInfo>

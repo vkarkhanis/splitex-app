@@ -16,9 +16,19 @@ test.describe('Invitation System — List & Create', () => {
   test('should display invitations page with empty state', async ({ page }) => {
     await page.goto('/invitations');
     await expect(page.getByTestId('invitations-page')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'See all active invitations' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'View history (email me)' })).toBeVisible();
     const emptyState = page.getByTestId('empty-invitations');
     const hasInvitations = page.locator('[data-testid^="invitation-row-"]');
     await expect(emptyState.or(hasInvitations.first())).toBeVisible();
+  });
+
+  test('should switch between newest 5 and all active invitations', async ({ page }) => {
+    await page.goto('/invitations');
+    const seeAll = page.getByRole('button', { name: 'See all active invitations' });
+    await expect(seeAll).toBeVisible();
+    await seeAll.click();
+    await expect(page.getByRole('button', { name: 'Back to latest 5' })).toBeVisible();
   });
 
   test('should open invite modal from event detail invitations tab', async ({ page }) => {
@@ -244,7 +254,7 @@ test.describe('Invitation Lifecycle — Full E2E', () => {
     expect(declined?.status).toBe('declined');
   });
 
-  test('cannot accept same invitation twice', async () => {
+  test('accepting the same invitation twice is idempotent for the same user', async () => {
     const eventRes = await createTestEvent('mock-double-admin');
     const eventId = eventRes.data?.id;
     if (!eventId) { test.skip(true, 'No event created'); return; }
@@ -256,10 +266,10 @@ test.describe('Invitation Lifecycle — Full E2E', () => {
     const first = await acceptInvitation(invRes.data.id, 'mock-double-user');
     expect(first.success).toBe(true);
 
-    // Try to accept again — should fail
+    // Accept again for the same user — should succeed without changing the final state.
     const second = await acceptInvitation(invRes.data.id, 'mock-double-user');
-    expect(second.success).toBe(false);
-    expect(second.error).toContain('already been');
+    expect(second.success).toBe(true);
+    expect(second.data?.status).toBe('accepted');
   });
 
   test('cannot decline an already accepted invitation', async () => {

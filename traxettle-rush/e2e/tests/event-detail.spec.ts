@@ -107,4 +107,21 @@ test.describe('Event Detail Page', () => {
     await expect(page).toHaveURL(new RegExp(`/events/${eventId}/expenses/create`));
     await expect(page.getByTestId('create-expense-page')).toBeVisible();
   });
+
+  test('shows the session lock overlay instead of a misleading not-found state when auth is invalidated', async ({ page }) => {
+    if (!eventId) {
+      test.skip(!eventId, 'No event created');
+      return;
+    }
+
+    await page.goto(`/events/${eventId}`);
+    await expect(page.getByTestId('event-detail-page')).toBeVisible();
+
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('traxettle:webAuthUnauthorized'));
+    });
+
+    await expect(page.getByText('Session locked')).toBeVisible();
+    await expect(page.getByText('Event not found')).toHaveCount(0);
+  });
 });

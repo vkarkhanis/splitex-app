@@ -125,21 +125,21 @@ node "$ROOT_DIR/maestro/scripts/cleanup-firebase-maestro.js" || true
 STATUS=0
 if [ "$MODE" = "artifacts" ]; then
   if [ "$USE_DEVICE" -eq 1 ]; then
-    "$MAESTRO_BIN" test --device "$MAESTRO_DEVICE" "$ROOT_DIR/maestro/flows/auth" "$ROOT_DIR/maestro/flows/settlement" \
+    "$MAESTRO_BIN" test --device "$MAESTRO_DEVICE" "$ROOT_DIR/maestro/flows/auth" "$ROOT_DIR/maestro/flows/navigation" "$ROOT_DIR/maestro/flows/settlement" \
       --debug-output "$ROOT_DIR/maestro/artifacts" \
       --format junit \
       --output "$ROOT_DIR/maestro/artifacts/junit.xml" || STATUS=$?
   else
-    "$MAESTRO_BIN" test "$ROOT_DIR/maestro/flows/auth" "$ROOT_DIR/maestro/flows/settlement" \
+    "$MAESTRO_BIN" test "$ROOT_DIR/maestro/flows/auth" "$ROOT_DIR/maestro/flows/navigation" "$ROOT_DIR/maestro/flows/settlement" \
       --debug-output "$ROOT_DIR/maestro/artifacts" \
       --format junit \
       --output "$ROOT_DIR/maestro/artifacts/junit.xml" || STATUS=$?
   fi
 else
   if [ "$USE_DEVICE" -eq 1 ]; then
-    "$MAESTRO_BIN" test --device "$MAESTRO_DEVICE" "$ROOT_DIR/maestro/flows/auth" "$ROOT_DIR/maestro/flows/settlement" || STATUS=$?
+    "$MAESTRO_BIN" test --device "$MAESTRO_DEVICE" "$ROOT_DIR/maestro/flows/auth" "$ROOT_DIR/maestro/flows/navigation" "$ROOT_DIR/maestro/flows/settlement" || STATUS=$?
   else
-    "$MAESTRO_BIN" test "$ROOT_DIR/maestro/flows/auth" "$ROOT_DIR/maestro/flows/settlement" || STATUS=$?
+    "$MAESTRO_BIN" test "$ROOT_DIR/maestro/flows/auth" "$ROOT_DIR/maestro/flows/navigation" "$ROOT_DIR/maestro/flows/settlement" || STATUS=$?
   fi
 fi
 

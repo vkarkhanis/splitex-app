@@ -5,6 +5,7 @@ This folder contains mobile E2E tests powered by Maestro.
 ## Structure
 
 - `flows/auth/auth-and-profile.yaml`: authentication and profile smoke flow
+- `flows/navigation/history-and-invitations.yaml`: invitations inbox and closed-events history smoke flow
 - `flows/settlement/same-currency-mock.yaml`: same-currency settlement flow (mock payment)
 - `flows/settlement/multi-currency-mock.yaml`: multi-currency (`USD -> INR`) settlement flow with EOD FX path (mock payment)
 

@@ -135,4 +135,62 @@ describe('internal entitlement routes', () => {
     expect(res.status).toBe(403);
     expect(res.body.error).toContain('Cannot switch other users');
   });
+
+  it('blocks internal tier switch in production even when feature flag is enabled', async () => {
+    process.env.APP_ENV = 'production';
+
+    const meRes = await request(app())
+      .get('/api/internal/entitlements/me')
+      .set('Authorization', 'Bearer mock-user-1');
+    expect(meRes.status).toBe(403);
+
+    const switchRes = await request(app())
+      .post('/api/internal/entitlements/switch')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ tier: 'pro' });
+    expect(switchRes.status).toBe(403);
+  });
+
+  it('allows mock users to use the switch in staging', async () => {
+    process.env.APP_ENV = 'staging';
+
+    const res = await request(app())
+      .get('/api/internal/entitlements/me')
+      .set('Authorization', 'Bearer mock-user-1');
+
+    expect(res.status).toBe(200);
+  });
+
+  it('blocks non-tester real users in staging', async () => {
+    process.env.APP_ENV = 'staging';
+
+    const res = await request(app())
+      .get('/api/internal/entitlements/me')
+      .set('Authorization', 'Bearer firebase-user');
+
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 500 when /me entitlement lookup fails', async () => {
+    getEntitlementMock.mockRejectedValueOnce(new Error('entitlement lookup failed'));
+
+    const res = await request(app())
+      .get('/api/internal/entitlements/me')
+      .set('Authorization', 'Bearer mock-user-1');
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('entitlement lookup failed');
+  });
+
+  it('returns 500 when /switch fails unexpectedly', async () => {
+    switchTierMock.mockRejectedValueOnce(new Error('switch failed'));
+
+    const res = await request(app())
+      .post('/api/internal/entitlements/switch')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ tier: 'pro' });
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('switch failed');
+  });
 });
