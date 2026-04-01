@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, AppState, Platform, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, Platform, Pressable, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -59,6 +59,21 @@ function AuthStack() {
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const traxettleIcon = require('../assets/icon.png');
+
+function HeaderTitle({ children }: { children: string }) {
+  const { theme } = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <Image source={traxettleIcon} style={{ width: 28, height: 28, borderRadius: 6, marginRight: 8 }} />
+      <Text style={{ fontSize: 17, fontWeight: '600', color: theme.colors.text }} numberOfLines={1}>
+        {children}
+      </Text>
+    </View>
+  );
+}
+
 function AppStack() {
   const { theme } = useTheme();
   const screenOptions = {
@@ -67,6 +82,7 @@ function AppStack() {
     headerTitleStyle: { fontWeight: '600' as const },
     headerShadowVisible: false,
     contentStyle: { backgroundColor: theme.colors.background },
+    headerTitle: (props: any) => <HeaderTitle>{props.children}</HeaderTitle>,
   };
   return (
     <Stack.Navigator screenOptions={screenOptions}>

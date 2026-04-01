@@ -4,6 +4,7 @@ import { ENV } from '../config/env';
 
 import {
   api,
+  ApiRequestError,
   clearToken,
   clearTokens,
   getRefreshToken,
@@ -13,6 +14,7 @@ import {
   setFirebaseEmulatorEnabled,
   setRefreshToken,
   setToken,
+  setRuntimeApiBaseUrl,
   setTokens,
 } from '../api';
 
@@ -207,5 +209,97 @@ describe('mobile api client', () => {
     );
     expect(await getToken()).toBe('fresh-access');
     expect(await getRefreshToken()).toBe('refresh-456');
+  });
+
+  it('uses the current Firebase session before refresh token fallback', async () => {
+    await setTokens('stale-token', 'refresh-123');
+    const getIdToken = jest.fn().mockResolvedValue('firebase-fresh-token');
+    (getAuth as jest.Mock).mockReturnValueOnce({
+      currentUser: {
+        getIdToken,
+      },
+    });
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: 'Unauthorized', code: 'AUTH_INVALID' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { ok: true } }),
+      });
+
+    const result = await api.get('/api/firebase-refresh');
+
+    expect(result).toEqual({ data: { ok: true }, status: 200 });
+    expect(getIdToken).toHaveBeenCalledWith(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await getToken()).toBe('firebase-fresh-token');
+  });
+
+  it('clears stored tokens and notifies the auth failure handler when refresh fails', async () => {
+    const authFailureHandler = jest.fn();
+    await setTokens('expired-token', 'refresh-123');
+    (getAuth as jest.Mock).mockReturnValueOnce({ currentUser: null });
+    const { registerAuthFailureHandler } = require('../api') as typeof import('../api');
+    registerAuthFailureHandler(authFailureHandler);
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: 'Unauthorized', code: 'AUTH_INVALID' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: 'refresh failed' }),
+      });
+
+    await expect(api.get('/api/protected')).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(authFailureHandler).toHaveBeenCalledWith(expect.any(ApiRequestError));
+    registerAuthFailureHandler(null);
+  });
+
+  it('throws a timeout error when fetch aborts', async () => {
+    fetchMock.mockRejectedValueOnce({ name: 'AbortError' });
+
+    await expect(api.get('/api/slow')).rejects.toMatchObject({
+      message: 'Request timed out. Please try again.',
+      code: 'TIMEOUT',
+      status: 0,
+    });
+  });
+
+  it('throws a network error when fetch fails unexpectedly', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('socket hang up'));
+
+    await expect(api.get('/api/offline')).rejects.toMatchObject({
+      message: 'Unable to reach server. Please check your internet connection and try again.',
+      code: 'NETWORK_ERROR',
+      status: 0,
+    });
+  });
+
+  it('prefers the runtime API override when one is set', async () => {
+    setRuntimeApiBaseUrl('https://runtime.example.com');
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { ok: true } }),
+    });
+
+    await api.get('/api/runtime');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://runtime.example.com/api/runtime',
+      expect.any(Object),
+    );
   });
 });

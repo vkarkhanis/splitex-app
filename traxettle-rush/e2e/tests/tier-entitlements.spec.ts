@@ -51,12 +51,13 @@ test.describe('Tier entitlements', () => {
     await page.getByTestId('fx-mode-predefined').check();
     await page.getByTestId('predefined-fx-rate-input').fill('82.5');
 
-    await page.getByTestId('create-event-submit').click();
-    await expect(page.getByTestId('create-event-error')).toContainText('requires Pro', { timeout: 10000 });
+    await expect(page.getByText('Multi-currency settlement requires Pro.')).toBeVisible();
+    await expect(page.getByTestId('create-event-submit')).toBeDisabled();
 
     const proSwitch = await switchTier(userId, 'pro');
     expect(proSwitch.status).toBe(200);
 
+    await expect(page.getByTestId('create-event-submit')).toBeEnabled({ timeout: 15000 });
     await page.getByTestId('create-event-submit').click();
     await expect(page).toHaveURL(/\/events\//, { timeout: 15000 });
   });

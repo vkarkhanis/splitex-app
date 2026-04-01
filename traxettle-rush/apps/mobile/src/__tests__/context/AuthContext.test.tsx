@@ -189,6 +189,43 @@ describe('AuthContext', () => {
     expect(captured?.user?.userId).toBe('u2b');
   });
 
+  it('login shows a provider-aware message for Google-only accounts', async () => {
+    (signInWithEmailAndPassword as jest.Mock).mockRejectedValueOnce(new Error('missing'));
+    (fetchSignInMethodsForEmail as jest.Mock).mockResolvedValueOnce(['google.com']);
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    await expect(captured!.login('google-only@test.com', 'pass1234')).rejects.toThrow(
+      'This account uses Google sign-in. Sign in with Google or set a password first.',
+    );
+  });
+
+  it('login fails cleanly when backend bootstrap does not return a Firebase session', async () => {
+    (signInWithEmailAndPassword as jest.Mock).mockRejectedValueOnce(new Error('missing'));
+    (fetchSignInMethodsForEmail as jest.Mock).mockResolvedValueOnce([]);
+    (api.post as jest.Mock).mockResolvedValueOnce({ data: {} });
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    await expect(captured!.login('legacy@test.com', 'pass1234')).rejects.toThrow(
+      'Unable to establish a secure session. Please try again.',
+    );
+  });
+
   it('google login rejects when token missing in response', async () => {
     (api.post as jest.Mock).mockResolvedValueOnce({ data: {} });
 
@@ -265,6 +302,24 @@ describe('AuthContext', () => {
     expect(updateProfile).toHaveBeenCalled();
     expect(setTokens).toHaveBeenCalledWith('firebase-register-token', null);
     expect(captured?.user?.userId).toBe('u3');
+  });
+
+  it('register shows a provider-aware message for Google-only existing accounts', async () => {
+    (createUserWithEmailAndPassword as jest.Mock).mockRejectedValueOnce({ code: 'auth/email-already-in-use' });
+    (fetchSignInMethodsForEmail as jest.Mock).mockResolvedValueOnce(['google.com']);
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    await expect(
+      captured!.register('existing@test.com', 'pass1234', 'Existing User'),
+    ).rejects.toThrow('This email is already registered with Google. Sign in with Google or set a password first.');
   });
 
   it('logout clears token and resets user; switchTier invokes internal endpoint', async () => {
@@ -569,6 +624,47 @@ describe('AuthContext', () => {
     );
   });
 
+  it('deep link subscription processes later email-link events', async () => {
+    const { Linking } = require('react-native');
+    let urlListener: ((event: { url?: string }) => void) | null = null;
+    (Linking.addEventListener as jest.Mock).mockImplementationOnce((_event: string, listener: (event: { url?: string }) => void) => {
+      urlListener = listener;
+      return { remove: jest.fn() };
+    });
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue('later@test.com');
+    (AsyncStorage.removeItem as jest.Mock).mockResolvedValue(undefined);
+    (getToken as jest.Mock).mockResolvedValue('email-link-token');
+    (api.get as jest.Mock).mockResolvedValue({
+      data: {
+        userId: 'u-later',
+        email: 'later@test.com',
+        displayName: 'Later User',
+        tier: 'free',
+        internalTester: false,
+        capabilities: { multiCurrencySettlement: false },
+      },
+    });
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    await act(async () => {
+      await urlListener?.({ url: 'https://app.test?oobCode=later123&mode=signIn' });
+    });
+
+    expect(signInWithEmailLink).toHaveBeenCalledWith(
+      expect.anything(),
+      'later@test.com',
+      'https://app.test?oobCode=later123&mode=signIn',
+    );
+  });
+
   it('deep link useEffect handles null getInitialURL', async () => {
     const { Linking } = require('react-native');
     (Linking.getInitialURL as jest.Mock).mockResolvedValueOnce(null);
@@ -629,5 +725,108 @@ describe('AuthContext', () => {
 
     expect(clearTokens).toHaveBeenCalled();
     expect(captured?.loading).toBe(false);
+  });
+
+  it('logs out when the registered auth failure handler receives a 401', async () => {
+    (getToken as jest.Mock).mockResolvedValue('existing-token');
+    (api.get as jest.Mock).mockResolvedValue({
+      data: {
+        userId: 'u-auth-failure',
+        email: 'auth@test.com',
+        displayName: 'Auth Failure',
+        tier: 'free',
+        internalTester: false,
+        capabilities: { multiCurrencySettlement: false },
+      },
+    });
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    const registeredHandler = (require('../../api').registerAuthFailureHandler as jest.Mock).mock.calls.find(
+      ([handler]: [unknown]) => typeof handler === 'function',
+    )?.[0] as ((error: { status: number }) => Promise<void>) | undefined;
+
+    await act(async () => {
+      await registeredHandler?.({ status: 401 });
+    });
+
+    expect(clearTokens).toHaveBeenCalled();
+    expect(captured?.user).toBeNull();
+  });
+
+  it('locks the session after five minutes in the background and supports local unlock actions', async () => {
+    const { AppState } = require('react-native');
+    let appStateListener: ((state: string) => void) | null = null;
+    (AppState.addEventListener as jest.Mock).mockImplementation((_event: string, listener: (state: string) => void) => {
+      appStateListener = listener;
+      return { remove: jest.fn() };
+    });
+    (getToken as jest.Mock).mockResolvedValue('existing-token');
+    (api.get as jest.Mock).mockResolvedValue({
+      data: {
+        userId: 'u-lock',
+        email: 'lock@test.com',
+        displayName: 'Lock User',
+        tier: 'free',
+        internalTester: false,
+        capabilities: { multiCurrencySettlement: false },
+      },
+    });
+
+    let now = 1_000_000;
+    const dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    await act(async () => {
+      await captured?.setupPin('1234', true);
+    });
+    expect(captured?.biometricsEnabled).toBe(true);
+    expect(appStateListener).toBeTruthy();
+
+    act(() => {
+      appStateListener?.('background');
+    });
+    now += 5 * 60 * 1000 + 1;
+    act(() => {
+      appStateListener?.('active');
+    });
+    await flush();
+    expect(captured?.sessionLocked).toBe(true);
+
+    await act(async () => {
+      const ok = await captured?.unlockWithPin('1234');
+      expect(ok).toBe(true);
+    });
+    expect(captured?.sessionLocked).toBe(false);
+
+    await act(async () => {
+      await captured?.toggleBiometrics(false);
+      captured?.lockSession();
+    });
+    expect(captured?.biometricsEnabled).toBe(false);
+    expect(captured?.sessionLocked).toBe(true);
+
+    await act(async () => {
+      const ok = await captured?.unlockWithBiometrics();
+      expect(ok).toBe(false);
+    });
+    expect(captured?.sessionLocked).toBe(true);
+
+    dateNowSpy.mockRestore();
   });
 });

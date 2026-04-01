@@ -2,7 +2,7 @@
  * Shared API helper for E2E tests - makes direct API calls to seed/verify data.
  */
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = process.env.PLAYWRIGHT_API_BASE_URL || 'http://localhost:3101';
 
 export async function apiRequest(
   method: string,

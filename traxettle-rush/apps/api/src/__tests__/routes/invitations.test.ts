@@ -148,6 +148,7 @@ jest.mock('../../config/firebase', () => {
 });
 
 import { invitationRoutes } from '../../routes/invitations';
+import { auth } from '../../config/firebase';
 
 function createApp() {
   const app = express();
@@ -613,6 +614,162 @@ describe('GET /api/invitations/my — active filter & email normalization', () =
       });
     expect(createRes.status).toBe(201);
     expect(createRes.body.data.inviteeEmail).toBe('friend@test.com');
+  });
+
+  it('should return only non-pending invitations for filter=history', async () => {
+    mockInvitations['inv-history-accepted'] = {
+      eventId: 'evt-hist-1',
+      invitedBy: 'other-user',
+      inviteeUserId: 'mock-user-1',
+      inviteeEmail: null,
+      inviteePhone: null,
+      role: 'member',
+      status: 'accepted',
+      token: 'tok-hist-1',
+      message: null,
+      createdAt: new Date(Date.now() - 2000).toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      respondedAt: new Date(Date.now() - 1000).toISOString(),
+    };
+    mockInvitations['inv-history-pending'] = {
+      eventId: 'evt-hist-2',
+      invitedBy: 'other-user',
+      inviteeUserId: 'mock-user-1',
+      inviteeEmail: null,
+      inviteePhone: null,
+      role: 'member',
+      status: 'pending',
+      token: 'tok-hist-2',
+      message: null,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      respondedAt: null,
+    };
+    mockEvents['evt-hist-1'] = {
+      name: 'History Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'active',
+      createdBy: 'other-user',
+      admins: ['other-user'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    mockEvents['evt-hist-2'] = { ...mockEvents['evt-hist-1'], name: 'Pending Event' };
+
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/invitations/my?filter=history&limit=99')
+      .set('Authorization', 'Bearer mock-user-1');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].status).toBe('accepted');
+  });
+
+  it('ignores invalid limit values', async () => {
+    mockInvitations['inv-invalid-limit'] = {
+      eventId: 'evt-invalid-limit',
+      invitedBy: 'other-user',
+      inviteeUserId: 'mock-user-1',
+      inviteeEmail: null,
+      inviteePhone: null,
+      role: 'member',
+      status: 'pending',
+      token: 'tok-invalid-limit',
+      message: null,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      respondedAt: null,
+    };
+    mockEvents['evt-invalid-limit'] = {
+      name: 'Limit Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'active',
+      createdBy: 'other-user',
+      admins: ['other-user'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/invitations/my?filter=active&limit=-5')
+      .set('Authorization', 'Bearer mock-user-1');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+  });
+});
+
+describe('POST /api/invitations/history-email', () => {
+  it('emails invitation history for the last 3 months', async () => {
+    mockInvitations['inv-mail-1'] = {
+      eventId: 'evt-mail-1',
+      invitedBy: 'other-user',
+      inviteeUserId: 'mock-user-1',
+      inviteeEmail: null,
+      inviteePhone: null,
+      role: 'member',
+      status: 'accepted',
+      token: 'tok-mail-1',
+      message: null,
+      createdAt: new Date(Date.now() - 86400000).toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      respondedAt: new Date(Date.now() - 1000).toISOString(),
+    };
+    mockInvitations['inv-mail-old'] = {
+      eventId: 'evt-mail-old',
+      invitedBy: 'other-user',
+      inviteeUserId: 'mock-user-1',
+      inviteeEmail: null,
+      inviteePhone: null,
+      role: 'member',
+      status: 'declined',
+      token: 'tok-mail-old',
+      message: null,
+      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 120).toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      respondedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 120).toISOString(),
+    };
+    mockEvents['evt-mail-1'] = {
+      name: 'Recent Invite Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'active',
+      createdBy: 'other-user',
+      admins: ['other-user'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/invitations/history-email')
+      .set('Authorization', 'Bearer mock-user-1');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ sent: true });
+  });
+
+  it('returns 400 when the account has no email', async () => {
+    (auth.verifyIdToken as jest.Mock).mockResolvedValueOnce({
+      uid: 'test-uid',
+      email: '',
+      name: 'Test User',
+    });
+
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/invitations/history-email')
+      .set('Authorization', 'Bearer real-firebase-token');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('No email found for this account');
   });
 });
 

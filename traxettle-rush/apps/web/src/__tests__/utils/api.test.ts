@@ -260,4 +260,47 @@ describe('web api client', () => {
 
     window.removeEventListener('traxettle:webAuthUnauthorized', handler as EventListener);
   });
+
+  test('throws timeout error when fetch aborts', async () => {
+    jest.doMock('firebase/auth', () => ({
+      getAuth: () => ({ currentUser: null }),
+    }));
+
+    const { api } = await import('../../utils/api');
+    (fetch as jest.Mock).mockRejectedValueOnce({ name: 'AbortError' });
+
+    await expect(api.get('/slow')).rejects.toThrow('Request timed out. Please try again.');
+  });
+
+  test('throws friendly network error when fetch fails', async () => {
+    jest.doMock('firebase/auth', () => ({
+      getAuth: () => ({ currentUser: null }),
+    }));
+
+    const { api } = await import('../../utils/api');
+    (fetch as jest.Mock).mockRejectedValueOnce(new Error('network down'));
+
+    await expect(api.get('/offline')).rejects.toThrow(
+      'Unable to reach server. Please check your internet connection and try again.',
+    );
+  });
+
+  test('prefers backend message when error field is absent', async () => {
+    jest.doMock('firebase/auth', () => ({
+      getAuth: () => ({ currentUser: null }),
+    }));
+
+    const { api } = await import('../../utils/api');
+
+    (fetch as jest.Mock).mockResolvedValue({
+      ok: false,
+      status: 422,
+      json: async () => ({ success: false, message: 'Validation failed' }),
+    });
+
+    await expect(api.get('/message-only')).rejects.toMatchObject({
+      message: 'Validation failed',
+      status: 422,
+    });
+  });
 });

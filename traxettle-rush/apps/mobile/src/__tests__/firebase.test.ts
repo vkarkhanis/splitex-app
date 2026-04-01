@@ -2,6 +2,7 @@ import { initializeFirebase, getEnvironment, getApiUrl } from '../services/fireb
 
 jest.mock('../api', () => ({
   isFirebaseEmulatorEnabled: jest.fn().mockResolvedValue(false),
+  setRuntimeApiBaseUrl: jest.fn(),
 }));
 
 // Mock the runtime config
@@ -47,7 +48,7 @@ describe('Firebase Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     const { getRuntimeConfig } = require('../config/runtime');
-    const { isFirebaseEmulatorEnabled } = require('../api');
+    const { isFirebaseEmulatorEnabled, setRuntimeApiBaseUrl } = require('../api');
     getRuntimeConfig.mockResolvedValue({
       env: 'production',
       apiUrl: 'https://prod-api.traxettle.app',
@@ -61,6 +62,7 @@ describe('Firebase Service', () => {
       }
     });
     isFirebaseEmulatorEnabled.mockResolvedValue(false);
+    setRuntimeApiBaseUrl.mockReset();
   });
 
   describe('initializeFirebase', () => {
@@ -84,6 +86,8 @@ describe('Firebase Service', () => {
       expect(getAuth).toHaveBeenCalled();
       expect(getFirestore).toHaveBeenCalled();
       expect(getStorage).toHaveBeenCalled();
+      const { setRuntimeApiBaseUrl } = require('../api');
+      expect(setRuntimeApiBaseUrl).toHaveBeenCalledWith('https://prod-api.traxettle.app');
     });
 
     it('should throw error if initialization fails', async () => {

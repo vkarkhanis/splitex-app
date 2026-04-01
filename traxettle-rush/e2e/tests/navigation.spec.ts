@@ -13,8 +13,10 @@ test.describe('Navigation', () => {
     await page.goto('/');
     await expect(page.getByTestId('nav-dashboard')).toBeVisible();
     await expect(page.getByTestId('nav-invitations')).toBeVisible();
-    await expect(page.getByTestId('nav-profile')).toBeVisible();
-    await expect(page.getByTestId('nav-signout')).toBeVisible();
+    await expect(page.getByTestId('profile-menu-button')).toBeVisible();
+    await page.getByTestId('profile-menu-button').click();
+    await expect(page.getByTestId('menu-profile')).toBeVisible();
+    await expect(page.getByTestId('menu-signout')).toBeVisible();
   });
 
   test('should navigate to dashboard when clicking Dashboard link', async ({ page }) => {
@@ -36,8 +38,9 @@ test.describe('Navigation', () => {
   test('should sign out and show unauthenticated nav', async ({ page }) => {
     await loginAsMockUser(page);
     await page.goto('/');
-    await expect(page.getByTestId('nav-signout')).toBeVisible();
-    await logout(page);
+    await page.getByTestId('profile-menu-button').click();
+    await expect(page.getByTestId('menu-signout')).toBeVisible();
+    await page.getByTestId('menu-signout').click();
     await page.goto('/');
     await expect(page.getByTestId('nav-signin')).toBeVisible();
   });

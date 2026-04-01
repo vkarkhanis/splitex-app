@@ -106,6 +106,7 @@ jest.mock('../../config/firebase', () => {
 });
 
 import { eventRoutes } from '../../routes/events';
+import { auth } from '../../config/firebase';
 
 function createApp() {
   const app = express();
@@ -204,6 +205,108 @@ describe('GET /api/events', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.length).toBe(1);
     expect(res.body.data[0].name).toBe('Test Event');
+  });
+
+  it('supports active/history filtering and limit handling', async () => {
+    mockEvents['evt-active-filter'] = {
+      name: 'Active Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'active',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date(Date.now() - 2000).toISOString(),
+      updatedAt: new Date(Date.now() - 2000).toISOString(),
+    };
+    mockEvents['evt-closed-filter'] = {
+      name: 'Closed Event',
+      type: 'trip',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'closed',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date(Date.now() - 1000).toISOString(),
+      updatedAt: new Date(Date.now() - 1000).toISOString(),
+    };
+
+    const app = createApp();
+    const activeRes = await request(app)
+      .get('/api/events?filter=active&limit=1')
+      .set('Authorization', 'Bearer mock-user-1');
+    expect(activeRes.status).toBe(200);
+    expect(activeRes.body.data).toHaveLength(1);
+    expect(activeRes.body.data[0].status).toBe('active');
+
+    const historyRes = await request(app)
+      .get('/api/events?filter=history&limit=-1')
+      .set('Authorization', 'Bearer mock-user-1');
+    expect(historyRes.status).toBe(200);
+    expect(historyRes.body.data).toHaveLength(1);
+    expect(historyRes.body.data[0].status).toBe('closed');
+  });
+});
+
+describe('POST /api/events/history-email', () => {
+  it('emails closed event history from the last 3 months', async () => {
+    mockEvents['evt-history-recent'] = {
+      name: 'Recent Closed Event',
+      type: 'event',
+      startDate: '2026-01-01',
+      currency: 'USD',
+      status: 'closed',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date(Date.now() - 86400000).toISOString(),
+      updatedAt: new Date(Date.now() - 86400000).toISOString(),
+    };
+    mockEvents['evt-history-old'] = {
+      name: 'Old Closed Event',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'USD',
+      status: 'closed',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 120).toISOString(),
+      updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 120).toISOString(),
+    };
+    mockEvents['evt-history-active'] = {
+      name: 'Active Event',
+      type: 'event',
+      startDate: '2026-02-01',
+      currency: 'USD',
+      status: 'active',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/events/history-email')
+      .set('Authorization', 'Bearer mock-user-1');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ sent: true });
+  });
+
+  it('returns 400 when event history email has no account email', async () => {
+    (auth.verifyIdToken as jest.Mock).mockResolvedValueOnce({
+      uid: 'test-uid',
+      email: '',
+      name: 'Test User',
+    });
+
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/events/history-email')
+      .set('Authorization', 'Bearer real-firebase-token');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('No email found for this account');
   });
 });
 

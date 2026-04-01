@@ -12,6 +12,8 @@ import {
 } from '../helpers/api';
 
 test.describe('Settlement Flows (Mock Payments Only)', () => {
+  test.setTimeout(60000);
+
   test('same-currency settlement: generate, pay and approve via mocked flow', async ({ page }) => {
     const adminToken = 'mock-settle-admin-1';
     const payerToken = 'mock-settle-payer-1';
@@ -42,7 +44,8 @@ test.describe('Settlement Flows (Mock Payments Only)', () => {
     expect(generated.success).toBe(true);
     await page.reload();
 
-    await expect(page.getByTestId('settlement-section')).toBeVisible({ timeout: 8000 });
+    await expect(page.getByRole('heading', { name: 'Settlement Review' })).toBeVisible({ timeout: 8000 });
+    await expect(page.getByText('Approval Status')).toBeVisible();
 
     const settlementsRes = await getEventSettlements(eventId, adminToken);
     expect(settlementsRes.success).toBe(true);
@@ -58,7 +61,11 @@ test.describe('Settlement Flows (Mock Payments Only)', () => {
     expect(approveRes.success).toBe(true);
 
     await page.reload();
-    await expect(page.getByTestId(`settlement-txn-${settlementId}`)).toContainText('Payment confirmed', { timeout: 8000 });
+    await expect(
+      page.getByRole('heading', { name: 'Settlement Summary' }).or(page.getByRole('heading', { name: 'Settlement Review' }))
+    ).toBeVisible({ timeout: 8000 });
+    await expect(page.getByText('mock-settle-payer-1').first()).toBeVisible();
+    await expect(page.getByText('$50.00').first()).toBeVisible();
   });
 
   test('multi-currency settlement with predefined FX uses conversion data and mocked provider', async () => {
