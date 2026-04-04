@@ -38,6 +38,7 @@ import {
 } from '../api';
 import { ENV, isLocalLikeEnv } from '../config/env';
 import { toUserFriendlyError } from '../utils/errorMessages';
+import PasswordInput from '../components/PasswordInput';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
 const PAYMENT_METHOD_TYPES = ['upi', 'bank', 'paypal', 'wise', 'swift', 'other'] as const;
@@ -567,13 +568,13 @@ export default function ProfileScreen({ navigation }: any) {
         {showPasswordSection && profile?.hasPassword && (
           <>
             <Text style={[styles.label, { color: c.textSecondary }]}>Current Password</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+            <PasswordInput
+              inputStyle={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
               value={currentPassword}
               onChangeText={setCurrentPassword}
               placeholder="Current password"
               placeholderTextColor={c.muted}
-              secureTextEntry
+              toggleColor={c.primary}
             />
           </>
         )}
@@ -583,23 +584,23 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={[styles.label, { color: c.textSecondary }]}>
               {profile?.hasPassword ? 'New Password' : 'Set Password'}
             </Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+            <PasswordInput
+              inputStyle={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
               value={newPassword}
               onChangeText={setNewPassword}
               placeholder="New password"
               placeholderTextColor={c.muted}
-              secureTextEntry
+              toggleColor={c.primary}
             />
 
             <Text style={[styles.label, { color: c.textSecondary }]}>Confirm Password</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+            <PasswordInput
+              inputStyle={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               placeholder="Confirm password"
               placeholderTextColor={c.muted}
-              secureTextEntry
+              toggleColor={c.primary}
             />
 
             <TouchableOpacity

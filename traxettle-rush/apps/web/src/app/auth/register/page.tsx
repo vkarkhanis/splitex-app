@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import styled from 'styled-components';
 import { getFirebaseServices } from '../../../config/firebase-client';
 import { toUserFriendlyError } from '../../../utils/errorMessages';
+import PasswordInput from '../../../components/PasswordInput';
 
 import {
   Button,
@@ -227,9 +228,8 @@ export default function RegisterPage() {
 
               <Field>
                 <Label htmlFor="password">Password</Label>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}

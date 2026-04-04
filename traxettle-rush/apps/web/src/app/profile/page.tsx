@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import styled from 'styled-components';
 import { Button, Card, CardBody, CardHeader, CardSubtitle, CardTitle, Field, Input, Label, useToast } from '@traxettle/ui';
 import { getFirebaseServices } from '../../config/firebase-client';
+import PasswordInput from '../../components/PasswordInput';
 import {
   getDefaultApiBaseUrl,
   getEmulatorApiBaseUrl,
@@ -831,9 +832,8 @@ export default function ProfilePage() {
                       {profile.hasPassword && !isGoogleOnlyProfile && (
                         <Field>
                           <Label htmlFor="currentPassword">Current password</Label>
-                          <Input
+                          <PasswordInput
                             id="currentPassword"
-                            type="password"
                             value={currentPassword}
                             onChange={(e) => setCurrentPassword(e.target.value)}
                             disabled={passwordSaving}
@@ -844,9 +844,8 @@ export default function ProfilePage() {
                         <>
                           <Field>
                             <Label htmlFor="newPassword">{profile.hasPassword ? 'New password' : 'Set password'}</Label>
-                            <Input
+                            <PasswordInput
                               id="newPassword"
-                              type="password"
                               value={newPassword}
                               onChange={(e) => setNewPassword(e.target.value)}
                               disabled={passwordSaving}
@@ -854,9 +853,8 @@ export default function ProfilePage() {
                           </Field>
                           <Field>
                             <Label htmlFor="confirmPassword">Confirm password</Label>
-                            <Input
+                            <PasswordInput
                               id="confirmPassword"
-                              type="password"
                               value={confirmPassword}
                               onChange={(e) => setConfirmPassword(e.target.value)}
                               disabled={passwordSaving}

@@ -18,6 +18,7 @@ import { spacing, radii, fontSizes } from '../theme';
 import { ENV } from '../config/env';
 import { isStagingModeEnabled, setStagingModeEnabled } from '../api';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import PasswordInput from '../components/PasswordInput';
 
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
 
@@ -147,17 +148,17 @@ export default function RegisterScreen({ navigation }: any) {
           onChangeText={setEmail}
           editable={!loading}
         />
-        <TextInput
+        <PasswordInput
           testID="register-password-input"
-          style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+          inputStyle={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
           placeholder="Password"
           placeholderTextColor={c.muted}
-          secureTextEntry
           value={password}
           onChangeText={setPassword}
           returnKeyType="done"
           onSubmitEditing={handleRegister}
           editable={!loading}
+          toggleColor={c.primary}
         />
 
         <TouchableOpacity

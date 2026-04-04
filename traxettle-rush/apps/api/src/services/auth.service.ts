@@ -10,6 +10,22 @@ type TokenPayload = {
   sessionId: string;
 };
 
+function getJwtSecret(): string {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  if (process.env.APP_ENV === 'local' || process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
+    return 'local-dev-jwt-secret-change-me';
+  }
+  throw new Error('JWT_SECRET is not configured');
+}
+
+function getJwtRefreshSecret(): string {
+  if (process.env.JWT_REFRESH_SECRET) return process.env.JWT_REFRESH_SECRET;
+  if (process.env.APP_ENV === 'local' || process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
+    return 'local-dev-jwt-refresh-secret-change-me';
+  }
+  throw new Error('JWT_REFRESH_SECRET is not configured');
+}
+
 export class AuthService {
   private auth = auth;
   private getSessionRef(userId: string, sessionId: string) {
@@ -151,8 +167,8 @@ export class AuthService {
       sessionId,
     };
 
-    const accessToken = jwt.sign(payload, process.env.JWT_SECRET!, { expiresIn: '1h' });
-    const refreshToken = jwt.sign(payload, process.env.JWT_REFRESH_SECRET!, { expiresIn: '7d' });
+    const accessToken = jwt.sign(payload, getJwtSecret(), { expiresIn: '1h' });
+    const refreshToken = jwt.sign(payload, getJwtRefreshSecret(), { expiresIn: '7d' });
 
     const now = new Date().toISOString();
     await this.getSessionRef(user.id, sessionId).set({
@@ -173,7 +189,7 @@ export class AuthService {
 
   async refreshTokens(refreshToken: string): Promise<TokenPair> {
     try {
-      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as TokenPayload;
+      const decoded = jwt.verify(refreshToken, getJwtRefreshSecret()) as TokenPayload;
       const user = await this.findUserById(decoded.userId);
       
       if (!user) {

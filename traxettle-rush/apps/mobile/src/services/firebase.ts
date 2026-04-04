@@ -116,14 +116,15 @@ class FirebaseService {
       if (useEmulator && __DEV__) {
         // In emulator mode, use local development config
         console.log('[Firebase] Using emulator config (local development)');
+        const emulatorProjectId = 'traxettle-local';
         return {
           env: 'development',
-          apiUrl: `http://${EMULATOR_HOST}:3002`,
+          apiUrl: `http://${EMULATOR_HOST}:3001`,
           firebaseConfig: {
-            projectId: 'traxettle-emulator',
+            projectId: emulatorProjectId,
             apiKey: 'demo-emulator-api-key',
-            authDomain: 'traxettle-emulator.firebaseapp.com',
-            storageBucket: 'traxettle-emulator.appspot.com',
+            authDomain: `${emulatorProjectId}.firebaseapp.com`,
+            storageBucket: `${emulatorProjectId}.appspot.com`,
             messagingSenderId: '000000000000',
             appId: '1:000000000000:web:emulator',
           },

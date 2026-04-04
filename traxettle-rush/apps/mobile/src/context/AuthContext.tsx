@@ -165,26 +165,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadUser = useCallback(async () => {
     try {
       let token = await getToken();
+      console.log('[AuthContext] loadUser start', { hasStoredToken: Boolean(token) });
       if (!token) {
         try {
           const auth = getAuth();
           if (auth.currentUser) {
             token = await auth.currentUser.getIdToken();
             await setTokens(token, null);
+            console.log('[AuthContext] loadUser hydrated token from Firebase currentUser');
           }
         } catch {
           // Ignore Firebase lookup errors and fall back to signed-out state.
         }
       }
-      if (!token) { setLoading(false); return; }
+      if (!token) {
+        console.log('[AuthContext] loadUser no token, staying signed out');
+        setLoading(false);
+        return;
+      }
 
       try {
         const { data } = await api.get('/api/users/profile');
+        console.log('[AuthContext] loadUser profile success', {
+          userId: data?.userId,
+          email: data?.email,
+        });
         applyProfile(data);
       } catch (fetchErr: any) {
+        console.error('[AuthContext] loadUser profile failed', {
+          status: fetchErr?.status,
+          code: fetchErr?.code,
+          message: fetchErr?.message,
+        });
         throw fetchErr;
       }
-    } catch {
+    } catch (err: any) {
+      console.error('[AuthContext] loadUser clearing tokens after failure', {
+        status: err?.status,
+        code: err?.code,
+        message: err?.message,
+      });
       await clearTokens();
     } finally {
       setLoading(false);
@@ -259,16 +279,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithGoogle = async (idToken: string) => {
     const auth = getAuth();
     try {
+      console.log('[AuthContext] Starting backend Google login exchange');
       const { data } = await api.post('/api/auth/google', { token: idToken });
       const firebaseCustomToken = data.firebaseCustomToken as string | undefined;
       if (!firebaseCustomToken) {
         throw new Error('No Firebase session received from server');
       }
+      console.log('[AuthContext] Received Firebase custom token from backend');
       const credential = await signInWithCustomToken(auth, firebaseCustomToken);
       const token = await credential.user.getIdToken();
+      console.log('[AuthContext] Firebase custom-token sign-in succeeded', {
+        uid: credential.user.uid,
+        email: credential.user.email,
+      });
       await setTokens(token, null);
+      console.log('[AuthContext] Stored Firebase ID token after Google sign-in');
       await loadUser();
+      console.log('[AuthContext] Google sign-in loadUser completed');
     } catch (error) {
+      console.error('[AuthContext] Google login failed', {
+        status: (error as any)?.status,
+        code: (error as any)?.code,
+        message: (error as any)?.message,
+      });
       throw error;
     }
   };
