@@ -1,3 +1,5 @@
+export { isStrongPassword, PASSWORD_RULE_MESSAGE } from './passwordRules';
+
 // User Types
 export interface User {
   id: string;

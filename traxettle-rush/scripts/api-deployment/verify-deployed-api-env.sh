@@ -295,4 +295,6 @@ if [[ "$HAS_RUNTIME_SERVICE_USAGE" == "no" || "$HAS_FIREBASE_ADMIN_SERVICE_USAGE
     echo "    --role=\"roles/serviceusage.serviceUsageConsumer\""
   fi
   echo "  Use condition: None"
+  echo "  If gcloud says a condition is required, run the command with:"
+  echo "    --condition=None"
 fi

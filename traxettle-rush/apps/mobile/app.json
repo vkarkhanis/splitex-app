@@ -3,7 +3,7 @@
     "name": "Traxettle app - by Karkhanis Labs",
     "slug": "traxettle",
     "scheme": "com.traxettle.app",
-    "version": "1.0.28",
+    "version": "1.0.30",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",

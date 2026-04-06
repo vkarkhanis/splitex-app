@@ -49,7 +49,10 @@ require_not_placeholder() {
   local name="$1"
   local value="$2"
   if [[ -z "$value" || "$value" == CHANGE_ME* ]]; then
-    fail "Set ${name} before running"
+    if [[ "$name" == "GCP_PROJECT_ID" && ! -f "$CONFIG_FILE" ]]; then
+      fail "Set ${name} before running. Tip: run bash scripts/web-deployment/configure-prod.sh first to create .traxettle/web-prod.env"
+    fi
+    fail "Set ${name} before running. This script reads WEB deploy config from ${CONFIG_FILE} (not .traxettle/api-prod.env)"
   fi
 }
 
@@ -58,6 +61,9 @@ require_cmd firebase
 require_cmd rsync
 
 [ -f "$RC_LOADER" ] || fail "Missing RevenueCat loader: $RC_LOADER"
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  fail "Missing ${CONFIG_FILE}. Run bash scripts/web-deployment/configure-prod.sh first."
+fi
 source "$RC_LOADER" prod
 
 require_not_placeholder "GCP_PROJECT_ID" "$GCP_PROJECT_ID"

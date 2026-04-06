@@ -6,6 +6,7 @@ import styled from 'styled-components';
 import { Button, Card, CardBody, CardHeader, CardSubtitle, CardTitle, Field, Input, Label, useToast } from '@traxettle/ui';
 import { getFirebaseServices } from '../../config/firebase-client';
 import PasswordInput from '../../components/PasswordInput';
+import { resetWebTourCompletion } from '../../services/onboarding';
 import {
   getDefaultApiBaseUrl,
   getEmulatorApiBaseUrl,
@@ -100,6 +101,13 @@ const Helper = styled.div`
   color: ${(p) => p.theme.colors.muted};
 `;
 
+const SectionCard = styled.div`
+  border: 1px solid ${(p) => p.theme.colors.border};
+  border-radius: ${(p) => p.theme.radii.md};
+  padding: 14px 16px;
+  background: ${(p) => p.theme.colors.surfaceHover};
+`;
+
 const MethodBox = styled.div`
   border: 1px solid ${(p) => p.theme.colors.border};
   border-radius: ${(p) => p.theme.radii.md};
@@ -143,6 +151,7 @@ export default function ProfilePage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
   const isGoogleOnlyProfile = Boolean(
     profile &&
     profile.authProviders?.includes('google') &&
@@ -593,6 +602,50 @@ export default function ProfilePage() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!profile) return;
+    const confirmed = typeof window === 'undefined'
+      ? false
+      : window.confirm(
+          'This will permanently delete your account and all associated data, including your profile, events, expenses, payment methods, and settings. This cannot be undone.\n\nDo you want to continue?',
+        );
+
+    if (!confirmed) return;
+
+    setDeleteAccountLoading(true);
+    try {
+      const freshToken = await getFreshToken();
+      if (!freshToken) throw new Error('Please sign in again to continue.');
+
+      const resp = await fetch(`${apiBaseUrl}/api/users/account`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${freshToken}` },
+      });
+      const json = await resp.json();
+      if (!resp.ok || !json.success) {
+        throw new Error(json.error || 'Failed to delete account');
+      }
+
+      push({
+        type: 'success',
+        title: 'Account deleted',
+        message: 'Your account has been permanently deleted.',
+      });
+      await handleSignOut();
+    } catch (e: unknown) {
+      const friendly = toUserFriendlyError(e);
+      setError(friendly);
+      push({ type: 'error', title: 'Delete failed', message: friendly });
+    } finally {
+      setDeleteAccountLoading(false);
+    }
+  };
+
+  const handleReplayTour = () => {
+    resetWebTourCompletion();
+    router.push('/dashboard?tour=1');
+  };
+
   return (
     <Page>
       <Container>
@@ -816,6 +869,26 @@ export default function ProfilePage() {
 
                 <Field>
                   <Label>Security</Label>
+                  <SectionCard>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>Getting started</div>
+                    <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
+                      Replay the guided product tour anytime if you want a quick refresher on the main dashboard actions.
+                    </div>
+                    <InlineActions>
+                      <Button
+                        type="button"
+                        $variant="outline"
+                        onClick={handleReplayTour}
+                        data-testid="profile-replay-web-tour-button"
+                      >
+                        Replay guided tour
+                      </Button>
+                    </InlineActions>
+                  </SectionCard>
+                </Field>
+
+                <Field>
+                  <Label>Security</Label>
                   <MethodBox>
                     <div style={{ fontWeight: 700, fontSize: 13 }}>Sign-in methods</div>
                     <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
@@ -957,6 +1030,15 @@ export default function ProfilePage() {
                 <Buttons>
                   <Button type="button" $variant="outline" onClick={handleSignOut} disabled={saving}>
                     Sign out
+                  </Button>
+                  <Button
+                    type="button"
+                    $variant="outline"
+                    onClick={handleDeleteAccount}
+                    disabled={deleteAccountLoading || saving}
+                    style={{ color: '#dc2626', borderColor: '#fecaca' }}
+                  >
+                    {deleteAccountLoading ? 'Deleting…' : 'Delete account'}
                   </Button>
                   <Button type="submit" $variant="primary" disabled={saving}>
                     {saving ? 'Saving…' : 'Save changes'}
