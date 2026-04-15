@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import styled from 'styled-components';
 import { getFirebaseServices } from '../../../config/firebase-client';
 import { toUserFriendlyError } from '../../../utils/errorMessages';
+import PasswordInput from '../../../components/PasswordInput';
+import { isStrongPassword, PASSWORD_RULE_MESSAGE } from '../../../utils/passwordRules';
 
 import {
   Button,
@@ -63,6 +65,12 @@ const ErrorText = styled.div`
   font-size: 12px;
   color: ${(p) => p.theme.colors.error};
   font-weight: 500;
+`;
+
+const HelperText = styled.div`
+  font-size: 12px;
+  color: ${(p) => p.theme.colors.muted};
+  margin-top: 6px;
 `;
 
 const FooterText = styled.div`
@@ -125,6 +133,12 @@ export default function RegisterPage() {
 
   const handleEmailSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isStrongPassword(formData.password)) {
+      const friendly = PASSWORD_RULE_MESSAGE;
+      setError(friendly);
+      push({ type: 'error', title: 'Weak password', message: friendly });
+      return;
+    }
     setLoading(true);
     setError('');
 
@@ -227,15 +241,15 @@ export default function RegisterPage() {
 
               <Field>
                 <Label htmlFor="password">Password</Label>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
                   disabled={loading}
                   $hasError={Boolean(error) && !formData.password}
                 />
+                <HelperText>{PASSWORD_RULE_MESSAGE}</HelperText>
               </Field>
 
               {error ? <ErrorText>{error}</ErrorText> : null}

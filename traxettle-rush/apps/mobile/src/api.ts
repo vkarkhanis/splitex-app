@@ -23,6 +23,11 @@ export function setRuntimeApiBaseUrl(url: string): void {
   console.log(`[api] Runtime API base URL override set: ${url}`);
 }
 
+export function clearRuntimeApiBaseUrl(): void {
+  runtimeApiBaseUrlOverride = null;
+  console.log('[api] Runtime API base URL override cleared');
+}
+
 export class ApiRequestError extends Error {
   status: number;
   code?: string;
@@ -98,6 +103,7 @@ export async function isStagingModeEnabled(): Promise<boolean> {
 }
 
 export async function setStagingModeEnabled(enabled: boolean): Promise<void> {
+  clearRuntimeApiBaseUrl();
   if (enabled) {
     await AsyncStorage.setItem(STAGING_MODE_KEY, 'true');
   } else {

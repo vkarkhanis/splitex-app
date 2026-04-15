@@ -45,13 +45,13 @@ AUTH_IOS_BUNDLE_ID=""
 # - SMTP_USER=<gmail>
 # - SMTP_PASS=<gmail app password>   (stored as secret, not plain env)
 # - SMTP_FROM=<display from address>
-SMTP_SERVICE="gmail"
-SMTP_HOST=""
-SMTP_PORT="587"
-SMTP_SECURE="false"
-SMTP_USER="traxettleapp@gmail.com"
+SMTP_SERVICE="${SMTP_SERVICE:-gmail}"
+SMTP_HOST="${SMTP_HOST:-}"
+SMTP_PORT="${SMTP_PORT:-587}"
+SMTP_SECURE="${SMTP_SECURE:-false}"
+SMTP_USER="${SMTP_USER:-traxettleapp@gmail.com}"
 SMTP_PASS="${SMTP_PASS:-}"
-SMTP_FROM="Traxettle Admin <traxettleapp@gmail.com>"
+SMTP_FROM="${SMTP_FROM:-Traxettle Admin <${SMTP_USER}>}"
 
 # ---- Internal constants ----
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

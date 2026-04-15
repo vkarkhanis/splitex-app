@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage (must be sourced):
-#   source scripts/revenuecat/load-rc-config.sh <local|staging|prod>
+# Usage:
+#   In bash:
+#     source scripts/revenuecat/load-rc-config.sh <local|staging|prod|production>
+#   From zsh:
+#     bash -lc 'source scripts/revenuecat/load-rc-config.sh <local|staging|prod|production> && env | grep REVENUECAT'
 #
 # This loads rc_<env>.properties from repo root and maps values to runtime env
 # vars consumed by mobile/web/api build and runtime paths.
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   echo "This script must be sourced, not executed."
-  echo "Example: source scripts/revenuecat/load-rc-config.sh staging"
+  echo "Examples:"
+  echo "  bash: source scripts/revenuecat/load-rc-config.sh staging"
+  echo "  zsh : bash -lc 'source scripts/revenuecat/load-rc-config.sh staging && echo OK'"
   exit 1
 fi
 
@@ -20,8 +25,8 @@ if [[ -z "$RC_ENV_RAW" ]]; then
 fi
 
 case "$RC_ENV_RAW" in
-  local|staging|prod) RC_ENV="$RC_ENV_RAW" ;;
-  production) RC_ENV="production" ;;
+  local|staging) RC_ENV="$RC_ENV_RAW" ;;
+  prod|production) RC_ENV="production" ;;
   *) echo "Unsupported environment: $RC_ENV_RAW (expected local|staging|prod)" ; return 1 ;;
 esac
 
@@ -87,4 +92,3 @@ rc_require_nonempty() {
     return 1
   fi
 }
-

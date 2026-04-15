@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import styled from 'styled-components';
 import {
   Button,
@@ -18,6 +18,8 @@ import {
 import { api } from '../../utils/api';
 import { useMultiEventSocket } from '../../hooks/useSocket';
 import type { Event as TraxettleEvent } from '@traxettle/shared';
+import GuidedTour from '../../components/GuidedTour';
+import { hasCompletedWebTour, markWebTourCompleted } from '../../services/onboarding';
 
 const Page = styled.div`
   width: 100%;
@@ -120,12 +122,15 @@ function formatDate(d: any): string {
 export default function DashboardPage() {
   const { push: pushToast } = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [events, setEvents] = useState<TraxettleEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [unsettledSummary, setUnsettledSummary] = useState<{ pendingCount: number; eventCount: number } | null>(null);
   const [mode, setMode] = useState<'latest' | 'active'>('latest');
+  const [tourVisible, setTourVisible] = useState(false);
+  const [tourStep, setTourStep] = useState(0);
 
   const fetchEvents = useCallback(async (nextMode: 'latest' | 'active' = mode) => {
     setLoading(true);
@@ -147,6 +152,14 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchEvents();
   }, [fetchEvents]);
+
+  useEffect(() => {
+    const shouldReplay = searchParams.get('tour') === '1';
+    if (shouldReplay || !hasCompletedWebTour()) {
+      setTourStep(0);
+      setTourVisible(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -194,7 +207,17 @@ export default function DashboardPage() {
     }
   };
 
+  const finishTour = () => {
+    markWebTourCompleted();
+    setTourVisible(false);
+    setTourStep(0);
+    if (searchParams.get('tour') === '1') {
+      router.replace('/dashboard');
+    }
+  };
+
   return (
+    <>
     <Page data-testid="dashboard-page">
       <TopBar>
         <PageTitle>My Events</PageTitle>
@@ -291,5 +314,37 @@ export default function DashboardPage() {
         </EventGrid>
       )}
     </Page>
+    <GuidedTour
+      open={tourVisible}
+      step={tourStep}
+      onStepChange={setTourStep}
+      onSkip={finishTour}
+      onComplete={finishTour}
+      steps={[
+        {
+          title: 'Welcome to your expense hub',
+          body: 'Traxettle keeps your active events, incoming invites, and settlement follow-ups in one calm workspace. This short tour will orient you to the few controls you will use most often.',
+        },
+        {
+          title: 'Start with a new event',
+          body: 'Create a trip, household, outing, or any shared spend from here. Once the event is live, you can add expenses, invite people, and manage settlements without jumping across the app.',
+          selector: '[data-testid="create-event-btn"]',
+          label: 'Create event',
+        },
+        {
+          title: 'Stay on top of incoming invites',
+          body: 'Your newest invitations stay easy to find so you can accept or decline quickly and keep shared plans moving without missing a request.',
+          selector: '[data-testid="nav-invitations"]',
+          label: 'Invitations',
+        },
+        {
+          title: 'Profile is your control center',
+          body: 'Use the profile menu for account settings, closed events, unsettled payments, and help. You can replay this walkthrough from Profile any time you want a refresher.',
+          selector: '[data-testid="profile-menu-button"]',
+          label: 'Profile menu',
+        },
+      ]}
+    />
+    </>
   );
 }

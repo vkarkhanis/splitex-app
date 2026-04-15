@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   Modal,
   Pressable,
   Alert,
+  findNodeHandle,
+  UIManager,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
@@ -19,8 +21,12 @@ import { useTheme, THEME_NAMES } from '../context/ThemeContext';
 import { usePurchase } from '../context/PurchaseContext';
 import { api } from '../api';
 import type { Event as TraxettleEvent } from '@traxettle/shared';
+import GuidedWalkthrough from '../components/GuidedWalkthrough';
+import { hasCompletedWalkthrough, markWalkthroughCompleted } from '../services/onboarding';
 
-export default function DashboardScreen({ navigation }: any) {
+type WalkthroughTargetKey = 'create' | 'menu' | 'events' | null;
+
+export default function DashboardScreen({ navigation, route }: any) {
   const { user, logout, tier } = useAuth();
   const { theme, themeName, setThemeName } = useTheme();
   const c = theme.colors;
@@ -30,8 +36,44 @@ export default function DashboardScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [unsettledSummary, setUnsettledSummary] = useState<{ pendingCount: number; eventCount: number } | null>(null);
+  const [walkthroughVisible, setWalkthroughVisible] = useState(false);
+  const [walkthroughStep, setWalkthroughStep] = useState(0);
+  const [walkthroughRect, setWalkthroughRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const createButtonRef = useRef<View | null>(null);
+  const avatarRef = useRef<View | null>(null);
+  const eventsRef = useRef<View | null>(null);
 
   const MAX_DASHBOARD_EVENTS = 5;
+  const walkthroughSteps: Array<{ title: string; body: string; target: WalkthroughTargetKey; label?: string }> = [
+    {
+      title: 'Welcome to Traxettle',
+      body: 'Traxettle helps you split bills, track group expenses, and settle shared trip, roommate, and event spending without messy spreadsheets.',
+      target: null,
+    },
+    {
+      title: 'Start with an event',
+      body: 'Create an event for a trip, outing, household, or celebration. Once it exists, you can add expenses and split them with the group.',
+      target: 'create',
+      label: 'Create event',
+    },
+    {
+      title: 'Open your quick menu',
+      body: 'Tap your avatar to reach invitations, profile, closed events, help, and upgrades. This is also where you manage your account settings.',
+      target: 'menu',
+      label: 'Profile menu',
+    },
+    {
+      title: 'Track active expenses here',
+      body: 'Your latest active and settled events appear in this list so you can jump back in, review balances, and continue managing shared expenses.',
+      target: 'events',
+      label: 'Event list',
+    },
+    {
+      title: 'You can revisit this anytime',
+      body: 'If you skip now, you can reopen this walkthrough later from the Profile screen whenever you want a guided tour again.',
+      target: null,
+    },
+  ];
 
   const dashboardEvents = useMemo(() => {
     const active = events
@@ -45,6 +87,81 @@ export default function DashboardScreen({ navigation }: any) {
   }, [events]);
 
   const hasMore = events.length > MAX_DASHBOARD_EVENTS;
+
+  const measureWalkthroughTarget = useCallback((key: WalkthroughTargetKey) => {
+    const ref =
+      key === 'create' ? createButtonRef.current :
+      key === 'menu' ? avatarRef.current :
+      key === 'events' ? eventsRef.current :
+      null;
+
+    if (!ref) {
+      setWalkthroughRect(null);
+      return;
+    }
+
+    const node = findNodeHandle(ref);
+    if (!node) {
+      setWalkthroughRect(null);
+      return;
+    }
+
+    UIManager.measureInWindow(node, (x, y, width, height) => {
+      if (!width || !height) {
+        setWalkthroughRect(null);
+        return;
+      }
+      setWalkthroughRect({ x, y, width, height });
+    });
+  }, []);
+
+  const dismissWalkthrough = useCallback(async () => {
+    setWalkthroughVisible(false);
+    setWalkthroughRect(null);
+    await markWalkthroughCompleted();
+    if (route?.params?.startWalkthrough) {
+      navigation.setParams({ startWalkthrough: undefined });
+    }
+  }, [navigation, route?.params?.startWalkthrough]);
+
+  const advanceWalkthrough = useCallback(async () => {
+    if (walkthroughStep >= walkthroughSteps.length - 1) {
+      await dismissWalkthrough();
+      return;
+    }
+    setWalkthroughStep((current) => current + 1);
+  }, [dismissWalkthrough, walkthroughStep, walkthroughSteps.length]);
+
+  useEffect(() => {
+    if (!walkthroughVisible) return;
+    const key = walkthroughSteps[walkthroughStep]?.target ?? null;
+    const timer = setTimeout(() => measureWalkthroughTarget(key), 120);
+    return () => clearTimeout(timer);
+  }, [measureWalkthroughTarget, walkthroughStep, walkthroughSteps, walkthroughVisible, dashboardEvents.length, menuVisible]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function maybeStartWalkthrough() {
+      if (!user) return;
+      if (route?.params?.startWalkthrough) {
+        if (!active) return;
+        setWalkthroughStep(0);
+        setWalkthroughVisible(true);
+        return;
+      }
+
+      const completed = await hasCompletedWalkthrough();
+      if (!active || completed) return;
+      setWalkthroughStep(0);
+      setWalkthroughVisible(true);
+    }
+
+    void maybeStartWalkthrough();
+    return () => {
+      active = false;
+    };
+  }, [route?.params?.startWalkthrough, user]);
 
   const initials = (user?.displayName || 'U')
     .split(/\s+/)
@@ -147,14 +264,16 @@ export default function DashboardScreen({ navigation }: any) {
           <Text style={[styles.greeting, { color: c.text }]} numberOfLines={1}>Hello, {user?.displayName || 'User'}</Text>
           <Text style={[styles.tierBadge, { color: c.primary }]}>{isPro ? '⭐ Pro' : 'Free'}</Text>
         </View>
-        <TouchableOpacity
-          testID="dashboard-avatar-menu"
-          style={[styles.avatar, { backgroundColor: c.primary }]}
-          onPress={() => setMenuVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.avatarText}>{initials}</Text>
-        </TouchableOpacity>
+        <View ref={avatarRef} collapsable={false}>
+          <TouchableOpacity
+            testID="dashboard-avatar-menu"
+            style={[styles.avatar, { backgroundColor: c.primary }]}
+            onPress={() => setMenuVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.avatarText}>{initials}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Profile Menu Dropdown */}
@@ -303,40 +422,64 @@ export default function DashboardScreen({ navigation }: any) {
         </TouchableOpacity>
       )}
 
-      <TouchableOpacity
-        testID="dashboard-create-event-button"
-        style={[styles.createButton, { backgroundColor: c.primary }]}
-        onPress={() => navigation.navigate('CreateEvent')}
-      >
-        <Text style={styles.createButtonText}>+ Create Event</Text>
-      </TouchableOpacity>
+      <View ref={createButtonRef} collapsable={false}>
+        <TouchableOpacity
+          testID="dashboard-create-event-button"
+          style={[styles.createButton, { backgroundColor: c.primary }]}
+          onPress={() => navigation.navigate('CreateEvent')}
+        >
+          <Text style={styles.createButtonText}>+ Create Event</Text>
+        </TouchableOpacity>
+      </View>
 
-      <FlatList
-        data={dashboardEvents}
-        keyExtractor={(item) => item.id}
-        renderItem={renderEvent}
-        contentContainerStyle={dashboardEvents.length === 0 ? styles.center : styles.list}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={[styles.emptyTitle, { color: c.text }]}>No Events Yet</Text>
-            <Text style={[styles.emptyDesc, { color: c.textSecondary }]}>Create your first event to start splitting expenses.</Text>
-          </View>
-        }
-        ListFooterComponent={
-          hasMore ? (
-            <TouchableOpacity
-              testID="dashboard-show-more-events"
-              style={[styles.showMoreBtn, { borderColor: c.primary }]}
-              onPress={() => navigation.navigate('AllEvents')}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.showMoreText, { color: c.primary }]}>Show More</Text>
-            </TouchableOpacity>
-          ) : null
-        }
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.primary} />
-        }
+      <View ref={eventsRef} collapsable={false} style={styles.eventsWrap}>
+        <FlatList
+          data={dashboardEvents}
+          keyExtractor={(item) => item.id}
+          renderItem={renderEvent}
+          contentContainerStyle={dashboardEvents.length === 0 ? styles.center : styles.list}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Text style={[styles.emptyTitle, { color: c.text }]}>No Events Yet</Text>
+              <Text style={[styles.emptyDesc, { color: c.textSecondary }]}>Create your first event to start splitting expenses.</Text>
+            </View>
+          }
+          ListFooterComponent={
+            hasMore ? (
+              <TouchableOpacity
+                testID="dashboard-show-more-events"
+                style={[styles.showMoreBtn, { borderColor: c.primary }]}
+                onPress={() => navigation.navigate('AllEvents')}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.showMoreText, { color: c.primary }]}>Show More</Text>
+              </TouchableOpacity>
+            ) : null
+          }
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.primary} />
+          }
+        />
+      </View>
+
+      <GuidedWalkthrough
+        visible={walkthroughVisible}
+        stepIndex={walkthroughStep}
+        steps={walkthroughSteps}
+        targetRect={walkthroughRect}
+        colors={{
+          background: c.background,
+          surface: c.surface,
+          text: c.text,
+          textSecondary: c.textSecondary,
+          border: c.border,
+          primary: c.primary,
+          black: c.black,
+          white: c.white,
+        }}
+        onBack={() => setWalkthroughStep((current) => Math.max(0, current - 1))}
+        onClose={() => { dismissWalkthrough().catch(() => {}); }}
+        onNext={() => { advanceWalkthrough().catch(() => {}); }}
       />
     </View>
   );
@@ -440,6 +583,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   createButtonText: { color: '#ffffff', fontSize: fontSizes.md, fontWeight: '600' },
+  eventsWrap: { flex: 1 },
   list: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xxxl },
   eventCard: {
     borderRadius: radii.md,

@@ -38,6 +38,8 @@ import {
 } from '../api';
 import { ENV, isLocalLikeEnv } from '../config/env';
 import { toUserFriendlyError } from '../utils/errorMessages';
+import PasswordInput from '../components/PasswordInput';
+import { resetWalkthroughCompletion } from '../services/onboarding';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
 const PAYMENT_METHOD_TYPES = ['upi', 'bank', 'paypal', 'wise', 'swift', 'other'] as const;
@@ -338,6 +340,15 @@ export default function ProfileScreen({ navigation }: any) {
     );
   };
 
+  const handleReplayWalkthrough = async () => {
+    try {
+      await resetWalkthroughCompletion();
+      navigation.navigate('Dashboard', { startWalkthrough: true });
+    } catch {
+      Alert.alert('Error', 'Failed to start the walkthrough. Please try again.');
+    }
+  };
+
   const handleManageSubscription = () => {
     const url = Platform.OS === 'ios' 
       ? 'https://apps.apple.com/account/subscriptions' 
@@ -567,13 +578,13 @@ export default function ProfileScreen({ navigation }: any) {
         {showPasswordSection && profile?.hasPassword && (
           <>
             <Text style={[styles.label, { color: c.textSecondary }]}>Current Password</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+            <PasswordInput
+              inputStyle={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
               value={currentPassword}
               onChangeText={setCurrentPassword}
               placeholder="Current password"
               placeholderTextColor={c.muted}
-              secureTextEntry
+              toggleColor={c.primary}
             />
           </>
         )}
@@ -583,23 +594,23 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={[styles.label, { color: c.textSecondary }]}>
               {profile?.hasPassword ? 'New Password' : 'Set Password'}
             </Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+            <PasswordInput
+              inputStyle={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
               value={newPassword}
               onChangeText={setNewPassword}
               placeholder="New password"
               placeholderTextColor={c.muted}
-              secureTextEntry
+              toggleColor={c.primary}
             />
 
             <Text style={[styles.label, { color: c.textSecondary }]}>Confirm Password</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+            <PasswordInput
+              inputStyle={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               placeholder="Confirm password"
               placeholderTextColor={c.muted}
-              secureTextEntry
+              toggleColor={c.primary}
             />
 
             <TouchableOpacity
@@ -825,6 +836,20 @@ export default function ProfileScreen({ navigation }: any) {
             </TouchableOpacity>
           ))}
         </View>
+      </View>
+
+      <View style={[styles.card, { backgroundColor: c.surface }]}>
+        <Text style={[styles.cardTitle, { color: c.text }]}>Getting Started</Text>
+        <Text style={[styles.cardSub, { color: c.muted }]}>
+          Replay the guided walkthrough anytime to revisit event creation, invitations, profile tools, and shared expense tracking.
+        </Text>
+        <TouchableOpacity
+          testID="profile-replay-walkthrough-button"
+          style={[styles.signOutBtn, { borderColor: c.primary, marginBottom: 0 }]}
+          onPress={handleReplayWalkthrough}
+        >
+          <Text style={[styles.signOutText, { color: c.primary }]}>View App Walkthrough</Text>
+        </TouchableOpacity>
       </View>
 
       {canShowTierSwitch && (

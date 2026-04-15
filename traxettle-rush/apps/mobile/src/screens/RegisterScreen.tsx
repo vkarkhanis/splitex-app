@@ -18,6 +18,8 @@ import { spacing, radii, fontSizes } from '../theme';
 import { ENV } from '../config/env';
 import { isStagingModeEnabled, setStagingModeEnabled } from '../api';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import PasswordInput from '../components/PasswordInput';
+import { isStrongPassword, PASSWORD_RULE_MESSAGE } from '../utils/passwordRules';
 
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
 
@@ -106,6 +108,10 @@ export default function RegisterScreen({ navigation }: any) {
       Alert.alert('Error', 'All fields are required.');
       return;
     }
+    if (!isStrongPassword(password)) {
+      Alert.alert('Weak password', PASSWORD_RULE_MESSAGE);
+      return;
+    }
     setLoading(true);
     try {
       await register(email.trim(), password, displayName.trim());
@@ -147,18 +153,19 @@ export default function RegisterScreen({ navigation }: any) {
           onChangeText={setEmail}
           editable={!loading}
         />
-        <TextInput
+        <PasswordInput
           testID="register-password-input"
-          style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+          inputStyle={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
           placeholder="Password"
           placeholderTextColor={c.muted}
-          secureTextEntry
           value={password}
           onChangeText={setPassword}
           returnKeyType="done"
           onSubmitEditing={handleRegister}
           editable={!loading}
+          toggleColor={c.primary}
         />
+        <Text style={[styles.passwordHint, { color: c.muted }]}>{PASSWORD_RULE_MESSAGE}</Text>
 
         <TouchableOpacity
           testID="register-submit-button"
@@ -252,6 +259,12 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     fontSize: fontSizes.md,
     marginBottom: spacing.md,
+  },
+  passwordHint: {
+    fontSize: fontSizes.xs,
+    marginTop: -4,
+    marginBottom: spacing.md,
+    lineHeight: 16,
   },
   button: {
     borderRadius: radii.sm,

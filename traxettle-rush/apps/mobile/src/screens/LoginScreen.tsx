@@ -19,6 +19,7 @@ import { api, isStagingModeEnabled, setStagingModeEnabled } from '../api';
 import { ENV } from '../config/env';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { toUserFriendlyError } from '../utils/errorMessages';
+import PasswordInput from '../components/PasswordInput';
 
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
 
@@ -165,15 +166,15 @@ export default function LoginScreen({ navigation }: any) {
           editable={!loading}
         />
 
-        <TextInput
+        <PasswordInput
           testID="login-password-input"
-          style={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
+          inputStyle={[styles.input, { backgroundColor: c.surfaceAlt, borderColor: c.border, color: c.text }]}
           placeholder="Password"
           placeholderTextColor={c.muted}
-          secureTextEntry
           value={password}
           onChangeText={setPassword}
           editable={!loading}
+          toggleColor={c.primary}
         />
 
         <Pressable

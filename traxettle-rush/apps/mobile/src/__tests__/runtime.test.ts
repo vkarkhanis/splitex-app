@@ -82,4 +82,62 @@ describe('RuntimeConfigManager', () => {
       expect.stringContaining('"fresh-key"'),
     );
   });
+
+  it('ignores stored config from the wrong environment and fetches a fresh config', async () => {
+    const envModule = require('../config/env');
+    envModule.isLocalLikeEnv.mockReturnValue(false);
+
+    (AsyncStorage.getItem as jest.Mock)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(JSON.stringify({
+        env: 'staging',
+        apiUrl: 'https://staging.example.com',
+        firebaseConfig: {
+          projectId: 'traxettle-staging',
+          apiKey: 'staging-key',
+          authDomain: 'traxettle-staging.firebaseapp.com',
+          appId: 'staging-app-id',
+        },
+        revenueCatConfig: {
+          googleApiKey: '',
+          appleApiKey: '',
+          proEntitlement: 'pro',
+          offering: 'default',
+        },
+      }));
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          env: 'production',
+          apiUrl: 'https://prod.example.com',
+          firebaseConfig: {
+            projectId: 'traxettle-prod',
+            apiKey: 'prod-key',
+            authDomain: 'traxettle-prod.firebaseapp.com',
+            appId: 'prod-app-id',
+            messagingSenderId: '123',
+            storageBucket: 'traxettle-prod.firebasestorage.app',
+          },
+          revenueCatConfig: {
+            googleApiKey: '',
+            appleApiKey: '',
+            proEntitlement: 'pro',
+            offering: 'default',
+          },
+        },
+      }),
+    });
+
+    const manager = new RuntimeConfigManager();
+    const config = await manager.getConfig();
+
+    expect(config.apiUrl).toBe('https://prod.example.com');
+    expect(AsyncStorage.removeItem).toHaveBeenCalledWith('@traxettle_runtime_config');
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+      '@traxettle_runtime_config',
+      expect.stringContaining('"https://prod.example.com"'),
+    );
+  });
 });
