@@ -11,10 +11,12 @@ import {
   getResolvedApiBaseUrl,
   getToken,
   isFirebaseEmulatorEnabled,
+  setStagingModeEnabled,
   setFirebaseEmulatorEnabled,
   setRefreshToken,
   setToken,
   setRuntimeApiBaseUrl,
+  clearRuntimeApiBaseUrl,
   setTokens,
 } from '../api';
 
@@ -24,6 +26,7 @@ describe('mobile api client', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (global as any).fetch = fetchMock;
+    clearRuntimeApiBaseUrl();
   });
 
   it('gets/sets/clears token in AsyncStorage', async () => {
@@ -171,6 +174,12 @@ describe('mobile api client', () => {
     } finally {
       (ENV as any).FIREBASE_EMULATOR_DEFAULT = originalDefault;
     }
+  });
+
+  it('clears any runtime API override when staging mode changes', async () => {
+    setRuntimeApiBaseUrl('https://staging.example.com');
+    await setStagingModeEnabled(false);
+    expect(await getResolvedApiBaseUrl()).toContain(':3001');
   });
 
   it('refreshes access token after a 401 and retries once', async () => {

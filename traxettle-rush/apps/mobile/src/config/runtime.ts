@@ -46,6 +46,15 @@ export class RuntimeConfigManager {
     });
   }
 
+  private expectedApiBaseUrl(useStaging: boolean): string {
+    return useStaging ? ENV.STAGING_API_URL : ENV.PROD_API_URL;
+  }
+
+  private matchesSelectedEnvironment(config: RuntimeConfig | null, useStaging: boolean): boolean {
+    if (!config) return false;
+    return config.apiUrl === this.expectedApiBaseUrl(useStaging);
+  }
+
   /**
    * Get runtime configuration from API or cache
    */
@@ -69,8 +78,12 @@ export class RuntimeConfigManager {
         await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
       } else {
         // Try to load from AsyncStorage first (production / staging builds)
+        const useStaging = await this.isStagingModeEnabled();
         const storedConfig = await this.loadStoredConfig();
-        if (this.isFirebaseClientConfigComplete(storedConfig)) {
+        if (
+          this.isFirebaseClientConfigComplete(storedConfig) &&
+          this.matchesSelectedEnvironment(storedConfig, useStaging)
+        ) {
           this.cachedConfig = storedConfig;
           this.cacheExpiry = now + CONFIG_CACHE_DURATION;
           console.log('[RuntimeConfig] Using stored config');
@@ -78,7 +91,7 @@ export class RuntimeConfigManager {
         }
 
         if (storedConfig) {
-          console.warn('[RuntimeConfig] Ignoring incomplete stored config and fetching fresh config');
+          console.warn('[RuntimeConfig] Ignoring stale or incomplete stored config and fetching fresh config');
           await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
         }
       }

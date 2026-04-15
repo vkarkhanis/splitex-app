@@ -572,7 +572,7 @@ class TraxettleDoctor {
 
     const runtimeConfigUrls = {
       staging: 'https://traxettle-api-staging-943648574702.us-central1.run.app/api/config',
-      production: 'https://traxettle-api-prod-943648574702.us-central1.run.app/api/config',
+      production: 'https://traxettle-api-prod-ncwutlgtga-uc.a.run.app/api/config',
     };
 
     const url = runtimeConfigUrls[this.environment];

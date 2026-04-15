@@ -17,21 +17,21 @@ const DEV_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
 export const ENV = {
   APP_ENV:
     ((process.env as any).EXPO_PUBLIC_APP_ENV || (__DEV__ ? 'local' : 'production')) as 'local' | 'staging' | 'production' | 'internal',
-  PROD_API_URL: 'https://traxettle-api-prod-943648574702.us-central1.run.app',
+  PROD_API_URL: 'https://traxettle-api-prod-ncwutlgtga-uc.a.run.app',
   STAGING_API_URL: 'https://traxettle-api-staging-943648574702.us-central1.run.app',
   /** Base URL for the Traxettle API */
   API_URL: __DEV__
     ? `http://${DEV_HOST}:3001`
-    : 'https://traxettle-api-prod-943648574702.us-central1.run.app',
+    : 'https://traxettle-api-prod-ncwutlgtga-uc.a.run.app',
   /** Local emulator-backed API URL */
   API_URL_EMULATOR: __DEV__
     ? `http://${DEV_HOST}:3002`
-    : 'https://traxettle-api-prod-943648574702.us-central1.run.app',
+    : 'https://traxettle-api-prod-ncwutlgtga-uc.a.run.app',
 
   /** WebSocket URL for real-time updates (future use) */
   WS_URL: __DEV__
     ? `ws://${DEV_HOST}:3001/ws`
-    : 'wss://traxettle-api-prod-943648574702.us-central1.run.app/ws',
+    : 'wss://traxettle-api-prod-ncwutlgtga-uc.a.run.app/ws',
 
   /** AsyncStorage key prefix */
   STORAGE_PREFIX: '@traxettle_',

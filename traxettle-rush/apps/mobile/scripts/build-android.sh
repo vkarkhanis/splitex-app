@@ -153,7 +153,7 @@ case "$PROFILE" in
     if [ "${EXPO_PUBLIC_API_URL:-}" = "" ]; then
       warn "EXPO_PUBLIC_API_URL not set. Using production API."
       warn "Set it via: EXPO_PUBLIC_API_URL=https://your-prod-api.run.app ./scripts/build-android.sh production"
-      export EXPO_PUBLIC_API_URL="https://traxettle-api-prod-943648574702.us-central1.run.app"
+      export EXPO_PUBLIC_API_URL="https://traxettle-api-prod-ncwutlgtga-uc.a.run.app"
     fi
     # TODO: Replace these with production Firebase project OAuth client IDs
     # From Firebase Console → Project Settings → General → Your apps → Android

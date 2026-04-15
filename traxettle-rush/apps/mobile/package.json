@@ -1,6 +1,6 @@
 {
   "name": "@traxettle/mobile",
-  "version": "1.0.30",
+  "version": "1.0.31",
   "description": "Traxettle mobile app — iOS & Android",
   "main": "index.js",
   "scripts": {
