@@ -222,6 +222,22 @@ Scripts:
 - `scripts/api-deployment/configure-staging.sh`
 - `scripts/api-deployment/configure-prod.sh`
 
+### 5.0 Important payment distinction before you deploy
+
+Traxettle has two separate payment-related concerns:
+
+1. `Pro` mobile subscription purchase
+- Android Play builds use Google Play Billing
+- iOS builds use the Apple in-app purchase path
+- this is separate from settlement gateways
+
+2. Event settlement between users
+- default product behavior is still the legacy/manual external-payment flow
+- users pay outside the app and then mark the settlement as paid in Traxettle
+- optional settlement gateways (Razorpay / BillDesk) are behind a pilot flag
+
+If you do nothing, production should remain on the legacy/manual settlement flow.
+
 ### 5.1 Configure staging (no script edits)
 
 Run the guided configure script (it asks questions and saves a local gitignored file):
@@ -239,6 +255,14 @@ If you enable email-link/passwordless sign-in, the configure script will also as
 - `AUTH_EMAIL_LINK_CONTINUE_URL`
 - `AUTH_ANDROID_PACKAGE_NAME`
 - `AUTH_IOS_BUNDLE_ID`
+
+Optional settlement gateway pilot variables are **not** required for a normal deploy:
+- `SETTLEMENT_GATEWAY_PILOT_ENABLED=false`
+- `PAYMENT_GATEWAY_MODE=auto`
+- `PAYMENT_ALLOW_REAL_IN_NON_PROD=false`
+
+Recommended current default:
+- leave the settlement pilot disabled unless you are doing explicit gateway validation
 
 ### 5.2 Deploy staging API
 

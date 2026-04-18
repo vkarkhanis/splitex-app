@@ -65,6 +65,15 @@ if [[ -f "$BOOTSTRAP_ENV" ]]; then
   source "$BOOTSTRAP_ENV"
 fi
 
+# Source .env.local for payment keys and other secrets
+ENV_LOCAL="$ROOT_DIR/.env.local"
+if [[ -f "$ENV_LOCAL" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_LOCAL"
+  set +a
+fi
+
 resolve_api_url() {
   local explicit_url="$1"
   local fallback_url="$2"
@@ -105,6 +114,10 @@ trap cleanup EXIT INT TERM
   JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-local-dev-jwt-refresh-secret-change-me}" \
   INTERNAL_TIER_SWITCH_ENABLED=true \
   PAYMENT_ALLOW_REAL_IN_NON_PROD="$DEV_REAL_PAYMENTS" \
+  RAZORPAY_KEY_ID="${RAZORPAY_KEY_ID:-}" \
+  RAZORPAY_KEY_SECRET="${RAZORPAY_KEY_SECRET:-}" \
+  RAZORPAY_LIVE_APPROVED="${RAZORPAY_LIVE_APPROVED:-false}" \
+  BILLDESK_LIVE_APPROVED="${BILLDESK_LIVE_APPROVED:-false}" \
   REVENUECAT_WEBHOOK_SECRET="${REVENUECAT_WEBHOOK_SECRET:-}" \
   REVENUECAT_PRO_ENTITLEMENT_ID="${REVENUECAT_PRO_ENTITLEMENT_ID:-pro}" \
   FIREBASE_USE_EMULATOR=false \

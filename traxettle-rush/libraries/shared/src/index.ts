@@ -475,6 +475,7 @@ export interface FxRate {
 /** Payment provider routing: determines which gateway to use based on settlement currency */
 export enum PaymentProvider {
   RAZORPAY = 'razorpay',  // INR settlements in India
+  BILLDESK = 'billdesk',  // INR settlements (pending approval)
   STRIPE = 'stripe',       // International transfers
 }
 

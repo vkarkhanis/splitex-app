@@ -16,6 +16,11 @@ export function storeUtilitySteps(platform: Platform): WorkflowStep[] {
         'Android distribution needs: Google Play Console account ($25 one-time).',
         'iOS distribution needs: Apple Developer Program ($99/year) + App Store Connect access.',
         '',
+        'Payment distinction:',
+        '- Mobile Pro subscription purchase uses Google Play Billing / Apple IAP.',
+        '- Settlement gateways like Razorpay/BillDesk are separate and do not replace store billing.',
+        '- Traxettle currently keeps manual/external settlement as the default product behavior.',
+        '',
         'Recommended flow:',
         '1) Local run (Doctor → Local)',
         '2) Staging API/Web deploy (Doctor → Staging)',
@@ -161,4 +166,3 @@ export function storeUtilitySteps(platform: Platform): WorkflowStep[] {
     },
   ];
 }
-

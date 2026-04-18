@@ -146,10 +146,10 @@ app.get('/api/config', (req, res) => {
 
   // RevenueCat configuration based on environment
   const revenueCatConfig = {
-    googleApiKey: process.env.REVENUECAT_GOOGLE_API_KEY || '',
-    appleApiKey: process.env.REVENUECAT_APPLE_API_KEY || '',
+    googleApiKey: process.env.REVENUECAT_GOOGLE_API_KEY || process.env.EXPO_PUBLIC_REVENUECAT_GOOGLE_KEY || '',
+    appleApiKey: process.env.REVENUECAT_APPLE_API_KEY || process.env.EXPO_PUBLIC_REVENUECAT_APPLE_KEY || '',
     proEntitlement: process.env.REVENUECAT_PRO_ENTITLEMENT_ID || 'pro',
-    offering: process.env.REVENUECAT_OFFERING_ID || 'default'
+    offering: process.env.REVENUECAT_OFFERING_ID || process.env.EXPO_PUBLIC_REVENUECAT_OFFERING || 'default'
   };
 
   res.status(200).json({

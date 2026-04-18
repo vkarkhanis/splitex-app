@@ -13,6 +13,7 @@ import { FeedbackProvider, useFeedback } from './context/FeedbackContext';
 import { ENV } from './config/env';
 import { isStagingModeEnabled, setStagingModeEnabled } from './api';
 import { initializeApp as bootstrapMobileApp } from './index';
+import { subscribeToAppRebootstrap } from './services/app-rebootstrap';
 
 // Configure Google Sign-In once at app startup
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
@@ -284,6 +285,16 @@ export default function App() {
       mounted = false;
     };
   }, [bootstrapAttempt]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToAppRebootstrap(() => {
+      setEnvTapCount(0);
+      setBootstrapState('loading');
+      setBootstrapAttempt((current) => current + 1);
+    });
+
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     let mounted = true;

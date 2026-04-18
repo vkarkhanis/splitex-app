@@ -35,6 +35,8 @@ import type {
 } from '@traxettle/shared';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEventSocket } from '../hooks/useSocket';
+import { usePaymentProviders } from '../hooks/usePaymentProviders';
+import { useFeedback } from '../context/FeedbackContext';
 
 // ── Helpers ──
 
@@ -56,8 +58,14 @@ export default function EventDetailScreen({ route, navigation }: any) {
   const colors = theme.colors;
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { pushToast } = useFeedback();
   const currentUserId = user?.userId || '';
+  const { providers: paymentProviders, isProviderEnabled, payWithRazorpay, loading: razorpayLoading } = usePaymentProviders();
   const { sharedContent, clearSharedContent } = useSharedContent();
+  const settlementGatewayPilotEnabled = useMemo(
+    () => paymentProviders.some((provider) => provider.provider !== 'manual'),
+    [paymentProviders],
+  );
 
   const STATUS_DOT: Record<string, string> = {
     pending: colors.warning,
@@ -126,6 +134,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
   const [markPaidProofUrl, setMarkPaidProofUrl] = useState('');
   const [markPaidNote, setMarkPaidNote] = useState('');
   const [markPaidLoading, setMarkPaidLoading] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'razorpay' | 'billdesk' | 'manual'>('manual');
 
   // Auto-attach shared screenshot when "I've Paid" modal opens
   useEffect(() => {
@@ -336,14 +345,43 @@ export default function EventDetailScreen({ route, navigation }: any) {
     setMarkPaidReferenceId('');
     setMarkPaidProofUrl('');
     setMarkPaidNote('');
+    // Default to manual unless the settlement gateway pilot is enabled and
+    // Razorpay is currently available for this currency.
+    const sCurrency = settlement.settlementCurrency || settlement.currency;
+    if (settlementGatewayPilotEnabled && sCurrency === 'INR' && isProviderEnabled('razorpay')) {
+      setSelectedPaymentMethod('razorpay');
+    } else {
+      setSelectedPaymentMethod('manual');
+    }
     setMarkPaidModal(true);
   };
 
   const handleSubmitMarkPaid = async () => {
     if (!markPaidTarget) return;
+
+    // ── Razorpay gateway checkout ──
+    if (selectedPaymentMethod === 'razorpay') {
+      const result = await payWithRazorpay(
+        markPaidTarget.id,
+        { name: user?.displayName || '', email: user?.email || '' },
+      );
+      if (result) {
+        setSettlements(prev => prev.map(s => s.id === markPaidTarget.id ? { ...s, ...result } : s));
+        setMarkPaidModal(false);
+        pushToast('success', 'Payment Successful', 'Your payment has been verified and recorded.');
+      }
+      return;
+    }
+
+    // ── BillDesk — not yet functional ──
+    if (selectedPaymentMethod === 'billdesk') {
+      pushToast('error', 'BillDesk Unavailable', 'BillDesk payment method is not yet functional. Approval is in progress.');
+      return;
+    }
+
+    // ── Manual "I've Paid" flow ──
     const referenceId = markPaidReferenceId.trim();
     const proofUrl = markPaidProofUrl.trim();
-    // Reference ID is now optional
     setMarkPaidLoading(true);
     try {
       const settlementCurrency = markPaidTarget.settlementCurrency || markPaidTarget.currency;
@@ -1296,74 +1334,146 @@ export default function EventDetailScreen({ route, navigation }: any) {
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: colors.surface, paddingBottom: insets.bottom + spacing.xl }]}>
           <ScrollView>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Mark Payment as Done</Text>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Pay Settlement</Text>
             {!!markPaidTarget && (
               <>
-                <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Payee Methods</Text>
-                {((markPaidTarget as any).payeePaymentMethods || []).length > 0 ? (
-                  ((markPaidTarget as any).payeePaymentMethods || []).map((m: any, idx: number) => (
-                    <View key={`${m.id || idx}`} style={[styles.pmCard, { borderColor: colors.border }]}>
-                      <Text style={[styles.pmCardTitle, { color: colors.text }]}>{m.label} · {m.currency}</Text>
-                      <Text style={[styles.pmCardMeta, { color: colors.muted }]}>{String(m.type || '').toUpperCase()}</Text>
-                      <Text style={[styles.pmCardDetails, { color: colors.textSecondary }]}>{m.details}</Text>
+                {settlementGatewayPilotEnabled && (
+                  <>
+                    {/* ── Payment Method Selector ── */}
+                    <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Payment Method</Text>
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
+                      {(() => {
+                        const rpProvider = paymentProviders.find(p => p.provider === 'razorpay');
+                        const rpEnabled = rpProvider?.enabled === true;
+                        const bdProvider = paymentProviders.find(p => p.provider === 'billdesk');
+                        return (
+                          <>
+                            <TouchableOpacity
+                              style={[
+                                styles.payMethodBtn,
+                                { borderColor: selectedPaymentMethod === 'razorpay' ? colors.primary : colors.border,
+                                  backgroundColor: selectedPaymentMethod === 'razorpay' ? colors.primary + '15' : colors.surfaceAlt },
+                                !rpEnabled && { opacity: 0.5 },
+                              ]}
+                              onPress={() => rpEnabled ? setSelectedPaymentMethod('razorpay') : pushToast('info', 'Razorpay', rpProvider?.reason || 'Not available')}
+                            >
+                              <Text style={[styles.payMethodBtnText, { color: selectedPaymentMethod === 'razorpay' ? colors.primary : colors.text }]}>
+                                Razorpay{rpProvider?.mode === 'test' ? ' (Test)' : ''}
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                styles.payMethodBtn,
+                                { borderColor: selectedPaymentMethod === 'billdesk' ? colors.primary : colors.border,
+                                  backgroundColor: selectedPaymentMethod === 'billdesk' ? colors.primary + '15' : colors.surfaceAlt,
+                                  opacity: 0.5 },
+                              ]}
+                              onPress={() => pushToast('error', 'BillDesk Unavailable', bdProvider?.reason || 'BillDesk payment method is not yet functional.')}
+                            >
+                              <Text style={[styles.payMethodBtnText, { color: colors.muted }]}>BillDesk</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                styles.payMethodBtn,
+                                { borderColor: selectedPaymentMethod === 'manual' ? colors.primary : colors.border,
+                                  backgroundColor: selectedPaymentMethod === 'manual' ? colors.primary + '15' : colors.surfaceAlt },
+                              ]}
+                              onPress={() => setSelectedPaymentMethod('manual')}
+                            >
+                              <Text style={[styles.payMethodBtnText, { color: selectedPaymentMethod === 'manual' ? colors.primary : colors.text }]}>Manual</Text>
+                            </TouchableOpacity>
+                          </>
+                        );
+                      })()}
                     </View>
-                  ))
-                ) : (
-                  <Text style={[styles.emptyText, { color: colors.warning }]}>
-                    Payee has not configured a method for this currency yet.
-                  </Text>
+                  </>
                 )}
 
-                <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Reference ID (optional)</Text>
-                <TextInput
-                  style={[styles.modalInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surfaceAlt }]}
-                  value={markPaidReferenceId}
-                  onChangeText={setMarkPaidReferenceId}
-                  placeholder="UTR / txn ID / bank ref"
-                  placeholderTextColor={colors.muted}
-                />
-                <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Proof (optional)</Text>
-                {markPaidProofUrl ? (
-                  <View style={[styles.proofAttachedBanner, { backgroundColor: colors.success + '18', borderColor: colors.success + '40' }]}>
-                    <Text style={[styles.proofAttachedText, { color: colors.success }]}>
-                      ✓ Screenshot attached as proof
+                {/* ── Razorpay: simple pay button ── */}
+                {settlementGatewayPilotEnabled && selectedPaymentMethod === 'razorpay' && (
+                  <View style={{ paddingVertical: spacing.md, alignItems: 'center' }}>
+                    <Text style={{ color: colors.textSecondary, fontSize: fontSizes.sm, textAlign: 'center', marginBottom: spacing.sm }}>
+                      You will be redirected to Razorpay's secure checkout to complete the payment.
                     </Text>
-                    <TouchableOpacity onPress={() => setMarkPaidProofUrl('')}>
-                      <Text style={{ color: colors.error, fontSize: 13 }}>Remove</Text>
-                    </TouchableOpacity>
                   </View>
-                ) : (
-                  <TouchableOpacity
-                    style={[styles.uploadProofBtn, { borderColor: colors.border }]}
-                    onPress={handlePickAndUploadProof}
-                    disabled={proofUploading}
-                  >
-                    <Text style={[styles.uploadProofBtnText, { color: colors.primary }]}>
-                      {proofUploading ? 'Uploading Proof...' : 'Upload Proof Screenshot'}
-                    </Text>
-                  </TouchableOpacity>
                 )}
-                <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Note (optional)</Text>
-                <TextInput
-                  style={[styles.modalInput, styles.modalTextArea, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surfaceAlt }]}
-                  value={markPaidNote}
-                  onChangeText={setMarkPaidNote}
-                  placeholder="Any extra details for payee"
-                  placeholderTextColor={colors.muted}
-                  multiline
-                />
+
+                {/* ── Manual: existing reference/proof/note fields ── */}
+                {(!settlementGatewayPilotEnabled || selectedPaymentMethod === 'manual') && (
+                  <>
+                    <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Payee Methods</Text>
+                    {((markPaidTarget as any).payeePaymentMethods || []).length > 0 ? (
+                      ((markPaidTarget as any).payeePaymentMethods || []).map((m: any, idx: number) => (
+                        <View key={`${m.id || idx}`} style={[styles.pmCard, { borderColor: colors.border }]}>
+                          <Text style={[styles.pmCardTitle, { color: colors.text }]}>{m.label} · {m.currency}</Text>
+                          <Text style={[styles.pmCardMeta, { color: colors.muted }]}>{String(m.type || '').toUpperCase()}</Text>
+                          <Text style={[styles.pmCardDetails, { color: colors.textSecondary }]}>{m.details}</Text>
+                        </View>
+                      ))
+                    ) : (
+                      <Text style={[styles.emptyText, { color: colors.warning }]}>
+                        Payee has not configured a method for this currency yet.
+                      </Text>
+                    )}
+
+                    <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Reference ID (optional)</Text>
+                    <TextInput
+                      style={[styles.modalInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surfaceAlt }]}
+                      value={markPaidReferenceId}
+                      onChangeText={setMarkPaidReferenceId}
+                      placeholder="UTR / txn ID / bank ref"
+                      placeholderTextColor={colors.muted}
+                    />
+                    <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Proof (optional)</Text>
+                    {markPaidProofUrl ? (
+                      <View style={[styles.proofAttachedBanner, { backgroundColor: colors.success + '18', borderColor: colors.success + '40' }]}>
+                        <Text style={[styles.proofAttachedText, { color: colors.success }]}>
+                          ✓ Screenshot attached as proof
+                        </Text>
+                        <TouchableOpacity onPress={() => setMarkPaidProofUrl('')}>
+                          <Text style={{ color: colors.error, fontSize: 13 }}>Remove</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.uploadProofBtn, { borderColor: colors.border }]}
+                        onPress={handlePickAndUploadProof}
+                        disabled={proofUploading}
+                      >
+                        <Text style={[styles.uploadProofBtnText, { color: colors.primary }]}>
+                          {proofUploading ? 'Uploading Proof...' : 'Upload Proof Screenshot'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Note (optional)</Text>
+                    <TextInput
+                      style={[styles.modalInput, styles.modalTextArea, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surfaceAlt }]}
+                      value={markPaidNote}
+                      onChangeText={setMarkPaidNote}
+                      placeholder="Any extra details for payee"
+                      placeholderTextColor={colors.muted}
+                      multiline
+                    />
+                  </>
+                )}
               </>
             )}
             <View style={styles.modalFooter}>
-              <TouchableOpacity style={[styles.modalCancelBtn, { borderColor: colors.border }]} onPress={() => setMarkPaidModal(false)} disabled={markPaidLoading}>
+              <TouchableOpacity style={[styles.modalCancelBtn, { borderColor: colors.border }]} onPress={() => setMarkPaidModal(false)} disabled={markPaidLoading || razorpayLoading}>
                 <Text style={[styles.modalCancelText, { color: colors.text }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalSubmitBtn, { backgroundColor: colors.primary }, markPaidLoading && styles.modalSubmitDisabled]}
+                style={[styles.modalSubmitBtn, { backgroundColor: colors.primary }, (markPaidLoading || razorpayLoading) && styles.modalSubmitDisabled]}
                 onPress={handleSubmitMarkPaid}
-                disabled={markPaidLoading}
+                disabled={markPaidLoading || razorpayLoading}
               >
-                <Text style={styles.modalSubmitText}>{markPaidLoading ? 'Submitting...' : 'I\'ve Paid'}</Text>
+                <Text style={styles.modalSubmitText}>
+                  {(markPaidLoading || razorpayLoading)
+                    ? 'Processing...'
+                    : settlementGatewayPilotEnabled && selectedPaymentMethod === 'razorpay'
+                      ? 'Pay with Razorpay'
+                      : 'I\'ve Paid'}
+                </Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -1809,4 +1919,17 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm,
   },
   proofViewerOpenText: { color: '#fff', fontWeight: '600', fontSize: fontSizes.sm },
+  payMethodBtn: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    borderWidth: 1.5,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payMethodBtnText: {
+    fontSize: fontSizes.sm,
+    fontWeight: '600',
+  },
 });

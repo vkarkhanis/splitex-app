@@ -1,4 +1,6 @@
-type PaymentProvider = 'razorpay' | 'stripe' | 'mock';
+import crypto from 'crypto';
+
+type PaymentProvider = 'razorpay' | 'stripe' | 'billdesk' | 'mock';
 type PaymentGatewayMode = 'auto' | 'mock' | 'live';
 
 interface StartPaymentInput {
@@ -18,6 +20,23 @@ export interface StartPaymentResult {
   checkoutUrl?: string;
 }
 
+export interface RazorpayOrderResult {
+  orderId: string;
+  amount: number;
+  currency: string;
+  keyId: string;
+  description: string;
+  settlementId: string;
+  prefill?: { name?: string; email?: string; contact?: string };
+}
+
+export interface PaymentProviderStatus {
+  provider: string;
+  enabled: boolean;
+  mode: 'live' | 'test' | 'unavailable';
+  reason?: string;
+}
+
 function parseBooleanEnv(value: string | undefined, fallback = false): boolean {
   if (!value) return fallback;
   const normalized = value.trim().toLowerCase();
@@ -27,6 +46,10 @@ function parseBooleanEnv(value: string | undefined, fallback = false): boolean {
 export class PaymentService {
   private readonly paymentGatewayMode: PaymentGatewayMode =
     (process.env.PAYMENT_GATEWAY_MODE as PaymentGatewayMode) || 'auto';
+  private readonly settlementGatewayPilotEnabled = parseBooleanEnv(
+    process.env.SETTLEMENT_GATEWAY_PILOT_ENABLED,
+    false,
+  );
 
   private readonly allowRealGatewayInNonProd = parseBooleanEnv(
     process.env.PAYMENT_ALLOW_REAL_IN_NON_PROD,
@@ -51,6 +74,10 @@ export class PaymentService {
     return true;
   }
 
+  isSettlementGatewayPilotEnabled(): boolean {
+    return this.settlementGatewayPilotEnabled;
+  }
+
   async startPayment(
     provider: 'razorpay' | 'stripe',
     input: StartPaymentInput,
@@ -67,6 +94,71 @@ export class PaymentService {
       return this.createRazorpayPaymentLink(input);
     }
     return this.createStripeCheckoutSession(input);
+  }
+
+  /**
+   * Create a Razorpay Order for native SDK checkout.
+   * The mobile app uses this orderId to open the Razorpay checkout sheet.
+   */
+  async createRazorpayOrder(
+    input: StartPaymentInput,
+    prefill?: { name?: string; email?: string; contact?: string },
+  ): Promise<RazorpayOrderResult> {
+    const keyId = process.env.RAZORPAY_KEY_ID || '';
+    const keySecret = process.env.RAZORPAY_KEY_SECRET || '';
+    if (!keyId || !keySecret) {
+      throw new Error('Razorpay is not configured: missing RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET');
+    }
+
+    const amountInMinorUnit = Math.round(input.amount * 100);
+    const authHeader = `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`;
+
+    const response = await fetch('https://api.razorpay.com/v1/orders', {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        amount: amountInMinorUnit,
+        currency: input.currency,
+        receipt: input.settlementId,
+        notes: {
+          settlementId: input.settlementId,
+          description: input.description,
+        },
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({})) as Record<string, any>;
+    if (!response.ok) {
+      const message = payload?.error?.description || payload?.error || `Razorpay API returned ${response.status}`;
+      throw new Error(`Failed to create Razorpay order: ${message}`);
+    }
+
+    return {
+      orderId: String(payload.id),
+      amount: amountInMinorUnit,
+      currency: input.currency,
+      keyId,
+      description: input.description,
+      settlementId: input.settlementId,
+      prefill,
+    };
+  }
+
+  /**
+   * Verify Razorpay payment signature after native checkout completes.
+   * Uses HMAC SHA256: orderId + "|" + paymentId signed with keySecret.
+   */
+  verifyRazorpayPayment(orderId: string, paymentId: string, signature: string): boolean {
+    const keySecret = process.env.RAZORPAY_KEY_SECRET || '';
+    if (!keySecret) return false;
+    const expectedSignature = crypto
+      .createHmac('sha256', keySecret)
+      .update(`${orderId}|${paymentId}`)
+      .digest('hex');
+    return expectedSignature === signature;
   }
 
   private async createRazorpayPaymentLink(input: StartPaymentInput): Promise<StartPaymentResult> {
@@ -147,5 +239,65 @@ export class PaymentService {
       providerPaymentId: String(payload.id || `stripe-${Date.now()}`),
       checkoutUrl: payload.url,
     };
+  }
+
+  /**
+   * Return the availability/approval status of each payment provider.
+   * In staging, Razorpay is always available in test mode.
+   * In production, each provider is gated by its respective approval flag.
+   * BillDesk is always "unavailable" until its approval comes through.
+   */
+  getProviderAvailability(): PaymentProviderStatus[] {
+    if (!this.settlementGatewayPilotEnabled) {
+      return [{ provider: 'manual', enabled: true, mode: 'live' }];
+    }
+
+    const runtimeEnv = (process.env.APP_ENV || process.env.RUNTIME_ENV || process.env.NODE_ENV || '').toLowerCase();
+    const isProduction = runtimeEnv === 'production';
+
+    const razorpayKeyId = process.env.RAZORPAY_KEY_ID || '';
+    const razorpayApproved = parseBooleanEnv(process.env.RAZORPAY_LIVE_APPROVED, false);
+    const billdeskApproved = parseBooleanEnv(process.env.BILLDESK_LIVE_APPROVED, false);
+
+    const providers: PaymentProviderStatus[] = [];
+
+    // Razorpay
+    if (isProduction) {
+      if (razorpayApproved && razorpayKeyId) {
+        providers.push({ provider: 'razorpay', enabled: true, mode: 'live' });
+      } else {
+        providers.push({
+          provider: 'razorpay',
+          enabled: false,
+          mode: 'unavailable',
+          reason: 'Razorpay payments are not yet available. Approval is in progress.',
+        });
+      }
+    } else {
+      // Non-production: always available in test mode if key is configured
+      providers.push({
+        provider: 'razorpay',
+        enabled: !!razorpayKeyId,
+        mode: razorpayKeyId ? 'test' : 'unavailable',
+        reason: razorpayKeyId ? undefined : 'Razorpay test keys not configured.',
+      });
+    }
+
+    // BillDesk
+    if (isProduction && billdeskApproved) {
+      providers.push({ provider: 'billdesk', enabled: true, mode: 'live' });
+    } else {
+      providers.push({
+        provider: 'billdesk',
+        enabled: false,
+        mode: 'unavailable',
+        reason: 'BillDesk payment method is not yet functional. Approval is in progress.',
+      });
+    }
+
+    // Manual / offline is always available
+    providers.push({ provider: 'manual', enabled: true, mode: 'live' });
+
+    return providers;
   }
 }

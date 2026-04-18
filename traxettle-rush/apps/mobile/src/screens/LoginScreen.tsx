@@ -15,11 +15,12 @@ import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useFeedback } from '../context/FeedbackContext';
 import { spacing, radii, fontSizes } from '../theme';
-import { api, isStagingModeEnabled, setStagingModeEnabled } from '../api';
+import { api, isStagingModeEnabled } from '../api';
 import { ENV } from '../config/env';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { toUserFriendlyError } from '../utils/errorMessages';
 import PasswordInput from '../components/PasswordInput';
+import { switchEnvironmentAndRebootstrap } from '../services/environment-switch';
 
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
 
@@ -43,14 +44,13 @@ export default function LoginScreen({ navigation }: any) {
 
   const handleEnvironmentToggle = async () => {
     const newStagingMode = !useStaging;
-    await setStagingModeEnabled(newStagingMode);
     setUseStaging(newStagingMode);
-    
     pushToast(
       'success',
       'Environment Switched',
-      `Now using ${newStagingMode ? 'STAGING' : 'PRODUCTION'} API.`
+      `Switching to ${newStagingMode ? 'STAGING' : 'PRODUCTION'} and reloading the app...`
     );
+    await switchEnvironmentAndRebootstrap(newStagingMode);
   };
 
   const handleVersionTap = () => {

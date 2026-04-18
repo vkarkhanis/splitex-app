@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ApiResponse } from '@traxettle/shared';
 import { SettlementService } from '../services/settlement.service';
+import { PaymentService } from '../services/payment.service';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { emitToEvent } from '../config/websocket';
 import { notifyEventParticipants } from '../utils/notification-helper';
@@ -10,6 +11,7 @@ import { db, storage, firebaseApp } from '../config/firebase';
 const router: Router = Router();
 const settlementService = new SettlementService();
 const entitlementService = new EntitlementService();
+const paymentService = new PaymentService();
 
 function isProdRuntime(): boolean {
   const env = (process.env.APP_ENV || process.env.RUNTIME_ENV || process.env.NODE_ENV || '').toLowerCase();
@@ -161,6 +163,17 @@ router.post('/event/:eventId/regenerate', requireAuth, async (req: Authenticated
       return res.status(404).json({ success: false, error: err.message } as ApiResponse);
     }
     return res.status(400).json({ success: false, error: err.message } as ApiResponse);
+  }
+});
+
+// ── Payment provider availability ──
+// IMPORTANT: This must be before any /:settlementId routes to avoid parameter matching.
+router.get('/providers', requireAuth, async (_req: AuthenticatedRequest, res) => {
+  try {
+    const providers = paymentService.getProviderAvailability();
+    return res.json({ success: true, data: providers } as ApiResponse);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message } as ApiResponse);
   }
 });
 
@@ -404,6 +417,89 @@ router.get('/storage-proxy/:objectPath', async (req, res) => {
   } catch (err: any) {
     console.error('GET /settlements/storage-proxy error:', err.message);
     return res.status(500).json({ success: false, error: 'Failed to proxy storage file' });
+  }
+});
+
+// ── Create Razorpay Order for native SDK checkout ──
+router.post('/:settlementId/create-razorpay-order', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!paymentService.isSettlementGatewayPilotEnabled()) {
+      return res.status(404).json({ success: false, error: 'Settlement gateway pilot is disabled' } as ApiResponse);
+    }
+    const uid = req.user!.uid;
+    const doc = await db.collection('settlements').doc(req.params.settlementId).get();
+    if (!doc.exists) {
+      return res.status(404).json({ success: false, error: 'Settlement not found' } as ApiResponse);
+    }
+    const data = doc.data()!;
+    if (data.fromUserId !== uid) {
+      return res.status(403).json({ success: false, error: 'Only the payer can initiate a Razorpay payment' } as ApiResponse);
+    }
+    if (data.status !== 'pending' && data.status !== 'failed') {
+      return res.status(400).json({ success: false, error: `Cannot pay: settlement is already ${data.status}` } as ApiResponse);
+    }
+
+    const settlementAmount = typeof data.settlementAmount === 'number' ? data.settlementAmount : data.amount;
+    const settlementCurrency = data.settlementCurrency || data.currency || 'INR';
+
+    const order = await paymentService.createRazorpayOrder(
+      {
+        settlementId: req.params.settlementId,
+        amount: settlementAmount,
+        currency: settlementCurrency,
+        description: `Traxettle settlement ${req.params.settlementId}`,
+      },
+      {
+        name: req.body?.prefillName || undefined,
+        email: req.body?.prefillEmail || undefined,
+        contact: req.body?.prefillContact || undefined,
+      },
+    );
+
+    return res.json({ success: true, data: order } as ApiResponse);
+  } catch (err: any) {
+    console.error('POST /settlements/:id/create-razorpay-order error:', err);
+    return res.status(400).json({ success: false, error: err.message } as ApiResponse);
+  }
+});
+
+// ── Verify Razorpay payment after native checkout ──
+router.post('/:settlementId/verify-razorpay', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!paymentService.isSettlementGatewayPilotEnabled()) {
+      return res.status(404).json({ success: false, error: 'Settlement gateway pilot is disabled' } as ApiResponse);
+    }
+    const uid = req.user!.uid;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ success: false, error: 'Missing razorpay_order_id, razorpay_payment_id, or razorpay_signature' } as ApiResponse);
+    }
+
+    const doc = await db.collection('settlements').doc(req.params.settlementId).get();
+    if (!doc.exists) {
+      return res.status(404).json({ success: false, error: 'Settlement not found' } as ApiResponse);
+    }
+    const data = doc.data()!;
+    if (data.fromUserId !== uid) {
+      return res.status(403).json({ success: false, error: 'Only the payer can verify payment' } as ApiResponse);
+    }
+
+    const isValid = paymentService.verifyRazorpayPayment(razorpay_order_id, razorpay_payment_id, razorpay_signature);
+    if (!isValid) {
+      return res.status(400).json({ success: false, error: 'Invalid payment signature. Payment could not be verified.' } as ApiResponse);
+    }
+
+    // Payment verified — mark settlement as initiated (same as manual "I've Paid")
+    const settlement = await settlementService.initiatePayment(req.params.settlementId, uid, {
+      paymentMode: 'razorpay',
+      referenceId: razorpay_payment_id,
+    });
+    emitToEvent(settlement.eventId, 'settlement:updated', { settlement });
+
+    return res.json({ success: true, data: settlement } as ApiResponse);
+  } catch (err: any) {
+    console.error('POST /settlements/:id/verify-razorpay error:', err);
+    return res.status(400).json({ success: false, error: err.message } as ApiResponse);
   }
 });
 

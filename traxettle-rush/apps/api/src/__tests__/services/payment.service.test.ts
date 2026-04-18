@@ -201,4 +201,39 @@ describe('PaymentService', () => {
       ),
     ).rejects.toThrow('Razorpay API returned 503');
   });
+
+  it('should expose only manual settlement when gateway pilot is disabled', () => {
+    delete process.env.SETTLEMENT_GATEWAY_PILOT_ENABLED;
+    process.env.NODE_ENV = 'production';
+    process.env.RAZORPAY_KEY_ID = 'rzp_live_x';
+    process.env.RAZORPAY_LIVE_APPROVED = 'true';
+    process.env.BILLDESK_LIVE_APPROVED = 'true';
+
+    const service = new PaymentService();
+    expect(service.isSettlementGatewayPilotEnabled()).toBe(false);
+    expect(service.getProviderAvailability()).toEqual([
+      { provider: 'manual', enabled: true, mode: 'live' },
+    ]);
+  });
+
+  it('should expose configured providers when gateway pilot is enabled', () => {
+    process.env.SETTLEMENT_GATEWAY_PILOT_ENABLED = 'true';
+    process.env.NODE_ENV = 'production';
+    process.env.RAZORPAY_KEY_ID = 'rzp_live_x';
+    process.env.RAZORPAY_LIVE_APPROVED = 'true';
+    process.env.BILLDESK_LIVE_APPROVED = 'false';
+
+    const service = new PaymentService();
+    expect(service.isSettlementGatewayPilotEnabled()).toBe(true);
+    expect(service.getProviderAvailability()).toEqual([
+      { provider: 'razorpay', enabled: true, mode: 'live' },
+      {
+        provider: 'billdesk',
+        enabled: false,
+        mode: 'unavailable',
+        reason: 'BillDesk payment method is not yet functional. Approval is in progress.',
+      },
+      { provider: 'manual', enabled: true, mode: 'live' },
+    ]);
+  });
 });
