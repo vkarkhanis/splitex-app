@@ -519,6 +519,10 @@ class TraxettleDoctor {
 
   async checkEnvironmentVariables() {
     colorLog('blue', '\n🔧 Environment Variables');
+    colorLog('cyan', 'Payment note:');
+    console.log('  - Mobile Pro subscription purchase uses Google Play Billing / Apple IAP.');
+    console.log('  - Settlement gateways (Razorpay / BillDesk) are separate from store billing.');
+    console.log('  - Current default product behavior keeps settlement manual/external unless SETTLEMENT_GATEWAY_PILOT_ENABLED=true.');
 
     // Check backend environment variables
     const backendVars = [
@@ -565,6 +569,11 @@ class TraxettleDoctor {
     for (const varName of webVars) {
       checkEnvVar(varName, false);
     }
+
+    colorLog('cyan', '\nOptional settlement-gateway pilot variables:');
+    checkEnvVar('SETTLEMENT_GATEWAY_PILOT_ENABLED', false);
+    checkEnvVar('PAYMENT_GATEWAY_MODE', false);
+    checkEnvVar('PAYMENT_ALLOW_REAL_IN_NON_PROD', false);
   }
 
   async checkRuntimeConfigContract() {

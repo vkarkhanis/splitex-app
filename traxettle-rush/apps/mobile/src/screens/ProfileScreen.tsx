@@ -40,6 +40,7 @@ import { ENV, isLocalLikeEnv } from '../config/env';
 import { toUserFriendlyError } from '../utils/errorMessages';
 import PasswordInput from '../components/PasswordInput';
 import { resetWalkthroughCompletion } from '../services/onboarding';
+import { switchEnvironmentAndRebootstrap } from '../services/environment-switch';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
 const PAYMENT_METHOD_TYPES = ['upi', 'bank', 'paypal', 'wise', 'swift', 'other'] as const;
@@ -290,16 +291,14 @@ export default function ProfileScreen({ navigation }: any) {
   const handleEnvironmentToggle = async () => {
     try {
       const wasStaging = await isStagingModeEnabled();
-      await setStagingModeEnabled(!wasStaging);
-      const apiBase = await getResolvedApiBaseUrl();
-      setActiveApiBase(apiBase);
       const newStaging = !wasStaging;
-      setUseStaging(newStaging);
       pushToast(
         'success',
         'Environment Switched',
-        `Now using ${wasStaging ? 'PRODUCTION' : 'STAGING'} API.`
+        `Switching to ${newStaging ? 'STAGING' : 'PRODUCTION'} and reloading the app...`
       );
+      setUseStaging(newStaging);
+      await switchEnvironmentAndRebootstrap(newStaging);
     } catch {
       pushToast('error', 'Error', 'Failed to switch environment. Please try again.');
     }

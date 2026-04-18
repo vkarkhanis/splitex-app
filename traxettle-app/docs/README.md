@@ -71,3 +71,39 @@ The app currently allows multi-device concurrent login. Signing in on one device
 - Duplicate registration for the same email is not supported.
 - Account-linking behavior now prefers reusing an existing email account when the same email later signs in with Google.
 - Session revocation is server-side for logout and sensitive actions, but the product does not currently enforce single-device-only login.
+
+## Current Payment Behavior
+
+Traxettle currently separates `in-app subscription purchase` from `event settlement`.
+
+### Google Play / App Store subscriptions
+
+- `Pro upgrade` inside the Android Play-distributed app uses Google Play Billing.
+- `Pro upgrade` inside the iOS app should use the Apple in-app purchase flow.
+- Settlement gateways such as Razorpay or BillDesk are **not** the mechanism for unlocking Pro in the mobile store apps.
+- If Google Play merchant or BillDesk verification is pending, that can block Android in-app subscription purchase even when the rest of the app works.
+
+### Event settlement
+
+- The default settlement experience remains the original external-payment model:
+  - users pay outside the app using any method they want
+  - then mark the settlement as paid inside Traxettle
+  - payees confirm receipt inside Traxettle
+- This is the current default production behavior.
+
+### Settlement gateway pilot flag
+
+- `SETTLEMENT_GATEWAY_PILOT_ENABLED`
+  - default: `false` / unset
+  - effect when off:
+    - only `manual` settlement is exposed
+    - the final settlement modal looks like the legacy/manual flow
+    - Razorpay and BillDesk settlement options stay hidden
+  - effect when on:
+    - settlement gateway options can be exposed for pilot/testing
+    - backend provider routes for Razorpay become available again
+
+### Important distinction
+
+- `Razorpay` and `BillDesk` in Traxettle refer to optional settlement/payment-routing experiments for event settlement.
+- They do **not** replace Google Play Billing or App Store in-app purchases for mobile subscriptions.

@@ -15,8 +15,9 @@ import { spacing, radii, fontSizes } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { useFeedback } from '../context/FeedbackContext';
 import { api } from '../api';
-import { isStagingModeEnabled, setStagingModeEnabled } from '../api';
+import { isStagingModeEnabled } from '../api';
 import { ENV } from '../config/env';
+import { switchEnvironmentAndRebootstrap } from '../services/environment-switch';
 
 export default function ForgotPasswordScreen({ navigation }: any) {
   const { theme } = useTheme();
@@ -35,14 +36,13 @@ export default function ForgotPasswordScreen({ navigation }: any) {
 
   const handleEnvironmentToggle = async () => {
     const newStagingMode = !useStaging;
-    await setStagingModeEnabled(newStagingMode);
     setUseStaging(newStagingMode);
-    
     pushToast(
       'success',
       'Environment Switched',
-      `Now using ${newStagingMode ? 'STAGING' : 'PRODUCTION'} API.`
+      `Switching to ${newStagingMode ? 'STAGING' : 'PRODUCTION'} and reloading the app...`
     );
+    await switchEnvironmentAndRebootstrap(newStagingMode);
   };
 
   const handleVersionTap = () => {

@@ -1,5 +1,5 @@
-import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth, connectAuthEmulator } from 'firebase/auth';
+import { initializeApp, getApps, getApp, FirebaseApp, deleteApp } from 'firebase/app';
+import { getAuth, Auth, connectAuthEmulator, signOut } from 'firebase/auth';
 import { getFirestore, Firestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getStorage, FirebaseStorage, connectStorageEmulator } from 'firebase/storage';
 import { Platform } from 'react-native';
@@ -228,6 +228,27 @@ class FirebaseService {
   getApiUrl(): string {
     return this.config?.apiUrl || '';
   }
+
+  /**
+   * Reset Firebase so the next bootstrap can initialize against a different project.
+   */
+  async reset(): Promise<void> {
+    try {
+      if (this.auth) {
+        await signOut(this.auth).catch(() => {});
+      }
+      if (this.app) {
+        await deleteApp(this.app).catch(() => {});
+      }
+    } finally {
+      this.app = null;
+      this.auth = null;
+      this.firestore = null;
+      this.storage = null;
+      this.config = null;
+      console.log('[Firebase] State reset');
+    }
+  }
 }
 
 // Export singleton instance
@@ -243,3 +264,4 @@ export const getFirebaseConfig = () => firebaseService.getConfig();
 export const isFirebaseInitialized = () => firebaseService.isInitialized();
 export const getEnvironment = () => firebaseService.getEnvironment();
 export const getApiUrl = () => firebaseService.getApiUrl();
+export const resetFirebase = () => firebaseService.reset();
