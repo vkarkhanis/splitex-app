@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Traxettle by KarkhanisLabs | Features and Guide</title>
+    <meta
+      name="description"
+      content="A user-friendly guide to Traxettle: events, expenses, settlements, payment proofs, notifications, and pro features."
+    />
+    <style>
+      :root {
+        --bg0: #070a12;
+        --bg1: #0a1430;
+        --card: rgba(255, 255, 255, 0.075);
+        --card2: rgba(255, 255, 255, 0.11);
+        --text: #eef3ff;
+        --muted: rgba(238, 243, 255, 0.74);
+        --muted2: rgba(238, 243, 255, 0.58);
+        --border: rgba(238, 243, 255, 0.18);
+        --shadow: rgba(0, 0, 0, 0.42);
+        --accent: #2fe4b6;
+        --accent2: #79a9ff;
+        --accent3: #ffb86b;
+        --warn: #ffd27a;
+        --danger: #ff6b83;
+        --radius: 18px;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji",
+          "Segoe UI Emoji";
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font-family: var(--sans);
+        color: var(--text);
+        background:
+          radial-gradient(900px 680px at 12% 8%, rgba(47, 228, 182, 0.22), transparent 62%),
+          radial-gradient(900px 680px at 82% 18%, rgba(121, 169, 255, 0.22), transparent 62%),
+          radial-gradient(780px 520px at 70% 92%, rgba(255, 184, 107, 0.14), transparent 62%),
+          linear-gradient(180deg, var(--bg0), var(--bg1));
+      }
+      body:before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background:
+          linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px),
+          linear-gradient(180deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+        background-size: 56px 56px;
+        opacity: 0.6;
+        pointer-events: none;
+      }
+      a { color: inherit; text-decoration: none; }
+      .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 40px 18px 64px;
+      }
+      .top {
+        display: grid;
+        gap: 14px;
+        padding: 22px 20px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background:
+          radial-gradient(700px 260px at 20% 10%, rgba(47, 228, 182, 0.14), transparent 60%),
+          radial-gradient(700px 260px at 86% 20%, rgba(121, 169, 255, 0.14), transparent 60%),
+          linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.04));
+        box-shadow: 0 18px 40px var(--shadow);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .logo {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .appIcon {
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.16);
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+        background: rgba(255,255,255,0.06);
+        object-fit: cover;
+      }
+      .mark {
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgba(47,228,182,0.95), rgba(121,169,255,0.95));
+        box-shadow: 0 12px 28px rgba(47, 228, 182, 0.18);
+      }
+      h1 {
+        margin: 0;
+        font-size: 22px;
+        letter-spacing: 0.2px;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .pillbar {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .pill {
+        padding: 7px 10px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.10);
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .grid {
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: 1.25fr 0.75fr;
+        gap: 14px;
+      }
+      @media (max-width: 920px) {
+        .grid { grid-template-columns: 1fr; }
+      }
+      .card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: rgba(255,255,255,0.055);
+        box-shadow: 0 16px 36px rgba(0,0,0,0.22);
+        overflow: hidden;
+      }
+      .card .hd {
+        padding: 16px 16px 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.10);
+        background: rgba(255,255,255,0.035);
+      }
+      .card .bd { padding: 16px; }
+      h2 { margin: 0; font-size: 16px; }
+      .k {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--muted);
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.10);
+        border-radius: 10px;
+        padding: 2px 8px;
+        display: inline-block;
+      }
+      .list {
+        margin: 12px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 10px;
+      }
+      .item {
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(255,255,255,0.10);
+        background: linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.03));
+      }
+      .item strong { display: block; font-size: 13px; }
+      .item span { display: block; margin-top: 4px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+      .toc a { display: block; padding: 9px 10px; border-radius: 12px; color: var(--muted); border: 1px solid transparent; }
+      .toc a:hover { border-color: rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: var(--text); }
+      .section { margin-top: 14px; }
+      .section.card {
+        position: relative;
+      }
+      .section.card:before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 4px;
+        background: linear-gradient(90deg, var(--secA, var(--accent)), var(--secB, var(--accent2)));
+      }
+      .section.card .hd {
+        background:
+          radial-gradient(680px 200px at 10% 10%, rgba(47, 228, 182, 0.10), transparent 60%),
+          radial-gradient(680px 200px at 90% 10%, rgba(121, 169, 255, 0.10), transparent 60%),
+          rgba(255,255,255,0.03);
+      }
+      .section.card .hd h2 {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .section-icon {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--secA, var(--accent)), var(--secB, var(--accent2)));
+        box-shadow: 0 10px 20px rgba(0,0,0,0.25);
+      }
+      .section h3 { margin: 0; font-size: 14px; letter-spacing: 0.2px; }
+      .section p { margin: 10px 0 0; color: var(--muted); line-height: 1.65; font-size: 13.5px; }
+      .callout {
+        margin-top: 12px;
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(47, 228, 182, 0.28);
+        background: rgba(47, 228, 182, 0.075);
+        color: rgba(232,238,252,0.86);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      .warn {
+        border-color: rgba(255, 184, 107, 0.32);
+        background: rgba(255, 184, 107, 0.10);
+      }
+      .video {
+        aspect-ratio: 16 / 9;
+        width: 100%;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 14px;
+        overflow: hidden;
+        background: rgba(255,255,255,0.03);
+      }
+      iframe { width: 100%; height: 100%; border: 0; }
+      footer {
+        margin-top: 18px;
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: rgba(255,255,255,0.04);
+        color: var(--muted2);
+        font-size: 12.5px;
+        line-height: 1.6;
+      }
+      .brandline {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .brandline strong {
+        color: rgba(238, 243, 255, 0.92);
+      }
+      .mailto {
+        color: rgba(238, 243, 255, 0.88);
+        text-decoration: underline;
+        text-decoration-color: rgba(238, 243, 255, 0.35);
+        text-underline-offset: 3px;
+      }
+      .split {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: 1fr 1fr;
+      }
+      @media (max-width: 920px) {
+        .split { grid-template-columns: 1fr; }
+      }
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 10px;
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(47,228,182,0.9);
+        box-shadow: 0 8px 18px rgba(47,228,182,0.18);
+      }
+      .dot2 { background: rgba(119,167,255,0.85); box-shadow: 0 8px 18px rgba(119,167,255,0.18); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="top">
+        <div class="brand">
+          <div class="logo">
+            <img class="appIcon" src="./traxettle-icon.png" alt="Traxettle app icon" />
+            <div>
+              <h1>Traxettle: Features and How To Use</h1>
+              <div class="meta">By KarkhanisLabs: expense splitting, multi-currency settlements, and a clear audit trail for every payment.</div>
+            </div>
+          </div>
+          <div class="pillbar" aria-label="Key highlights">
+            <span class="pill">Multi-currency events</span>
+            <span class="pill">External payments supported</span>
+            <span class="pill">Proof + reference ID</span>
+            <span class="pill">Audit timeline</span>
+          </div>
+        </div>
+        <div class="meta">
+          This page is a practical guide for users. It focuses on common flows, real-world use cases, and how settlement works when payments happen outside the app.
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="hd">
+            <h2 id="video">Traxettle Demo Video</h2>
+            <div class="tag"><span class="dot" aria-hidden="true"></span></div>
+          </div>
+          <div class="bd">
+            <div class="video">
+              <!-- TODO: Replace this src with your actual YouTube embed URL -->
+              <iframe
+                src="https://www.youtube-nocookie.com/embed/TAfdyofmJ2s?rel=0"
+                title="Traxettle demo video"
+                loading="lazy"
+                referrerpolicy="strict-origin-when-cross-origin"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen
+              ></iframe>
+            </div>
+            <div class="callout warn">
+              If you already have a YouTube link on your existing site, paste that link into the iframe <span class="k">src</span> as an embed URL.
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="hd">
+            <h2>Contents</h2>
+            <div class="meta">Jump to the section you need.</div>
+          </div>
+          <div class="bd toc">
+            <a href="#getting-started">Getting Started</a>
+            <a href="#events">Events</a>
+            <a href="#expenses">Expenses</a>
+            <a href="#settlements">Settlements</a>
+            <a href="#payments">How Payments Work</a>
+            <a href="#proof">Proof and Reference IDs</a>
+            <a href="#timeline">Audit Timeline</a>
+            <a href="#methods">Payment Methods (Payout Details)</a>
+            <a href="#notifications">Notifications</a>
+            <a href="#pro">Pro Plan</a>
+            <a href="#faq">FAQ</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="card section" id="getting-started" style="--secA: var(--accent); --secB: var(--accent2);">
+        <div class="hd"><h2><span class="section-icon" aria-hidden="true"></span>Getting Started</h2></div>
+        <div class="bd split">
+          <div class="item">
+            <strong>Create your profile</strong>
+            <span>Add your display name and email. This name appears in event activity and settlement records.</span>
+          </div>
+          <div class="item">
+            <strong>Set payout details (recommended)</strong>
+            <span>Add at least one payment method per currency you commonly use (UPI for INR, bank transfer for USD, etc.).</span>
+          </div>
+          <div class="item">
+            <strong>Invite participants</strong>
+            <span>You can invite by user (in-app) or by email (useful when the other person hasn’t installed Traxettle).</span>
+          </div>
+          <div class="item">
+            <strong>Track and settle</strong>
+            <span>Add expenses, generate a settlement, and record payments with reference IDs and optional proof uploads.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card section" id="events" style="--secA: var(--accent2); --secB: var(--accent3);">
+        <div class="hd"><h2><span class="section-icon" aria-hidden="true"></span>Events</h2></div>
+        <div class="bd">
+          <div class="section">
+            <h3>What is an Event?</h3>
+            <p>
+              An event is a shared context for expenses and who owes whom (e.g. a trip, roommate month, wedding planning, team offsite).
+              Every expense and settlement record lives inside an event.
+            </p>
+          </div>
+          <ul class="list">
+            <li class="item">
+              <strong>Use case: Trip with friends</strong>
+              <span>Create an event for the trip, record shared costs (food, tickets, hotels), then generate a settlement at the end.</span>
+            </li>
+            <li class="item">
+              <strong>Use case: Multi-currency spending</strong>
+              <span>Track expenses across currencies and settle in a chosen settlement currency at event creation time.</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card section" id="expenses" style="--secA: var(--accent3); --secB: var(--accent);">
+        <div class="hd"><h2><span class="section-icon" aria-hidden="true"></span>Expenses</h2></div>
+        <div class="bd">
+          <div class="section">
+            <h3>Split types</h3>
+            <p>
+              Add an expense with payer, amount, currency, and who participated. Traxettle calculates each member’s share and updates balances.
+            </p>
+          </div>
+          <div class="callout">
+            Tip: If a participant is invited by email and hasn’t accepted yet, they can still receive email updates about the event.
+          </div>
+        </div>
+      </div>
+
+      <div class="card section" id="settlements" style="--secA: var(--accent); --secB: var(--accent2);">
+        <div class="hd"><h2><span class="section-icon" aria-hidden="true"></span>Settlements</h2></div>
+        <div class="bd">
+          <div class="section">
+            <h3>What is a Settlement?</h3>
+            <p>
+              A settlement is a set of payment legs like “User B pays User A INR 1,250”. Each leg can be marked paid by the payer and confirmed by the payee.
+            </p>
+          </div>
+          <ul class="list">
+            <li class="item">
+              <strong>Generate settlement</strong>
+              <span>Once expenses are added, generate settlement to compute who owes whom in the settlement currency.</span>
+            </li>
+            <li class="item">
+              <strong>Per-leg confirmation</strong>
+              <span>Every leg must be confirmed by the payee before the event can be marked fully settled.</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card section" id="payments" style="--secA: var(--accent2); --secB: var(--accent);">
+        <div class="hd"><h2><span class="section-icon" aria-hidden="true"></span>How Payments Work (Out of App)</h2></div>
+        <div class="bd">
+          <div class="section">
+            <h3>Pay externally, record inside Traxettle</h3>
+            <p>
+              Traxettle is designed to work even without an in-app payment gateway. You send money using your preferred method (UPI, bank transfer, PayPal, Wise, etc.),
+              then record the payment in the settlement leg.
+            </p>
+          </div>
+          <ul class="list">
+            <li class="item">
+              <strong>Step 1: View payee’s payout details</strong>
+              <span>Open the settlement leg to see the payee’s saved payout details for the settlement currency (with copy buttons).</span>
+            </li>
+            <li class="item">
+              <strong>Step 2: Pay outside the app</strong>
+              <span>Use the copied details to complete the transfer in your banking app or payment provider.</span>
+            </li>
+            <li class="item">
+              <strong>Step 3: Mark as paid</strong>
+              <span>Return to Traxettle and mark the leg paid with a reference ID and optional proof.</span>
+            </li>
+            <li class="item">
+              <strong>Step 4: Payee confirms</strong>
+              <span>The payee confirms once money is received. This locks the leg and contributes toward “event settled”.</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card section" id="proof" style="--secA: var(--accent3); --secB: var(--accent2);">
+        <div class="hd"><h2><span class="section-icon" aria-hidden="true"></span>Proof and Reference IDs</h2></div>
+        <div class="bd">
+          <div class="section">
+            <h3>Why reference IDs?</h3>
+            <p>
+              A reference ID (e.g. UTR, bank reference, PayPal transaction id) makes verification easy and reduces disputes. Proof uploads can be used when needed,
+              but can remain optional depending on the event’s norms.
+            </p>
+          </div>
+          <div class="callout">
+            Best practice: Always include a reference ID. Upload proof only when the payee asks for it or when you want a stronger audit trail.
+          </div>
+        </div>
+      </div>
+
+      <div class="card section" id="timeline" style="--secA: var(--accent); --secB: var(--accent3);">
+        <div class="hd"><h2><span class="section-icon" aria-hidden="true"></span>Audit Timeline</h2></div>
+        <div class="bd">
+          <div class="section">
+            <h3>Every settlement leg has an activity trail</h3>
+            <p>
+              Traxettle keeps a timeline of key actions (settlement generated, payment marked paid, payee confirmed, admin overrides if any). This helps users understand
+              what happened and when.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card section" id="methods" style="--secA: var(--accent2); --secB: var(--accent3);">
+        <div class="hd"><h2><span class="section-icon" aria-hidden="true"></span>Payment Methods (Payout Details)</h2></div>
+        <div class="bd">
+          <div class="section">
+            <h3>What it is</h3>
+            <p>
+              This section stores the details people need to pay you externally. It is not a stored card or gateway token. You can add multiple methods, one per currency,
+              and disable methods you don’t want to show anymore.
+            </p>
+          </div>
+          <ul class="list">
+            <li class="item">
+              <strong>Examples</strong>
+              <span>INR: UPI ID, bank account + IFSC. USD/EUR: bank transfer details, Wise tag, PayPal email, SWIFT instructions.</span>
+            </li>
+            <li class="item">
+              <strong>Shown to payers</strong>
+              <span>During settlement, the payer sees your enabled method matching the settlement currency.</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card section" id="notifications" style="--secA: var(--accent3); --secB: var(--accent);">
+        <div class="hd"><h2><span class="section-icon" aria-hidden="true"></span>Notifications</h2></div>
+        <div class="bd">
+          <div class="section">
+            <h3>Email notifications</h3>
+            <p>
+              When enabled, Traxettle emails event updates (expense changes, settlement actions, confirmations). If you disable notifications in your profile,
+              Traxettle stops sending these emails to your account email.
+            </p>
+          </div>
+          <div class="callout warn">
+            Invited-by-email users who haven’t accepted yet will still receive event emails, so they stay in the loop even without the app.
+          </div>
+        </div>
+      </div>
+
+      <div class="card section" id="pro" style="--secA: var(--accent); --secB: var(--accent2);">
+        <div class="hd"><h2><span class="section-icon" aria-hidden="true"></span>Pro Plan</h2></div>
+        <div class="bd">
+          <div class="section">
+            <h3>What Pro unlocks</h3>
+            <p>
+              Pro is designed for power users: higher limits, multi-currency settlement capabilities, and advanced workflows. Availability and pricing vary by region.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card section" id="faq" style="--secA: var(--accent2); --secB: var(--accent3);">
+        <div class="hd"><h2><span class="section-icon" aria-hidden="true"></span>FAQ</h2></div>
+        <div class="bd">
+          <ul class="list">
+            <li class="item">
+              <strong>Does Traxettle move money for me?</strong>
+              <span>No. Payments are made via your bank/payment app. Traxettle records and confirms them with an audit trail.</span>
+            </li>
+            <li class="item">
+              <strong>What if someone doesn’t have Traxettle?</strong>
+              <span>Invite them by email. They can keep receiving event notifications and view on web until they install and accept.</span>
+            </li>
+            <li class="item">
+              <strong>Is data encrypted in transit?</strong>
+              <span>Traxettle uses HTTPS/TLS for network traffic. Email delivery uses SMTP with TLS where supported by your provider.</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <footer>
+        <div class="brandline">
+          <div><strong>KarkhanisLabs Support</strong>: <a class="mailto" href="mailto:support@karkhanislabs.com">support@karkhanislabs.com</a></div>
+          <div><strong>Brand</strong>: KarkhanisLabs</div>
+        </div>
+        <div>Last updated: 2026-03-07</div>
+      </footer>
+    </div>
+  </body>
+</html>

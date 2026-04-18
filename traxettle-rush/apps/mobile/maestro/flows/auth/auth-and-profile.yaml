@@ -1,0 +1,150 @@
+appId: com.traxettle.app
+name: Auth and Profile Smoke
+---
+- launchApp:
+    clearState: true
+- evalScript: ${output.runId = Date.now().toString()}
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 30000
+- tapOn:
+    id: "dashboard-open-profile"
+    optional: true
+- tapOn:
+    id: "profile-signout-button"
+    optional: true
+- tapOn:
+    text: "Sign Out"
+    optional: true
+- tapOn:
+    id: "login-go-register"
+    optional: true
+- tapOn:
+    id: "register-display-name-input"
+    optional: true
+- tapOn:
+    id: "login-go-register"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "register-display-name-input"
+    timeout: 20000
+- tapOn:
+    id: "register-display-name-input"
+- inputText: "Maestro User ${output.runId}"
+- tapOn:
+    id: "register-email-input"
+- inputText: "maestro.auth.${output.runId}@example.com"
+- tapOn:
+    id: "register-password-input"
+- inputText: "Password123!"
+- pressKey: Enter
+- extendedWaitUntil:
+    visible:
+      id: "setup-pin-input"
+    timeout: 10000
+- tapOn:
+    id: "setup-pin-input"
+- inputText: "1234"
+- tapOn:
+    id: "setup-pin-confirm-input"
+- inputText: "1234"
+- tapOn:
+    id: "setup-pin-submit-button"
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 30000
+- tapOn:
+    id: "dashboard-open-profile"
+- scrollUntilVisible:
+    element:
+      id: "profile-signout-button"
+    direction: DOWN
+- tapOn:
+    id: "profile-signout-button"
+- tapOn:
+    text: "Sign Out"
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 20000
+- tapOn:
+    id: "login-email-input"
+- inputText: "maestro.auth.${output.runId}@example.com"
+- tapOn:
+    id: "login-password-input"
+- inputText: "Password123!"
+- pressKey: Enter
+- tapOn:
+    id: "login-submit-button"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 30000
+- tapOn:
+    id: "dashboard-open-profile"
+# Verify Security section is visible (email/password user should see Change Password)
+- scrollUntilVisible:
+    element:
+      text: "Security"
+    direction: DOWN
+- assertVisible:
+    text: "Security"
+- assertVisible:
+    text: "Email/password"
+# Email/password users should see password fields
+- assertVisible:
+    text: "Change Password"
+    optional: true
+# If device supports biometrics, verify toggle is visible
+- assertVisible:
+    id: "profile-biometrics-switch"
+    optional: true
+# Ensure version footer is visible before developer tap sequence
+- scrollUntilVisible:
+    element:
+      text: "Traxettle v"
+    direction: DOWN
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- tapOn:
+    text: "Traxettle v"
+    optional: true
+- scrollUntilVisible:
+    element:
+      id: "profile-lock-session-button"
+    direction: DOWN
+- tapOn:
+    id: "profile-lock-session-button"
+- extendedWaitUntil:
+    visible:
+      id: "unlock-pin-input"
+    timeout: 10000
+- tapOn:
+    id: "unlock-pin-input"
+- inputText: "1234"
+- tapOn:
+    id: "unlock-pin-submit-button"
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 10000

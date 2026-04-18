@@ -1,0 +1,249 @@
+appId: com.traxettle.app
+name: Same Currency Settlement (Mock)
+---
+- launchApp:
+    clearState: true
+- evalScript: ${output.runId = Date.now().toString()}
+- tapOn:
+    id: "dashboard-open-profile"
+    optional: true
+- tapOn:
+    id: "profile-signout-button"
+    optional: true
+- tapOn:
+    text: "Sign Out"
+    optional: true
+- tapOn:
+    id: "login-go-register"
+    optional: true
+- tapOn:
+    id: "register-display-name-input"
+    optional: true
+- tapOn:
+    id: "login-go-register"
+    optional: true
+
+# Register user-1 (admin / payee)
+- extendedWaitUntil:
+    visible:
+      id: "register-display-name-input"
+    timeout: 20000
+- tapOn:
+    id: "register-display-name-input"
+- inputText: "Settle Admin ${output.runId}"
+- tapOn:
+    id: "register-email-input"
+- inputText: "sadm${output.runId}@example.com"
+- tapOn:
+    id: "register-password-input"
+- inputText: "Password123!"
+- pressKey: Enter
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 30000
+
+# Create event in USD
+- tapOn:
+    id: "dashboard-create-event-button"
+- tapOn:
+    id: "create-event-name-input"
+- inputText: "Maestro Same ${output.runId}"
+- tapOn:
+    id: "create-event-currency-USD"
+- tapOn:
+    id: "create-event-settlement-same"
+- tapOn:
+    id: "create-event-submit-button"
+- tapOn: "OK"
+- assertVisible: "Maestro Same ${output.runId}"
+
+# Invite user-2
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-tab-participants"
+    timeout: 20000
+- tapOn:
+    id: "event-detail-tab-participants"
+- tapOn:
+    id: "event-detail-open-invite-modal-participants"
+- tapOn:
+    id: "event-detail-invite-email-input"
+- inputText: "smb${output.runId}@example.com"
+- tapOn:
+    text: "Send"
+- tapOn:
+    text: "Send"
+    optional: true
+- extendedWaitUntil:
+    notVisible: "Invite to Event"
+    timeout: 10000
+- tapOn:
+    id: "event-detail-tab-invitations"
+- extendedWaitUntil:
+    visible: "smb${output.runId}@example.com"
+    timeout: 10000
+
+# Switch to user-2
+- launchApp:
+    clearState: true
+- tapOn:
+    id: "dashboard-open-profile"
+    optional: true
+- tapOn:
+    id: "profile-signout-button"
+    optional: true
+- tapOn:
+    text: "Sign Out"
+    optional: true
+- tapOn:
+    id: "login-go-register"
+    optional: true
+- tapOn:
+    id: "register-display-name-input"
+    optional: true
+- tapOn:
+    id: "login-go-register"
+    optional: true
+
+# Register user-2 and accept invite
+- extendedWaitUntil:
+    visible:
+      id: "register-display-name-input"
+    timeout: 20000
+- tapOn:
+    id: "register-display-name-input"
+- inputText: "Settle Member ${output.runId}"
+- tapOn:
+    id: "register-email-input"
+- inputText: "smb${output.runId}@example.com"
+- tapOn:
+    id: "register-password-input"
+- inputText: "Password123!"
+- pressKey: Enter
+- assertVisible:
+    id: "dashboard-open-invitations"
+- tapOn:
+    id: "dashboard-open-invitations"
+- extendedWaitUntil:
+    visible: "Accept"
+    timeout: 10000
+- tapOn: "Accept"
+- assertVisible: "Accepted"
+- tapOn: "OK"
+
+# Switch back to user-1 and create expense + settlement
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 20000
+- tapOn:
+    id: "login-email-input"
+- inputText: "sadm${output.runId}@example.com"
+- tapOn:
+    id: "login-password-input"
+- inputText: "Password123!"
+- pressKey: Enter
+- tapOn:
+    id: "login-submit-button"
+    optional: true
+- extendedWaitUntil:
+    visible: "Maestro Same ${output.runId}"
+    timeout: 20000
+- tapOn: "Maestro Same ${output.runId}"
+- tapOn:
+    id: "event-detail-add-expense-button"
+- tapOn:
+    id: "create-expense-title-input"
+- inputText: "Dinner ${output.runId}"
+- tapOn:
+    id: "create-expense-amount-input"
+- inputText: "120"
+- pressKey: Enter
+- scrollUntilVisible:
+    element:
+      id: "create-expense-submit-button"
+    direction: DOWN
+- tapOn:
+    id: "create-expense-submit-button"
+    optional: true
+- extendedWaitUntil:
+    notVisible: "Add Expense"
+    timeout: 30000
+- tapOn:
+    text: "OK"
+    optional: true
+- extendedWaitUntil:
+    visible: "Maestro Same ${output.runId}"
+    timeout: 10000
+- assertVisible: "Dinner ${output.runId}"
+- tapOn:
+    id: "event-detail-settle-button"
+- tapOn: "Generate"
+- assertVisible: "Settlements"
+
+# User-2 pays (mock)
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 20000
+- tapOn:
+    id: "login-email-input"
+- inputText: "smb${output.runId}@example.com"
+- tapOn:
+    id: "login-password-input"
+- inputText: "Password123!"
+- pressKey: Enter
+- tapOn:
+    id: "login-submit-button"
+    optional: true
+- extendedWaitUntil:
+    visible: "Maestro Same ${output.runId}"
+    timeout: 20000
+- tapOn: "Maestro Same ${output.runId}"
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-settlement-pay-.*"
+    timeout: 15000
+- tapOn:
+    id: "event-detail-settlement-pay-.*"
+- assertVisible: "initiated"
+- assertVisible: "Retry Payment"
+- tapOn: "Retry Payment"
+- assertVisible: "initiated"
+
+# User-1 confirms receipt
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 20000
+- tapOn:
+    id: "login-email-input"
+- inputText: "sadm${output.runId}@example.com"
+- tapOn:
+    id: "login-password-input"
+- inputText: "Password123!"
+- pressKey: Enter
+- tapOn:
+    id: "login-submit-button"
+    optional: true
+- extendedWaitUntil:
+    visible: "Maestro Same ${output.runId}"
+    timeout: 20000
+- tapOn: "Maestro Same ${output.runId}"
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-settlement-confirm-.*"
+    timeout: 15000
+- tapOn:
+    id: "event-detail-settlement-confirm-.*"
+- extendedWaitUntil:
+    visible: "Settled"
+    timeout: 15000
+- assertVisible: "Close Event"

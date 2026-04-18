@@ -1,0 +1,18 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Same philosophy as Firestore: the app should access files via the API
+    // (signed URLs / controlled endpoints). Lock down direct client access.
+
+    // If we ever allow direct uploads/downloads from clients, confine them to
+    // a per-user folder:
+    match /users/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Everything else is blocked from client access by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

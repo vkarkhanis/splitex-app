@@ -1,0 +1,10 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`toUserFriendlyError maps representative errors snapshot 1`] = `
+[
+  "The email address is not valid.",
+  "Unable to connect to the server. Please check your internet connection or try again later.",
+  "Incorrect password. Please try again or use "Forgot password?" to reset it.",
+  "Email or password is required",
+]
+`;

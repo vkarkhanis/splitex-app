@@ -1,0 +1,10 @@
+# Copy to one or both files:
+# - scripts/api-deployment/smtp_staging.local.properties
+# - scripts/api-deployment/smtp_prod.local.properties
+#
+# Keep quotes because app passwords and display names can contain spaces.
+
+SMTP_SERVICE='gmail'
+SMTP_USER='traxettleapp@gmail.com'
+SMTP_PASS='REPLACE_WITH_GMAIL_APP_PASSWORD'
+SMTP_FROM='Traxettle Admin <traxettleapp@gmail.com>'

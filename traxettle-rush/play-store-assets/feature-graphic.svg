@@ -1,0 +1,99 @@
+<svg width="1024" height="500" viewBox="0 0 1024 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e293b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0f172a;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2563eb;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="textGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#93bbfd;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="1024" height="500" fill="url(#bgGradient)" />
+  
+  <!-- Subtle pattern overlay -->
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" stroke-width="0.5" opacity="0.05"/>
+  </pattern>
+  <rect width="1024" height="500" fill="url(#grid)" />
+  
+  <!-- Main content area -->
+  <g transform="translate(60, 80)">
+    <!-- App name -->
+    <text x="0" y="0" font-family="Arial, sans-serif" font-size="64" font-weight="bold" fill="white">TRAXETTLE</text>
+    <text x="0" y="35" font-family="Arial, sans-serif" font-size="24" fill="url(#textGradient)">Intelligent Expense Splitting</text>
+    
+    <!-- Key features -->
+    <g transform="translate(0, 80)">
+      <!-- Feature 1 -->
+      <g transform="translate(0, 0)">
+        <circle cx="12" cy="12" r="8" fill="url(#accentGradient)" />
+        <text x="30" y="18" font-family="Arial, sans-serif" font-size="18" fill="white">Smart Split Logic • Multi-Currency • Payment Hub</text>
+      </g>
+      
+      <!-- Feature 2 -->
+      <g transform="translate(0, 35)">
+        <circle cx="12" cy="12" r="8" fill="url(#accentGradient)" />
+        <text x="30" y="18" font-family="Arial, sans-serif" font-size="18" fill="white">Analytics & Insights • Enterprise Security • Zero Ads</text>
+      </g>
+      
+      <!-- Feature 3 -->
+      <g transform="translate(0, 70)">
+        <circle cx="12" cy="12" r="8" fill="url(#accentGradient)" />
+        <text x="30" y="18" font-family="Arial, sans-serif" font-size="18" fill="white">Real-Time Sync • Audit Trail • Professional Reports</text>
+      </g>
+    </g>
+    
+    <!-- Call to action -->
+    <rect x="0" y="250" width="200" height="50" rx="25" fill="url(#accentGradient)" />
+    <text x="100" y="280" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle">DOWNLOAD NOW</text>
+  </g>
+  
+  <!-- Visual elements on the right -->
+  <g transform="translate(650, 100)">
+    <!-- Phone mockup representation -->
+    <rect x="0" y="0" width="280" height="300" rx="20" fill="none" stroke="url(#accentGradient)" stroke-width="2" opacity="0.8"/>
+    
+    <!-- App interface elements -->
+    <rect x="20" y="30" width="240" height="40" rx="8" fill="url(#accentGradient)" opacity="0.3"/>
+    <text x="140" y="55" font-family="Arial, sans-serif" font-size="14" fill="white" text-anchor="middle">Dashboard</text>
+    
+    <!-- Event cards -->
+    <rect x="20" y="85" width="240" height="60" rx="8" fill="white" opacity="0.1"/>
+    <rect x="30" y="95" width="60" height="40" rx="4" fill="url(#accentGradient)" opacity="0.5"/>
+    <rect x="100" y="95" width="140" height="8" rx="4" fill="white" opacity="0.3"/>
+    <rect x="100" y="110" width="100" height="6" rx="3" fill="white" opacity="0.2"/>
+    <rect x="100" y="122" width="120" height="6" rx="3" fill="white" opacity="0.2"/>
+    
+    <rect x="20" y="155" width="240" height="60" rx="8" fill="white" opacity="0.1"/>
+    <rect x="30" y="165" width="60" height="40" rx="4" fill="url(#accentGradient)" opacity="0.5"/>
+    <rect x="100" y="165" width="140" height="8" rx="4" fill="white" opacity="0.3"/>
+    <rect x="100" y="180" width="100" height="6" rx="3" fill="white" opacity="0.2"/>
+    <rect x="100" y="192" width="120" height="6" rx="3" fill="white" opacity="0.2"/>
+    
+    <!-- Analytics chart representation -->
+    <rect x="20" y="225" width="240" height="60" rx="8" fill="white" opacity="0.1"/>
+    <rect x="40" y="265" width="20" height="15" fill="url(#accentGradient)" opacity="0.7"/>
+    <rect x="70" y="255" width="20" height="25" fill="url(#accentGradient)" opacity="0.7"/>
+    <rect x="100" y="245" width="20" height="35" fill="url(#accentGradient)" opacity="0.7"/>
+    <rect x="130" y="250" width="20" height="30" fill="url(#accentGradient)" opacity="0.7"/>
+    <rect x="160" y="260" width="20" height="20" fill="url(#accentGradient)" opacity="0.7"/>
+    <rect x="190" y="240" width="20" height="40" fill="url(#accentGradient)" opacity="0.7"/>
+    <rect x="220" y="255" width="20" height="25" fill="url(#accentGradient)" opacity="0.7"/>
+  </g>
+  
+  <!-- Floating elements for visual interest -->
+  <circle cx="580" cy="420" r="30" fill="url(#accentGradient)" opacity="0.2"/>
+  <circle cx="620" cy="450" r="20" fill="url(#accentGradient)" opacity="0.15"/>
+  <circle cx="900" cy="100" r="25" fill="url(#accentGradient)" opacity="0.1"/>
+  <circle cx="950" cy="140" r="15" fill="url(#accentGradient)" opacity="0.08"/>
+  
+  <!-- Bottom tagline -->
+  <text x="512" y="470" font-family="Arial, sans-serif" font-size="16" fill="url(#textGradient)" text-anchor="middle" font-style="italic">Engineered by Fintech Veterans • Enterprise Grade Security</text>
+</svg>

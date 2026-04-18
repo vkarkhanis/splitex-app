@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# Traxettle Doctor Script Wrapper
+# Usage: ./doctor [environment]
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Run the doctor script
+node "$SCRIPT_DIR/common/scripts/doctor.js" "$@"

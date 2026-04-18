@@ -1,0 +1,416 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ENV, getApiUrl as getApiUrlFromEnv, isLocalLikeEnv } from './env';
+
+export interface RuntimeConfig {
+  env: string;
+  apiUrl: string;
+  firebaseConfig: {
+    projectId: string;
+    apiKey?: string;
+    authDomain?: string;
+    databaseURL?: string;
+    storageBucket?: string;
+    messagingSenderId?: string;
+    appId?: string;
+    measurementId?: string;
+  };
+  revenueCatConfig: {
+    googleApiKey: string;
+    appleApiKey: string;
+    proEntitlement: string;
+    offering: string;
+  };
+}
+
+const RUNTIME_CONFIG_KEY = '@traxettle_runtime_config';
+const CONFIG_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+export class RuntimeConfigManager {
+  private cachedConfig: RuntimeConfig | null = null;
+  private cacheExpiry: number = 0;
+
+  private isFirebaseClientConfigComplete(config: RuntimeConfig | null): config is RuntimeConfig {
+    if (!config) return false;
+
+    const firebaseConfig = config.firebaseConfig || {};
+    const requiredKeys: Array<keyof RuntimeConfig['firebaseConfig']> = [
+      'projectId',
+      'apiKey',
+      'authDomain',
+      'appId',
+    ];
+
+    return requiredKeys.every((key) => {
+      const value = firebaseConfig[key];
+      return typeof value === 'string' && value.trim().length > 0;
+    });
+  }
+
+  private expectedApiBaseUrl(useStaging: boolean): string {
+    return useStaging ? ENV.STAGING_API_URL : ENV.PROD_API_URL;
+  }
+
+  private matchesSelectedEnvironment(config: RuntimeConfig | null, useStaging: boolean): boolean {
+    if (!config) return false;
+    return config.apiUrl === this.expectedApiBaseUrl(useStaging);
+  }
+
+  /**
+   * Get runtime configuration from API or cache
+   */
+  async getConfig(): Promise<RuntimeConfig> {
+    const now = Date.now();
+    
+    // Return cached config if still valid
+    if (this.cachedConfig && now < this.cacheExpiry) {
+      console.log('[RuntimeConfig] Using cached config');
+      return this.cachedConfig;
+    }
+
+    try {
+      // In local dev mode, always fetch fresh config from the API.
+      // The Firebase project may change between runs (e.g. bootstrap.sh
+      // local vs staging) while the API URL stays the same, so persisted
+      // config cannot be trusted. The in-memory cache still prevents
+      // redundant fetches within a single session.
+      if (isLocalLikeEnv()) {
+        console.log('[RuntimeConfig] Local dev — skipping stored config, fetching fresh');
+        await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
+      } else {
+        // Try to load from AsyncStorage first (production / staging builds)
+        const useStaging = await this.isStagingModeEnabled();
+        const storedConfig = await this.loadStoredConfig();
+        if (
+          this.isFirebaseClientConfigComplete(storedConfig) &&
+          this.matchesSelectedEnvironment(storedConfig, useStaging)
+        ) {
+          this.cachedConfig = storedConfig;
+          this.cacheExpiry = now + CONFIG_CACHE_DURATION;
+          console.log('[RuntimeConfig] Using stored config');
+          return storedConfig;
+        }
+
+        if (storedConfig) {
+          console.warn('[RuntimeConfig] Ignoring stale or incomplete stored config and fetching fresh config');
+          await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
+        }
+      }
+
+      // Fetch fresh config from API
+      const freshConfig = await this.fetchConfig();
+      await this.storeConfig(freshConfig);
+      
+      this.cachedConfig = freshConfig;
+      this.cacheExpiry = now + CONFIG_CACHE_DURATION;
+      
+      console.log('[RuntimeConfig] Fetched fresh config:', {
+        env: freshConfig.env,
+        apiUrl: freshConfig.apiUrl,
+        projectId: freshConfig.firebaseConfig.projectId
+      });
+      
+      return freshConfig;
+    } catch (error) {
+      console.error('[RuntimeConfig] Failed to get config:', error);
+      
+      // Fallback to cached config if available
+      if (this.cachedConfig) {
+        console.log('[RuntimeConfig] Using expired cached config as fallback');
+        return this.cachedConfig;
+      }
+      
+      throw new Error('Failed to load runtime configuration');
+    }
+  }
+
+  /**
+   * Fetch configuration from API
+   */
+  private async fetchConfig(): Promise<RuntimeConfig> {
+    const useStaging = await this.isStagingModeEnabled();
+
+    // In local-like environments, always use the locally configured API base.
+    // Retry a few times to handle the common case where the mobile app
+    // launches before the API server is ready (both start in parallel).
+    // We intentionally do NOT fall back to a hosted API because it serves
+    // a different Firebase project, causing auth/custom-token-mismatch.
+    if (isLocalLikeEnv()) {
+      const localApiBase = getApiUrlFromEnv();
+      const apiUrl = `${localApiBase}/api/config`;
+      const maxRetries = 3;
+      const retryDelayMs = 2000;
+      let lastError: Error | null = null;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        console.log(`[RuntimeConfig] Fetching config from: ${apiUrl} (attempt ${attempt}/${maxRetries})`);
+
+        try {
+          const response = await this.fetchWithTimeout(apiUrl);
+          if (!response.ok) {
+            throw new Error(`API responded with status: ${response.status}`);
+          }
+
+          const data = await response.json();
+          if (!data.data) {
+            throw new Error('No configuration data received');
+          }
+
+          console.log(`[RuntimeConfig] Success with local API`);
+          console.log(`[RuntimeConfig] Environment: ${data.data.env}, projectId: ${data.data.firebaseConfig?.projectId}`);
+          return data.data;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+          console.warn(
+            `[RuntimeConfig] Local API fetch attempt ${attempt} failed:`,
+            lastError.message,
+          );
+          if (attempt < maxRetries) {
+            await new Promise((r) => setTimeout(r, retryDelayMs));
+          }
+        }
+      }
+
+      throw lastError || new Error('Local API unavailable — start the API server first');
+    }
+
+    // Production/Staging API URL (non-local builds)
+    const prodApiUrl = `${ENV.PROD_API_URL}/api/config`;
+    const stagingApiUrl = `${ENV.STAGING_API_URL}/api/config`;
+    
+    let apiUrl: string;
+    let environment: string;
+    
+    if (useStaging) {
+      // Developer explicitly wants staging
+      apiUrl = stagingApiUrl;
+      environment = 'staging (developer mode)';
+    } else {
+      // Default to production
+      apiUrl = prodApiUrl;
+      environment = 'production (default)';
+    }
+
+    console.log(`[RuntimeConfig] Fetching config from: ${apiUrl} (${environment})`);
+    
+    try {
+      const response = await this.fetchWithTimeout(apiUrl);
+      
+      if (!response.ok) {
+        throw new Error(`API responded with status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (!data.data) {
+        throw new Error('No configuration data received');
+      }
+      
+      console.log(`[RuntimeConfig] Success with API: ${apiUrl}`);
+      console.log(`[RuntimeConfig] Environment: ${data.data.env}`);
+      return data.data;
+    } catch (error) {
+      console.error(`[RuntimeConfig] API fetch failed for ${apiUrl}:`, error instanceof Error ? error.message : String(error));
+      
+      // If production fails, don't auto-fallback - let user decide
+      if (!useStaging && apiUrl === prodApiUrl) {
+        throw new Error('Production API unavailable. Use developer options to switch to staging.');
+      }
+      
+      throw new Error('Failed to fetch configuration');
+    }
+  }
+
+  /**
+   * Fetch with timeout helper
+   */
+  private async fetchWithTimeout(url: string): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if staging mode is enabled (developer option)
+   */
+  async isStagingModeEnabled(): Promise<boolean> {
+    try {
+      const stagingMode = await AsyncStorage.getItem('@traxettle_staging_mode');
+      return stagingMode === 'true';
+    } catch (error) {
+      console.error('[RuntimeConfig] Failed to check staging mode:', error);
+      return false; // Default to production
+    }
+  }
+
+  /**
+   * Enable staging mode (developer option)
+   */
+  async enableStagingMode(): Promise<void> {
+    try {
+      await AsyncStorage.setItem('@traxettle_staging_mode', 'true');
+      await this.clearCache(); // Clear config cache to force refresh
+      console.log('[RuntimeConfig] Staging mode enabled');
+    } catch (error) {
+      console.error('[RuntimeConfig] Failed to enable staging mode:', error);
+      throw new Error('Failed to enable staging mode');
+    }
+  }
+
+  /**
+   * Disable staging mode (switch back to production)
+   */
+  async disableStagingMode(): Promise<void> {
+    try {
+      await AsyncStorage.removeItem('@traxettle_staging_mode');
+      await this.clearCache(); // Clear config cache to force refresh
+      console.log('[RuntimeConfig] Staging mode disabled');
+    } catch (error) {
+      console.error('[RuntimeConfig] Failed to disable staging mode:', error);
+      throw new Error('Failed to disable staging mode');
+    }
+  }
+
+  /**
+   * Toggle staging mode
+   */
+  async toggleStagingMode(): Promise<boolean> {
+    const isCurrentlyStaging = await this.isStagingModeEnabled();
+    
+    if (isCurrentlyStaging) {
+      await this.disableStagingMode();
+      return false; // Now in production
+    } else {
+      await this.enableStagingMode();
+      return true; // Now in staging
+    }
+  }
+
+  /**
+   * Load configuration from AsyncStorage
+   */
+  private async loadStoredConfig(): Promise<RuntimeConfig | null> {
+    try {
+      const stored = await AsyncStorage.getItem(RUNTIME_CONFIG_KEY);
+      const parsed = stored ? JSON.parse(stored) : null;
+
+      if (parsed && !this.isFirebaseClientConfigComplete(parsed)) {
+        console.warn('[RuntimeConfig] Stored config is incomplete and will be ignored');
+        await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
+        return null;
+      }
+
+      return parsed;
+    } catch (error) {
+      console.error('[RuntimeConfig] Failed to load stored config:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Store configuration in AsyncStorage
+   */
+  private async storeConfig(config: RuntimeConfig): Promise<void> {
+    try {
+      await AsyncStorage.setItem(RUNTIME_CONFIG_KEY, JSON.stringify(config));
+    } catch (error) {
+      console.error('[RuntimeConfig] Failed to store config:', error);
+    }
+  }
+
+  /**
+   * Clear cached configuration
+   */
+  async clearCache(): Promise<void> {
+    this.cachedConfig = null;
+    this.cacheExpiry = 0;
+    
+    try {
+      await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
+      console.log('[RuntimeConfig] Cache cleared');
+    } catch (error) {
+      console.error('[RuntimeConfig] Failed to clear cache:', error);
+    }
+  }
+
+  /**
+   * Force refresh configuration from API
+   */
+  async refreshConfig(): Promise<RuntimeConfig> {
+    await this.clearCache();
+    return this.getConfig();
+  }
+
+  /**
+   * Check if app is in production environment
+   */
+  async isProduction(): Promise<boolean> {
+    const isStagingMode = await this.isStagingModeEnabled();
+    return !isStagingMode;
+  }
+
+  /**
+   * Check if app is in staging environment
+   */
+  async isStaging(): Promise<boolean> {
+    const isStagingMode = await this.isStagingModeEnabled();
+    return isStagingMode;
+  }
+
+  /**
+   * Get current environment
+   */
+  async getEnvironment(): Promise<string> {
+    const isStagingMode = await this.isStagingModeEnabled();
+    return isStagingMode ? 'staging' : 'production';
+  }
+
+  /**
+   * Get API URL
+   */
+  async getApiUrl(): Promise<string> {
+    const config = await this.getConfig();
+    return config.apiUrl;
+  }
+
+  /**
+   * Get Firebase configuration
+   */
+  async getFirebaseConfig(): Promise<RuntimeConfig['firebaseConfig']> {
+    const config = await this.getConfig();
+    return config.firebaseConfig;
+  }
+}
+
+// Export singleton instance
+export const runtimeConfig = new RuntimeConfigManager();
+
+// Export convenience methods
+export const getRuntimeConfig = () => runtimeConfig.getConfig();
+export const refreshRuntimeConfig = () => runtimeConfig.refreshConfig();
+export const clearRuntimeConfigCache = () => runtimeConfig.clearCache();
+export const isProduction = () => runtimeConfig.isProduction();
+export const isStaging = () => runtimeConfig.isStaging();
+export const getEnvironment = () => runtimeConfig.getEnvironment();
+export const getApiUrl = () => runtimeConfig.getApiUrl();
+export const getFirebaseConfig = () => runtimeConfig.getFirebaseConfig();
+
+// Export developer options
+export const isStagingModeEnabled = () => runtimeConfig.isStagingModeEnabled();
+export const enableStagingMode = () => runtimeConfig.enableStagingMode();
+export const disableStagingMode = () => runtimeConfig.disableStagingMode();
+export const toggleStagingMode = () => runtimeConfig.toggleStagingMode();

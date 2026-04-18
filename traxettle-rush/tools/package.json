@@ -1,0 +1,14 @@
+{
+  "name": "@traxettle/tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Traxettle tools workspace",
+  "workspaces": ["./doctor-tool"],
+  "scripts": {
+    "dev": "npm run dev --workspace=@traxettle/doctor-tool",
+    "build": "npm run build --workspace=@traxettle/doctor-tool",
+    "start": "npm run start --workspace=@traxettle/doctor-tool",
+    "lint": "npm run lint --workspace=@traxettle/doctor-tool",
+    "typecheck": "npm run typecheck --workspace=@traxettle/doctor-tool"
+  }
+}

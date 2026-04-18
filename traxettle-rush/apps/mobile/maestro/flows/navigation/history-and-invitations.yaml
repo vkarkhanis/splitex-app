@@ -1,0 +1,37 @@
+appId: com.traxettle.app
+name: History and Invitations Smoke
+---
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 30000
+- tapOn:
+    id: "dashboard-avatar-menu"
+- tapOn:
+    id: "menu-invitations"
+- extendedWaitUntil:
+    visible: "See all active"
+    timeout: 10000
+- assertVisible: "Email 3-month history"
+- tapOn: "See all active"
+- assertVisible: "Show newest 5"
+- back
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 10000
+- tapOn:
+    id: "dashboard-avatar-menu"
+- tapOn:
+    id: "menu-closed-events"
+- extendedWaitUntil:
+    visible: "Email last 3 months"
+    timeout: 10000
+- assertVisible: "Showing latest 5 closed events"
+- back
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 10000
