@@ -20,9 +20,12 @@ const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.i
 if (GOOGLE_ENABLED) {
   GoogleSignin.configure({
     webClientId: ENV.GOOGLE_WEB_CLIENT_ID,
-    // iosClientId is intentionally omitted — the SDK reads CLIENT_ID
-    // directly from GoogleService-Info.plist, which bootstrap.sh sets
-    // per-environment (local/staging). This avoids mismatches.
+    // Pass iosClientId explicitly so the correct OAuth client is used at
+    // runtime, regardless of which GoogleService-Info.plist was baked into
+    // the binary at build time (local vs staging environments).
+    // The matching REVERSED_CLIENT_ID URL scheme for each environment is
+    // registered in Info.plist so the redirect callback always succeeds.
+    ...(ENV.GOOGLE_IOS_CLIENT_ID ? { iosClientId: ENV.GOOGLE_IOS_CLIENT_ID } : {}),
     offlineAccess: false,
   });
 }

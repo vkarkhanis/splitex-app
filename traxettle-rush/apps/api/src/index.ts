@@ -17,10 +17,13 @@ import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/logger';
 import { initWebSocket } from './config/websocket';
 
-// Load .env files from monorepo root: .env first, then .env.local overrides
+// Load .env files from monorepo root.
+// Priority: process env vars (from scripts) > .env.local > .env
+// Loading .env.local first WITHOUT override means it fills gaps but won't overwrite
+// env vars already set by the calling script (e.g. 03_real_mobile.sh staging).
 const rootDir = path.resolve(__dirname, '..', '..', '..');
+dotenv.config({ path: path.join(rootDir, '.env.local') });
 dotenv.config({ path: path.join(rootDir, '.env') });
-dotenv.config({ path: path.join(rootDir, '.env.local'), override: true });
 
 const app: Express = express();
 const PORT = process.env.PORT || 3001;

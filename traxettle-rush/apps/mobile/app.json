@@ -22,7 +22,20 @@
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Traxettle uses your photo library so you can upload payment proof images for settlements.",
         "NSPhotoLibraryAddUsageDescription": "Traxettle may save generated proof or receipt images to your photo library when requested.",
-        "NSCameraUsageDescription": "Traxettle uses your camera so you can capture payment proof images."
+        "NSCameraUsageDescription": "Traxettle uses your camera so you can capture payment proof images.",
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": ["com.traxettle.app"]
+          },
+          {
+            "CFBundleURLName": "Google Sign-In (local / traxettle-test)",
+            "CFBundleURLSchemes": ["com.googleusercontent.apps.603084161476-j4ht8hs7kk6tqqh273q2ks89udmdc3pe"]
+          },
+          {
+            "CFBundleURLName": "Google Sign-In (staging / traxettle-staging)",
+            "CFBundleURLSchemes": ["com.googleusercontent.apps.943648574702-cvgj086ppdcbqgcagrekjs4pekn0q1ok"]
+          }
+        ]
       },
       "config": {
         "usesNonExemptEncryption": false
