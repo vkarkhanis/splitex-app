@@ -11,4 +11,6 @@ RUN corepack enable \
 WORKDIR /app/apps/api
 ENV NODE_ENV=production
 EXPOSE 8080
-CMD ["node", "dist/index.js"]
+
+# Bootstrap secrets from unified JSON secrets in the same process
+CMD ["node", "--require", "./scripts/bootstrap-secrets.js", "dist/index.js"]

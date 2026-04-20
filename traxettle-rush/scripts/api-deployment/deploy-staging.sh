@@ -67,22 +67,9 @@ if [[ -f "$CONFIG_FILE" ]]; then
   set +a
 fi
 
-SECRET_FIREBASE_PROJECT_ID="traxettle-stg-firebase-project-id"
-SECRET_FIREBASE_CLIENT_EMAIL="traxettle-stg-firebase-client-email"
-SECRET_FIREBASE_PRIVATE_KEY="traxettle-stg-firebase-private-key"
-SECRET_FIREBASE_STORAGE_BUCKET="traxettle-stg-firebase-storage-bucket"
-SECRET_JWT_SECRET="traxettle-stg-jwt-secret"
-SECRET_JWT_REFRESH_SECRET="traxettle-stg-jwt-refresh-secret"
-SECRET_FIREBASE_WEB_API_KEY="traxettle-stg-firebase-web-api-key"
-SECRET_FIREBASE_AUTH_DOMAIN="traxettle-stg-firebase-auth-domain"
-SECRET_FIREBASE_DATABASE_URL="traxettle-stg-firebase-database-url"
-SECRET_FIREBASE_MESSAGING_SENDER_ID="traxettle-stg-firebase-messaging-sender-id"
-SECRET_FIREBASE_APP_ID="traxettle-stg-firebase-app-id"
-SECRET_FIREBASE_MEASUREMENT_ID="traxettle-stg-firebase-measurement-id"
-SECRET_REVENUECAT_WEBHOOK_SECRET="traxettle-stg-revenuecat-webhook-secret"
-SECRET_REVENUECAT_GOOGLE_API_KEY="traxettle-stg-revenuecat-google-api-key"
-SECRET_REVENUECAT_APPLE_API_KEY="traxettle-stg-revenuecat-apple-api-key"
-SECRET_SMTP_PASS="traxettle-stg-smtp-pass"
+# Unified secrets (reduces from 16 to 2 secrets, lowering Secret Manager costs)
+SECRET_API_CONFIG="traxettle-stg-api-config"
+SECRET_MOBILE_CONFIG="traxettle-stg-mobile-config"
 
 # ---- Helpers ----
 fail() {
@@ -102,6 +89,22 @@ require_not_placeholder() {
   fi
 }
 
+prune_old_secret_versions() {
+  local secret_name="$1"
+  gcloud secrets versions list "$secret_name" \
+    --project "$GCP_PROJECT_ID" \
+    --sort-by="~createTime" \
+    --format="value(name)" 2>/dev/null \
+    | tail -n +2 \
+    | while IFS= read -r ver; do
+        ver_num="${ver##*/}"
+        gcloud secrets versions destroy "$ver_num" \
+          --secret="$secret_name" \
+          --project "$GCP_PROJECT_ID" \
+          --quiet >/dev/null 2>&1 || true
+      done
+}
+
 upsert_secret_text() {
   local secret_name="$1"
   local value="$2"
@@ -110,6 +113,7 @@ upsert_secret_text() {
     printf '%s' "$value" | gcloud secrets create "$secret_name" --replication-policy="automatic" --data-file=- --project "$GCP_PROJECT_ID" >/dev/null
   else
     printf '%s' "$value" | gcloud secrets versions add "$secret_name" --data-file=- --project "$GCP_PROJECT_ID" >/dev/null
+    prune_old_secret_versions "$secret_name"
   fi
 }
 
@@ -207,40 +211,39 @@ TMP_KEY_FILE="$(mktemp)"
 trap 'rm -f "$TMP_KEY_FILE"' EXIT
 resolve_private_key_file "$FIREBASE_PRIVATE_KEY_FILE" "$TMP_KEY_FILE"
 
-upsert_secret_text "$SECRET_FIREBASE_PROJECT_ID" "$FIREBASE_PROJECT_ID"
-upsert_secret_text "$SECRET_FIREBASE_CLIENT_EMAIL" "$FIREBASE_CLIENT_EMAIL"
-upsert_secret_file "$SECRET_FIREBASE_PRIVATE_KEY" "$TMP_KEY_FILE"
-upsert_secret_text "$SECRET_FIREBASE_STORAGE_BUCKET" "$FIREBASE_STORAGE_BUCKET"
-upsert_secret_text "$SECRET_JWT_SECRET" "$JWT_SECRET"
-upsert_secret_text "$SECRET_JWT_REFRESH_SECRET" "$JWT_REFRESH_SECRET"
-upsert_secret_text "$SECRET_REVENUECAT_WEBHOOK_SECRET" "$REVENUECAT_WEBHOOK_SECRET"
-if [[ -n "$REVENUECAT_GOOGLE_API_KEY" ]]; then
-  upsert_secret_text "$SECRET_REVENUECAT_GOOGLE_API_KEY" "$REVENUECAT_GOOGLE_API_KEY"
-fi
-if [[ -n "$REVENUECAT_APPLE_API_KEY" ]]; then
-  upsert_secret_text "$SECRET_REVENUECAT_APPLE_API_KEY" "$REVENUECAT_APPLE_API_KEY"
-fi
-if [[ -n "$FIREBASE_WEB_API_KEY" ]]; then
-  upsert_secret_text "$SECRET_FIREBASE_WEB_API_KEY" "$FIREBASE_WEB_API_KEY"
-fi
-if [[ -n "$FIREBASE_AUTH_DOMAIN" ]]; then
-  upsert_secret_text "$SECRET_FIREBASE_AUTH_DOMAIN" "$FIREBASE_AUTH_DOMAIN"
-fi
-if [[ -n "$FIREBASE_DATABASE_URL" ]]; then
-  upsert_secret_text "$SECRET_FIREBASE_DATABASE_URL" "$FIREBASE_DATABASE_URL"
-fi
-if [[ -n "$FIREBASE_MESSAGING_SENDER_ID" ]]; then
-  upsert_secret_text "$SECRET_FIREBASE_MESSAGING_SENDER_ID" "$FIREBASE_MESSAGING_SENDER_ID"
-fi
-if [[ -n "$FIREBASE_APP_ID" ]]; then
-  upsert_secret_text "$SECRET_FIREBASE_APP_ID" "$FIREBASE_APP_ID"
-fi
-if [[ -n "$FIREBASE_MEASUREMENT_ID" ]]; then
-  upsert_secret_text "$SECRET_FIREBASE_MEASUREMENT_ID" "$FIREBASE_MEASUREMENT_ID"
-fi
-if [[ -n "$SMTP_SERVICE" ]]; then
-  upsert_secret_text "$SECRET_SMTP_PASS" "$SMTP_PASS"
-fi
+# Build unified API config JSON
+API_CONFIG_JSON=$(cat <<EOF
+{
+  "FIREBASE_PROJECT_ID": "$FIREBASE_PROJECT_ID",
+  "FIREBASE_CLIENT_EMAIL": "$FIREBASE_CLIENT_EMAIL",
+  "FIREBASE_PRIVATE_KEY": $(jq -Rs . < "$TMP_KEY_FILE" 2>/dev/null || echo "null"),
+  "FIREBASE_STORAGE_BUCKET": "$FIREBASE_STORAGE_BUCKET",
+  "JWT_SECRET": "$JWT_SECRET",
+  "JWT_REFRESH_SECRET": "$JWT_REFRESH_SECRET",
+  "REVENUECAT_WEBHOOK_SECRET": "$REVENUECAT_WEBHOOK_SECRET",
+  "FIREBASE_WEB_API_KEY": "${FIREBASE_WEB_API_KEY:-}",
+  "FIREBASE_AUTH_DOMAIN": "${FIREBASE_AUTH_DOMAIN:-}",
+  "FIREBASE_DATABASE_URL": "${FIREBASE_DATABASE_URL:-}",
+  "FIREBASE_MESSAGING_SENDER_ID": "${FIREBASE_MESSAGING_SENDER_ID:-}",
+  "FIREBASE_APP_ID": "${FIREBASE_APP_ID:-}",
+  "FIREBASE_MEASUREMENT_ID": "${FIREBASE_MEASUREMENT_ID:-}",
+  "SMTP_PASS": "${SMTP_PASS:-}"
+}
+EOF
+)
+
+upsert_secret_text "$SECRET_API_CONFIG" "$API_CONFIG_JSON"
+
+# Build unified mobile config JSON (RevenueCat public keys)
+MOBILE_CONFIG_JSON=$(cat <<EOF
+{
+  "GOOGLE_API_KEY": "${REVENUECAT_GOOGLE_API_KEY:-}",
+  "APPLE_API_KEY": "${REVENUECAT_APPLE_API_KEY:-}"
+}
+EOF
+)
+
+upsert_secret_text "$SECRET_MOBILE_CONFIG" "$MOBILE_CONFIG_JSON"
 
 # ---- Build optional env vars ----
 ENV_VARS="NODE_ENV=${NODE_ENV_VALUE},APP_URL=${APP_URL},REVENUECAT_PRO_ENTITLEMENT_ID=${REVENUECAT_PRO_ENTITLEMENT_ID:-pro}"
@@ -269,38 +272,10 @@ DEPLOY_CMD=(
   --service-account "$RUNTIME_SA_EMAIL"
   --min-instances "$MIN_INSTANCES"
   --set-env-vars "$ENV_VARS"
-  --set-secrets "FIREBASE_PROJECT_ID=${SECRET_FIREBASE_PROJECT_ID}:latest"
-  --set-secrets "FIREBASE_CLIENT_EMAIL=${SECRET_FIREBASE_CLIENT_EMAIL}:latest"
-  --set-secrets "FIREBASE_PRIVATE_KEY=${SECRET_FIREBASE_PRIVATE_KEY}:latest"
-  --set-secrets "FIREBASE_STORAGE_BUCKET=${SECRET_FIREBASE_STORAGE_BUCKET}:latest"
-  --set-secrets "JWT_SECRET=${SECRET_JWT_SECRET}:latest"
-  --set-secrets "JWT_REFRESH_SECRET=${SECRET_JWT_REFRESH_SECRET}:latest"
-  --set-secrets "REVENUECAT_WEBHOOK_SECRET=${SECRET_REVENUECAT_WEBHOOK_SECRET}:latest"
-  --set-secrets "REVENUECAT_GOOGLE_API_KEY=${SECRET_REVENUECAT_GOOGLE_API_KEY}:latest"
-  --set-secrets "REVENUECAT_APPLE_API_KEY=${SECRET_REVENUECAT_APPLE_API_KEY}:latest"
+  --set-secrets "API_CONFIG_SECRET=${SECRET_API_CONFIG}:latest"
+  --set-secrets "MOBILE_CONFIG_SECRET=${SECRET_MOBILE_CONFIG}:latest"
   --project "$GCP_PROJECT_ID"
 )
-if [[ -n "$FIREBASE_WEB_API_KEY" ]]; then
-  DEPLOY_CMD+=(--set-secrets "FIREBASE_WEB_API_KEY=${SECRET_FIREBASE_WEB_API_KEY}:latest")
-fi
-if [[ -n "$FIREBASE_AUTH_DOMAIN" ]]; then
-  DEPLOY_CMD+=(--set-secrets "FIREBASE_AUTH_DOMAIN=${SECRET_FIREBASE_AUTH_DOMAIN}:latest")
-fi
-if [[ -n "$FIREBASE_DATABASE_URL" ]]; then
-  DEPLOY_CMD+=(--set-secrets "FIREBASE_DATABASE_URL=${SECRET_FIREBASE_DATABASE_URL}:latest")
-fi
-if [[ -n "$FIREBASE_MESSAGING_SENDER_ID" ]]; then
-  DEPLOY_CMD+=(--set-secrets "FIREBASE_MESSAGING_SENDER_ID=${SECRET_FIREBASE_MESSAGING_SENDER_ID}:latest")
-fi
-if [[ -n "$FIREBASE_APP_ID" ]]; then
-  DEPLOY_CMD+=(--set-secrets "FIREBASE_APP_ID=${SECRET_FIREBASE_APP_ID}:latest")
-fi
-if [[ -n "$FIREBASE_MEASUREMENT_ID" ]]; then
-  DEPLOY_CMD+=(--set-secrets "FIREBASE_MEASUREMENT_ID=${SECRET_FIREBASE_MEASUREMENT_ID}:latest")
-fi
-if [[ -n "$SMTP_SERVICE" || -n "$SMTP_HOST" ]]; then
-  DEPLOY_CMD+=(--set-secrets "SMTP_PASS=${SECRET_SMTP_PASS}:latest")
-fi
 "${DEPLOY_CMD[@]}"
 
 SERVICE_URL="$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --project "$GCP_PROJECT_ID" --format='value(status.url)')"
