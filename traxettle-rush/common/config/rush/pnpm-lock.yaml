@@ -197,8 +197,8 @@ importers:
         specifier: 0.81.5
         version: 0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0)
       react-native-purchases:
-        specifier: ^8.2.0
-        version: 8.12.0(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+        specifier: ^9.15.2
+        version: 9.15.2(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
       react-native-razorpay:
         specifier: ^2.3.0
         version: 2.3.1(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
@@ -1883,8 +1883,14 @@ packages:
   '@react-navigation/routers@6.1.9':
     resolution: {integrity: sha512-lTM8gSFHSfkJvQkxacGM6VJtBt61ip2XO54aNfswD+KMw6eeZ4oehl7m0me3CR9hnDE4+60iAZR8sAhvCiI3NA==}
 
-  '@revenuecat/purchases-typescript-internal@14.3.0':
-    resolution: {integrity: sha512-P3IhlWvH4wJAM9ypv8HamdIBMQfnLdU9PbjURw+s7NxHOL8LmPGhKuyv+gBINpka27mt1CAsDoOhNHjkexJhkg==}
+  '@revenuecat/purchases-js-hybrid-mappings@17.55.1':
+    resolution: {integrity: sha512-hXnaWqbedzoAQOGcJUT0WtXBa/NyDUp6X5ntQ0F79FdgdceMGIGIS3QtLVC6CgNRUmZlt1xgBOkq+MX3bsBYSQ==}
+
+  '@revenuecat/purchases-js@1.30.0':
+    resolution: {integrity: sha512-aNlk6lPWrJ1DncPnw0WZh8nZKbd5S++EcsQxlLnv3HX/jOnMO54zr0SKsz3GJyFa6zh04N6b3qHAgWWm51EWpg==}
+
+  '@revenuecat/purchases-typescript-internal@17.55.1':
+    resolution: {integrity: sha512-t49IP5hdlLEi+csqH8J8fo+DvCucWBwDnv+bVQca1Ogdry6VnY0HVdH1z743h9F4vKwFGTJ3XK5TUcahlK+U3Q==}
 
   '@rtsao/scc@1.1.0':
     resolution: {integrity: sha512-zt6OdqaDoOnJ1ZYsCYGt9YmWzDXl4vQdKTyJev62gFhRGKdx7mcT54V9KIjg+d2wi9EXsPvAPKe7i7WjfVWB8g==}
@@ -5087,11 +5093,15 @@ packages:
       react: '*'
       react-native: '*'
 
-  react-native-purchases@8.12.0:
-    resolution: {integrity: sha512-0T6WtSDN96swsS6iLeTh7GEGLSedBr4FWP5JsGLnP6Ri7Rp754pf3UJ+S0+ZnT1cqUZ4W2z2oB6zTLyyfNfuKw==}
+  react-native-purchases@9.15.2:
+    resolution: {integrity: sha512-cAGChbjDp1os6Xc8Wfg83w2ey/Xm/Uq5znoRlXwSW4a/Q8f2gCXLikBfH0bOC+diAkwapN70PwKkP12iGYptyg==}
     peerDependencies:
       react: '>= 16.6.3'
-      react-native: '*'
+      react-native: '>= 0.73.0'
+      react-native-web: '*'
+    peerDependenciesMeta:
+      react-native-web:
+        optional: true
 
   react-native-razorpay@2.3.1:
     resolution: {integrity: sha512-aEod2YigiWx9Vik+2YRpTh9kNKK9KZbfhrRpk5tU8z8ZPDdLt57rRsqd7lVuDybqqO6nLY6ughPjMN+FPyX8Ag==}
@@ -8127,7 +8137,13 @@ snapshots:
     dependencies:
       nanoid: 3.3.11
 
-  '@revenuecat/purchases-typescript-internal@14.3.0': {}
+  '@revenuecat/purchases-js-hybrid-mappings@17.55.1':
+    dependencies:
+      '@revenuecat/purchases-js': 1.30.0
+
+  '@revenuecat/purchases-js@1.30.0': {}
+
+  '@revenuecat/purchases-typescript-internal@17.55.1': {}
 
   '@rtsao/scc@1.1.0': {}
 
@@ -12188,9 +12204,10 @@ snapshots:
       react: 19.1.0
       react-native: 0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0)
 
-  react-native-purchases@8.12.0(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0):
+  react-native-purchases@9.15.2(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0):
     dependencies:
-      '@revenuecat/purchases-typescript-internal': 14.3.0
+      '@revenuecat/purchases-js-hybrid-mappings': 17.55.1
+      '@revenuecat/purchases-typescript-internal': 17.55.1
       react: 19.1.0
       react-native: 0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0)
 
