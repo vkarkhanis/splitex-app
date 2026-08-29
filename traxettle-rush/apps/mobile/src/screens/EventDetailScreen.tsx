@@ -37,6 +37,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEventSocket } from '../hooks/useSocket';
 import { usePaymentProviders } from '../hooks/usePaymentProviders';
 import { useFeedback } from '../context/FeedbackContext';
+import { formatExpenseDate } from '../utils/date';
 
 // ── Helpers ──
 
@@ -987,7 +988,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                         {exp.isPrivate && renderBadge('private')}
                       </View>
                       <Text style={[styles.listCardSub, { color: colors.muted }]}>
-                        Paid by {getUserName(exp.paidBy)} · {exp.paidOnBehalfOf && Array.isArray(exp.paidOnBehalfOf) && exp.paidOnBehalfOf.length > 0 ? 'On Behalf' : exp.splitType.charAt(0).toUpperCase() + exp.splitType.slice(1)}
+                        {formatExpenseDate(exp.date, exp.createdAt as any)} · Paid by {getUserName(exp.paidBy)} · {exp.paidOnBehalfOf && Array.isArray(exp.paidOnBehalfOf) && exp.paidOnBehalfOf.length > 0 ? 'On Behalf' : exp.splitType.charAt(0).toUpperCase() + exp.splitType.slice(1)}
                       </Text>
                     </View>
                     <Text style={[styles.amountText, { color: colors.text }]}>{CURRENCY_SYMBOLS[exp.currency] || exp.currency}{exp.amount.toFixed(2)}</Text>
@@ -1616,6 +1617,10 @@ export default function EventDetailScreen({ route, navigation }: any) {
                     <Text style={[styles.expDetailValue, { color: colors.text }]}>
                       {CURRENCY_SYMBOLS[selectedExpense.currency] || selectedExpense.currency}{selectedExpense.amount.toFixed(2)}
                     </Text>
+                  </View>
+                  <View style={styles.expDetailMetaRow}>
+                    <Text style={[styles.expDetailLabel, { color: colors.muted }]}>Date</Text>
+                    <Text style={[styles.expDetailValue, { color: colors.text }]}>{formatExpenseDate(selectedExpense.date, selectedExpense.createdAt as any)}</Text>
                   </View>
                   <View style={styles.expDetailMetaRow}>
                     <Text style={[styles.expDetailLabel, { color: colors.muted }]}>Paid by</Text>
