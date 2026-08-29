@@ -15,6 +15,8 @@ import {
 import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../api';
+import DateField from '../components/DateField';
+import { todayLocalISODate } from '../utils/date';
 import type { EventParticipant, Group, OnBehalfOfEntry } from '@traxettle/shared';
 
 interface SplitEntry {
@@ -63,6 +65,7 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(todayLocalISODate());
   const [expCurrency, setExpCurrency] = useState(currency || 'USD');
   const [splitType, setSplitType] = useState<'equal' | 'ratio' | 'custom'>('equal');
   const [isPrivate, setIsPrivate] = useState(false);
@@ -211,6 +214,7 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
         description: description.trim() || undefined,
         amount: amt,
         currency: expCurrency,
+        date,
         splitType,
         isPrivate,
         splits,
@@ -266,6 +270,9 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
           <TextInput testID="create-expense-amount-input" style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} />
         </View>
       </View>
+
+      <Text style={[styles.label, { color: c.textSecondary }]}>Date</Text>
+      <DateField testID="create-expense-date-input" value={date} onChange={setDate} />
 
       {!isPrivate && (
         <>
