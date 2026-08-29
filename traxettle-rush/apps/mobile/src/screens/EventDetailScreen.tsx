@@ -1814,9 +1814,12 @@ const styles = StyleSheet.create({
   },
   highlightCard: { borderWidth: 1 },
   listCardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  listCardTitle: { fontSize: fontSizes.md, fontWeight: '600' },
+  // flexShrink lets a long title ellipsize (with numberOfLines) responsively on
+  // any screen width instead of overflowing and overlapping the amount.
+  listCardTitle: { fontSize: fontSizes.md, fontWeight: '600', flexShrink: 1 },
   listCardSub: { fontSize: fontSizes.xs, marginTop: 2 },
-  amountText: { fontSize: fontSizes.md, fontWeight: '700' },
+  // amount keeps its intrinsic width so it is never shrunk or overlapped.
+  amountText: { fontSize: fontSizes.md, fontWeight: '700', flexShrink: 0 },
   inlineActions: { flexDirection: 'row', gap: spacing.xs, alignItems: 'center', marginLeft: spacing.xs },
   tinyBtn: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radii.sm, borderWidth: 1 },
   tinyBtnText: { fontSize: fontSizes.xs, fontWeight: '600' },
