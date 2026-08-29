@@ -246,6 +246,14 @@ export default function EventDetailScreen({ route, navigation }: any) {
   }, [visibleExpenses, currentUserId, myEntityId]);
   const myPrivateExpense = useMemo(() => visibleExpenses.filter(e => e.isPrivate).reduce((s, e) => s + e.amount, 0), [visibleExpenses]);
 
+  // ── Expenses list filter: optionally hide private expenses ──
+  const [excludePrivate, setExcludePrivate] = useState(false);
+  const hasPrivateExpenses = useMemo(() => visibleExpenses.some(e => e.isPrivate), [visibleExpenses]);
+  const displayedExpenses = useMemo(
+    () => (excludePrivate ? visibleExpenses.filter(e => !e.isPrivate) : visibleExpenses),
+    [excludePrivate, visibleExpenses],
+  );
+
   // ── Event Actions ──
   const handleEditEvent = async () => {
     setEditEventLoading(true);
@@ -939,7 +947,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                 onPress={() => setActiveTab(tab)}
               >
                 <Text style={[styles.tabText, { color: colors.muted }, activeTab === tab && [styles.tabTextActive, { color: colors.primary }]]}>
-                  {tab === 'expenses' ? `Expenses (${visibleExpenses.length})`
+                  {tab === 'expenses' ? `Expenses (${displayedExpenses.length})`
                     : tab === 'participants' ? `Members (${participants.length})`
                     : tab === 'groups' ? `Groups (${groups.length})`
                     : `Invites (${invitations.length})`}
@@ -972,10 +980,25 @@ export default function EventDetailScreen({ route, navigation }: any) {
                   </TouchableOpacity>
                 </View>
               )}
-              {visibleExpenses.length === 0 ? (
-                <Text style={[styles.emptyText, { color: colors.muted }]}>No expenses yet.</Text>
+              {hasPrivateExpenses && (
+                <TouchableOpacity
+                  testID="event-detail-exclude-private-toggle"
+                  style={styles.filterRow}
+                  activeOpacity={0.7}
+                  onPress={() => setExcludePrivate(v => !v)}
+                >
+                  <View style={[styles.filterCheckbox, { borderColor: colors.border }, excludePrivate && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
+                    {excludePrivate && <Text style={[styles.filterCheckmark, { color: colors.white }]}>✓</Text>}
+                  </View>
+                  <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>Exclude private</Text>
+                </TouchableOpacity>
+              )}
+              {displayedExpenses.length === 0 ? (
+                <Text style={[styles.emptyText, { color: colors.muted }]}>
+                  {excludePrivate && visibleExpenses.length > 0 ? 'No shared expenses.' : 'No expenses yet.'}
+                </Text>
               ) : (
-                visibleExpenses.map(exp => (
+                displayedExpenses.map(exp => (
                   <TouchableOpacity
                     key={exp.id}
                     style={[styles.listCard, { backgroundColor: colors.surface }]}
@@ -1813,6 +1836,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
   },
   highlightCard: { borderWidth: 1 },
+  filterRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+  filterCheckbox: {
+    width: 20, height: 20, borderRadius: 4, borderWidth: 2,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  filterCheckmark: { fontSize: 12, fontWeight: '700' },
+  filterLabel: { fontSize: fontSizes.sm, fontWeight: '600' },
   listCardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   // flexShrink lets a long title ellipsize (with numberOfLines) responsively on
   // any screen width instead of overflowing and overlapping the amount.
