@@ -165,6 +165,8 @@ export interface Expense {
   splits: ExpenseSplit[];
   selectedEntities?: SplitEntity[];
   attachments: string[];
+  /** Date the expense occurred, as a date-only string (YYYY-MM-DD). Falls back to createdAt for legacy records. */
+  date?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -194,6 +196,8 @@ export interface CreateExpenseDto {
   attachments?: string[];
   isPrivate?: boolean;
   paidOnBehalfOf?: OnBehalfOfEntry[];
+  /** Date the expense occurred (YYYY-MM-DD). Defaults to the current date if omitted. */
+  date?: string;
 }
 
 // Settlement Types
@@ -390,6 +394,8 @@ export interface UpdateExpenseDto {
   attachments?: string[];
   isPrivate?: boolean;
   paidOnBehalfOf?: OnBehalfOfEntry[] | null;
+  /** Date the expense occurred (YYYY-MM-DD). */
+  date?: string;
 }
 
 export enum InvitationStatus {
