@@ -15,7 +15,10 @@ import {
 import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../api';
-import type { EventParticipant, Group, OnBehalfOfEntry } from '@traxettle/shared';
+import type { EventFundingModel, EventParticipant, ExpenseFundingSource, Group, OnBehalfOfEntry, PoolConfig, PoolCycleSummary } from '@traxettle/shared';
+import { canRecordAnyway, isReceiptRequired, poolErrorText, poolNoun, resolveFundingModel, toMinor, toPoolError } from '@traxettle/shared';
+import { PaidWithSelector, ReceiptPicker } from '../components/pool/PoolViews';
+import { poolService } from '../services/pool';
 
 interface SplitEntry {
   entityId: string;
@@ -73,13 +76,28 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
   const [currentUserId, setCurrentUserId] = useState('');
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
+  // Pool funding: how it was paid, receipts, and the live pool state.
+  const [fundingModel, setFundingModel] = useState<EventFundingModel>('peer_to_peer');
+  const [poolConfig, setPoolConfig] = useState<PoolConfig | null>(null);
+  const [paidWith, setPaidWith] = useState<ExpenseFundingSource>('self');
+  const [poolSummary, setPoolSummary] = useState<PoolCycleSummary | null>(null);
+  const [receipts, setReceipts] = useState<string[]>([]);
 
   const fetchData = useCallback(async () => {
     try {
-      const [pRes, gRes] = await Promise.all([
+      const [pRes, gRes, eRes] = await Promise.all([
         api.get<EventParticipant[]>(`/api/events/${eventId}/participants`),
         api.get<Group[]>(`/api/groups/event/${eventId}`),
+        api.get<{ currency: string; fundingModel?: EventFundingModel; poolConfig?: PoolConfig }>(`/api/events/${eventId}`),
       ]);
+      const model = resolveFundingModel(eRes.data);
+      setFundingModel(model);
+      if (model !== 'peer_to_peer' && eRes.data?.poolConfig) {
+        setPoolConfig(eRes.data.poolConfig);
+        setPaidWith('pool');
+        if (eRes.data.currency) setExpCurrency(eRes.data.currency);
+        poolService.summary(eventId).then(setPoolSummary).catch(() => undefined);
+      }
       const gData = gRes.data || [];
       setGroups(gData);
       setEntities(buildEntities(pRes.data || [], gData));
@@ -177,10 +195,50 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
     }
   };
 
+  const submitPoolDraw = async (amt: number, alreadyIncurred: boolean) => {
+    setLoading(true);
+    try {
+      await api.post('/api/expenses', {
+        eventId,
+        title: title.trim(),
+        description: description.trim() || undefined,
+        amount: amt,
+        currency: expCurrency,
+        fundingSource: paidWith,
+        attachments: receipts,
+        ...(alreadyIncurred ? { alreadyIncurred: true } : {}),
+      });
+      Alert.alert(paidWith === 'pool_reimbursement' ? 'Claim submitted' : 'Recorded',
+        paidWith === 'pool_reimbursement' ? `You'll be reimbursed once it's approved.` : `"${title}" was paid from the ${poolNoun(poolConfig).toLowerCase()}.`);
+      navigation.goBack();
+    } catch (err: unknown) {
+      const message = poolErrorText(err, expCurrency, 'Failed to create expense');
+      if (canRecordAnyway(toPoolError(err).code) && !alreadyIncurred) {
+        Alert.alert('Not allowed right now', message, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: "It's already paid — record it", onPress: () => void submitPoolDraw(amt, true) },
+        ]);
+      } else {
+        Alert.alert('Error', message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     const amt = parseFloat(amount);
     if (!title.trim() || !amt || amt <= 0) {
       Alert.alert('Error', 'Title and a positive amount are required.');
+      return;
+    }
+
+    if (paidWith !== 'self') {
+      if (isReceiptRequired(poolConfig, paidWith, toMinor(amt, expCurrency)) && receipts.length === 0) {
+        Alert.alert('Receipt needed', 'Attach a receipt to record this.');
+        return;
+      }
+      await submitPoolDraw(amt, false);
       return;
     }
 
@@ -219,6 +277,7 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
           entityId: e.entityId,
           name: e.name,
         })),
+        ...(receipts.length > 0 ? { attachments: receipts } : {}),
       };
 
       if (onBehalfOf && onBehalfOfEntities.length > 0) {
@@ -254,6 +313,12 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
     <ScrollView style={[styles.container, { backgroundColor: c.background }]} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Text style={[styles.heading, { color: c.text }]}>Add Expense</Text>
 
+      {fundingModel !== 'peer_to_peer' && (
+        <PaidWithSelector model={fundingModel} value={paidWith} onChange={setPaidWith} summary={poolSummary}
+          currency={expCurrency} noun={poolNoun(poolConfig)}
+          amountMinor={(() => { const n = parseFloat(amount); return Number.isFinite(n) && n > 0 ? toMinor(n, expCurrency) : 0; })()} />
+      )}
+
       <Text style={[styles.label, { color: c.textSecondary }]}>Title</Text>
       <TextInput testID="create-expense-title-input" style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={title} onChangeText={setTitle} placeholder="e.g. Dinner" placeholderTextColor={c.muted} />
 
@@ -266,6 +331,17 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
           <TextInput testID="create-expense-amount-input" style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} />
         </View>
       </View>
+
+      <ReceiptPicker eventId={eventId} value={receipts} onChange={setReceipts}
+        required={isReceiptRequired(poolConfig, paidWith, (() => { const n = parseFloat(amount); return Number.isFinite(n) && n > 0 ? toMinor(n, expCurrency) : 0; })())} />
+
+      {paidWith === 'pool_reimbursement' && parseFloat(amount) > 0 && (
+        <Text testID="claim-note" style={{ color: c.textSecondary, marginBottom: spacing.md }}>
+          You'll be reimbursed {sym}{parseFloat(amount).toFixed(2)} once it's approved.
+        </Text>
+      )}
+
+      {paidWith === 'self' && (<>
 
       {!isPrivate && (
         <>
@@ -395,16 +471,18 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
         </Text>
       )}
 
+      </>)}
+
       <TouchableOpacity
         testID="create-expense-submit-button"
         style={[styles.submitBtn, { backgroundColor: c.primary }, loading && styles.submitBtnDisabled]}
         onPress={handleSubmit}
-        disabled={loading || splitMismatch}
+        disabled={loading || (paidWith === 'self' && splitMismatch)}
       >
         {loading ? (
           <ActivityIndicator color={c.white} />
         ) : (
-          <Text style={styles.submitBtnText}>Add Expense</Text>
+          <Text style={styles.submitBtnText}>{paidWith === 'pool_reimbursement' ? 'Submit claim' : 'Add Expense'}</Text>
         )}
       </TouchableOpacity>
     </ScrollView>

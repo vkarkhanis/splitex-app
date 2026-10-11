@@ -3,11 +3,14 @@ import { getResolvedApiBaseUrl } from '../config/dev-options';
 export class WebApiError extends Error {
   status: number;
   code?: string;
+  /** Structured details some errors carry (e.g. a refused pool draw). */
+  data?: unknown;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, data?: unknown) {
     super(message);
     this.status = status;
     this.code = code;
+    this.data = data;
   }
 }
 
@@ -80,6 +83,7 @@ async function request<T = any>(
       json.error || json.message || `Request failed with status ${res.status}`,
       res.status,
       json.code,
+      json.data,
     );
     if (res.status === 401) {
       dispatchUnauthorized(error);

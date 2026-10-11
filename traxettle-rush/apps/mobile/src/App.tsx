@@ -46,6 +46,7 @@ import ClosedEventsScreen from './screens/ClosedEventsScreen';
 import HelpScreen from './screens/HelpScreen';
 import AnalyticsScreen from './screens/AnalyticsScreen';
 import UnsettledPaymentsScreen from './screens/UnsettledPaymentsScreen';
+import PoolScreen from './screens/PoolScreen';
 import SetupPinScreen from './screens/SetupPinScreen';
 import UnlockScreen from './screens/UnlockScreen';
 
@@ -99,6 +100,11 @@ function AppStack() {
         name="EventDetail"
         component={EventDetailScreen}
         options={({ route }: any) => ({ title: route.params?.eventName || 'Event' })}
+      />
+      <Stack.Screen
+        name="Pool"
+        component={PoolScreen}
+        options={({ route }: any) => ({ title: route.params?.title || 'Pool' })}
       />
       <Stack.Screen
         name="CreateEvent"

@@ -37,6 +37,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEventSocket } from '../hooks/useSocket';
 import { usePaymentProviders } from '../hooks/usePaymentProviders';
 import { useFeedback } from '../context/FeedbackContext';
+import { isPoolFundedEvent, isPoolFundedExpense, poolNoun } from '@traxettle/shared';
+import type { PoolCycleSummary } from '@traxettle/shared';
+import { poolService } from '../services/pool';
+import { PoolMeterView } from '../components/pool/PoolViews';
 
 // ── Helpers ──
 
@@ -199,6 +203,17 @@ export default function EventDetailScreen({ route, navigation }: any) {
     fetchAll();
   }, [fetchAll, navigation]));
 
+  // ── Pool funding ──
+  const poolFunded = isPoolFundedEvent(event) && Boolean(event?.poolConfig);
+  const [poolSummary, setPoolSummary] = useState<PoolCycleSummary | null>(null);
+  useEffect(() => {
+    if (!poolFunded) return;
+    let cancelled = false;
+    poolService.summary(eventId).then((sum) => { if (!cancelled) setPoolSummary(sum); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [poolFunded, eventId, expenses, settlements]);
+  const openPool = () => navigation.navigate('Pool', { eventId, title: poolNoun(event?.poolConfig) });
+
   // ── Derived State ──
   const isAdmin = participants.some(p => p.userId === currentUserId && p.role === 'admin');
   const currSym = event ? (CURRENCY_SYMBOLS[event.currency] || event.currency) : '$';
@@ -227,6 +242,8 @@ export default function EventDetailScreen({ route, navigation }: any) {
   const visibleExpenses = useMemo(() => {
     if (!currentUserId) return expenses.filter(e => !e.isPrivate);
     return expenses.filter(exp => {
+      // Pool-funded expenses are transparent to every participant.
+      if (isPoolFundedExpense(exp)) return true;
       if (exp.isPrivate) return myEntityMembers.includes(exp.paidBy);
       if (!myEntityId) return false;
       return exp.splits?.some((s: any) => s.entityId === myEntityId);
@@ -709,7 +726,19 @@ export default function EventDetailScreen({ route, navigation }: any) {
             </View>
           </View>
 
-          {/* ── Summary Cards ── */}
+          {/* ── Summary Cards ── (pure pool events have no splits, so show pool spend instead) */}
+          {event.fundingModel === 'pool' ? (
+          <View style={styles.summaryRow}>
+            <View style={[styles.summaryCard, { backgroundColor: colors.surface, shadowColor: colors.black }]}>
+              <Text style={[styles.summaryLabel, { color: colors.muted }]}>Spent from pool</Text>
+              <Text style={[styles.summaryValue, { color: colors.text }]}>{currSym}{visibleExpenses.filter(e => e.poolDraw?.status === 'approved').reduce((sum, e) => sum + e.amount, 0).toFixed(2)}</Text>
+            </View>
+            <View style={[styles.summaryCard, { backgroundColor: colors.surface, shadowColor: colors.black }]}>
+              <Text style={[styles.summaryLabel, { color: colors.muted }]}>Awaiting approval</Text>
+              <Text style={[styles.summaryValue, { color: colors.text }]}>{currSym}{visibleExpenses.filter(e => e.poolDraw?.status === 'pending').reduce((sum, e) => sum + e.amount, 0).toFixed(2)}</Text>
+            </View>
+          </View>
+          ) : (<>
           <View style={styles.summaryRow}>
             <View style={[styles.summaryCard, { backgroundColor: colors.surface, shadowColor: colors.black }]}>
               <Text style={[styles.summaryLabel, { color: colors.muted }]}>Total Expense</Text>
@@ -730,6 +759,23 @@ export default function EventDetailScreen({ route, navigation }: any) {
               <Text style={[styles.summaryValue, { color: colors.text }]}>{currSym}{myPrivateExpense.toFixed(2)}</Text>
             </View>
           </View>
+          </>)}
+
+          {/* ── Pool card ── */}
+          {poolFunded && (
+            <TouchableOpacity testID="event-detail-pool-card" onPress={openPool} activeOpacity={0.8}
+              style={[styles.listCard, { backgroundColor: colors.surface, flexDirection: 'column', alignItems: 'stretch' }]}>
+              <Text style={[styles.listCardTitle, { color: colors.text }]}>{poolNoun(event.poolConfig)} ›</Text>
+              {poolSummary ? (
+                <View style={{ marginTop: 6 }}><PoolMeterView overdraft={poolSummary.overdraft} currency={event.currency} /></View>
+              ) : (
+                <Text style={[styles.listCardSub, { color: colors.muted }]}>Contributions, balance and settle-up</Text>
+              )}
+              {poolSummary && poolSummary.arrears.length > 0 && (
+                <Text style={[styles.listCardSub, { color: colors.warning }]}>{poolSummary.arrears.length} contribution(s) outstanding</Text>
+              )}
+            </TouchableOpacity>
+          )}
 
           {/* Settlement Details button — visible after first settlement generation */}
           {(event.status === 'review' || event.status === 'payment' || event.status === 'settled' || event.status === 'closed') && settlements.length > 0 && (
@@ -952,9 +998,14 @@ export default function EventDetailScreen({ route, navigation }: any) {
             <View style={styles.tabContent}>
               {(event.status === 'active' || event.status === 'review') && (
                 <View style={styles.tabActions}>
-                  {isAdmin && event.status === 'active' && (
+                  {isAdmin && event.status === 'active' && !poolFunded && (
                     <TouchableOpacity testID="event-detail-settle-button" style={[styles.outlineBtn, { borderColor: colors.border }]} onPress={handleSettle}>
                       <Text style={[styles.outlineBtnText, { color: colors.text }]}>Settle Now</Text>
+                    </TouchableOpacity>
+                  )}
+                  {isAdmin && event.status === 'active' && poolFunded && (
+                    <TouchableOpacity testID="event-detail-settle-pool" style={[styles.outlineBtn, { borderColor: colors.border }]} onPress={openPool}>
+                      <Text style={[styles.outlineBtnText, { color: colors.text }]}>Settle up</Text>
                     </TouchableOpacity>
                   )}
                   {isAdmin && event.status === 'review' && (event as any).settlementStale && (
@@ -985,9 +1036,17 @@ export default function EventDetailScreen({ route, navigation }: any) {
                       <View style={styles.listCardHeader}>
                         <Text style={[styles.listCardTitle, { color: colors.text }]} numberOfLines={1}>{exp.title}</Text>
                         {exp.isPrivate && renderBadge('private')}
+                        {isPoolFundedExpense(exp) && (
+                          <Text style={[styles.fxBadge, { color: colors.info, backgroundColor: colors.infoBg }]}>
+                            {exp.fundingSource === 'pool' ? 'Pool' : 'Reimbursed'}{exp.poolDraw?.status === 'pending' ? ' · pending' : exp.poolDraw?.status === 'rejected' ? ' · rejected' : ''}
+                          </Text>
+                        )}
                       </View>
                       <Text style={[styles.listCardSub, { color: colors.muted }]}>
-                        Paid by {getUserName(exp.paidBy)} · {exp.paidOnBehalfOf && Array.isArray(exp.paidOnBehalfOf) && exp.paidOnBehalfOf.length > 0 ? 'On Behalf' : exp.splitType.charAt(0).toUpperCase() + exp.splitType.slice(1)}
+                        {isPoolFundedExpense(exp)
+                          ? `${exp.fundingSource === 'pool' ? 'Paid from the pool' : 'Claimed from the pool'} by ${getUserName(exp.paidBy)}`
+                          : `Paid by ${getUserName(exp.paidBy)} · ${exp.paidOnBehalfOf && Array.isArray(exp.paidOnBehalfOf) && exp.paidOnBehalfOf.length > 0 ? 'On Behalf' : exp.splitType.charAt(0).toUpperCase() + exp.splitType.slice(1)}`}
+                        {exp.attachments?.length ? ` · ${exp.attachments.length} receipt(s)` : ''}
                       </Text>
                     </View>
                     <Text style={[styles.amountText, { color: colors.text }]}>{CURRENCY_SYMBOLS[exp.currency] || exp.currency}{exp.amount.toFixed(2)}</Text>

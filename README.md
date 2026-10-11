@@ -51,6 +51,7 @@ Traxettle is not just a basic bill splitter. Functionally, it supports:
 - closed-event history
 - exports and email-based history delivery
 - payment-method details on user profiles so payers know how to pay the right person
+- money pooling: collect money up front and spend from it — trip kitties, shared-living funds, club treasuries, target collections and single-sponsor budgets, with receipts, approvals, a graduated overdraft and a fair settle-up (see `traxettle-app/docs/utility/MONEY_POOLING_DESIGN.md`)
 
 ### Authentication And Access
 

@@ -12,7 +12,8 @@ docs/
 │   ├── DEPLOYMENT_CHANNELS.md
 │   └── FIRST_RELEASE_CHECKLIST.md
 ├── runbook/             — Running the app locally in different modes
-│   └── LOCAL_DEVELOPMENT.md
+│   ├── LOCAL_DEVELOPMENT.md
+│   └── MONEY_POOLING_TESTING.md
 └── utility/             — Reference docs for integrations and features
     ├── FIREBASE_SETUP.md
     ├── REVENUECAT_INTEGRATION_RUNBOOK.md
@@ -23,6 +24,7 @@ docs/
     ├── 01_SETTLEMENT_PROVIDER_RECOMMENDATION_AND_RUNBOOK.md
     ├── 02_DETAILED_CODE_CHANGES.md
     ├── DESIGN_DOCUMENT.md
+    ├── MONEY_POOLING_DESIGN.md
     └── local-entitlement-test.sh
 ```
 
@@ -30,6 +32,7 @@ docs/
 
 ### Getting Started
 - **[Local Development](runbook/LOCAL_DEVELOPMENT.md)** — 6 run modes (emulator/real Firebase × web/mobile)
+- **[Money Pooling — Run & Test](runbook/MONEY_POOLING_TESTING.md)** — automated suites, quick local run, hand-testing checklist per use case
 - **Doctor Tool UI** — guided, layman-friendly setup flow:
   - Start it from repo root: `cd traxettle-rush/tools/doctor-tool && npm run dev`
   - Then open the printed localhost URL in your browser
@@ -49,6 +52,7 @@ docs/
 - **[Settlement Provider Guide](utility/01_SETTLEMENT_PROVIDER_RECOMMENDATION_AND_RUNBOOK.md)** — Razorpay (INR) + Stripe (intl) integration plan
 - **[Settlement Code Changes](utility/02_DETAILED_CODE_CHANGES.md)** — Detailed code-level changes for payment integration
 - **[Design Document](utility/DESIGN_DOCUMENT.md)** — Core application architecture and design decisions
+- **[Money Pooling Design](utility/MONEY_POOLING_DESIGN.md)** — Pool funding model, use cases, ledger maths, overdraft, API and UI (with as-built notes)
 
 ## Current Auth Session Behavior
 

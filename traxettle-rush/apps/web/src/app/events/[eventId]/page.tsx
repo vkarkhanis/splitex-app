@@ -31,6 +31,10 @@ import {
 import { WebApiError, api } from '../../../utils/api';
 import { useEventSocket } from '../../../hooks/useSocket';
 import { getResolvedApiBaseUrl } from '../../../config/dev-options';
+import { PoolTab } from '../../../components/pool/PoolTab';
+import { SpenderPermissions } from '../../../components/pool/SpenderPermissions';
+import { poolNoun } from '../../../components/pool/poolFormat';
+import { isPoolFundedEvent, isPoolFundedExpense } from '@traxettle/shared';
 import type {
   Event as TraxettleEvent,
   Expense,
@@ -513,7 +517,7 @@ const ProofLink = styled.a`
   }
 `;
 
-type ActiveTab = 'expenses' | 'participants' | 'groups' | 'invitations';
+type ActiveTab = 'pool' | 'expenses' | 'participants' | 'groups' | 'invitations' | 'spenders';
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   USD: '$', EUR: '€', GBP: '£', INR: '₹', JPY: '¥', AUD: 'A$', CAD: 'C$',
@@ -598,6 +602,9 @@ export default function EventDetailPage() {
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ActiveTab>('expenses');
+  const [poolRefreshKey, setPoolRefreshKey] = useState(0);
+  const tabPickedRef = useRef(false);
+  const pickTab = (tab: ActiveTab) => { tabPickedRef.current = true; setActiveTab(tab); };
   const [error, setError] = useState('');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
@@ -665,6 +672,10 @@ export default function EventDetailPage() {
   // Real-time updates via WebSocket — granular handlers to avoid full page refresh
   const fetchAllRef = useRef<() => void>(() => {});
   useEventSocket(eventId, useCallback((type: string, payload: any) => {
+    // Pool balances move with contributions, pool expenses and their payments.
+    if (type.startsWith('pool:') || type.startsWith('expense:') || type.startsWith('settlement:')) {
+      setPoolRefreshKey((k) => k + 1);
+    }
     if (type === 'event:deleted') {
       router.push('/dashboard');
       return;
@@ -793,6 +804,12 @@ export default function EventDetailPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
   useEffect(() => { fetchAllRef.current = fetchAll; }, [fetchAll]);
+
+  // Pool events open on the Pool tab (unless the user already picked a tab).
+  const poolFunded = isPoolFundedEvent(event);
+  useEffect(() => {
+    if (poolFunded && event?.poolConfig && !tabPickedRef.current) setActiveTab('pool');
+  }, [poolFunded, event?.poolConfig]);
 
   const handleEditEvent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1212,6 +1229,8 @@ export default function EventDetailPage() {
     return getUserName(entityId);
   };
 
+  const isSponsorPool = Boolean(poolFunded && event?.poolConfig?.funderMode === 'sponsor');
+
   // Is the current user an admin of this event?
   const isAdmin = currentUserId
     ? participants.some(p => p.userId === currentUserId && p.role === 'admin')
@@ -1245,7 +1264,7 @@ export default function EventDetailPage() {
   // - All shared expenses where this entity is in the splits
   // - Private expenses created by a member of this entity
   const visibleExpenses = currentUserId
-    ? expenses.filter(exp => isSharedWithMyEntity(exp) || isMyEntityPrivate(exp))
+    ? expenses.filter(exp => isPoolFundedExpense(exp) || isSharedWithMyEntity(exp) || isMyEntityPrivate(exp))
     : expenses.filter(exp => !exp.isPrivate); // fallback for unauthenticated: show shared only
 
   // 1. Total Expense = All shared expenses involving this entity + this entity's private expenses
@@ -1315,6 +1334,19 @@ export default function EventDetailPage() {
         <MetaItem>{formatDate(event.startDate)}{event.endDate ? ` – ${formatDate(event.endDate)}` : ''}</MetaItem>
       </MetaRow>
 
+      {event.fundingModel === 'pool' ? (
+        // Pure pool events have no splits, so "your share" cards would read ₹0. The pool tab has the detail.
+        <SummaryGrid data-testid="pool-summary-grid">
+          <SummaryCard>
+            <SummaryLabel>Spent from the {poolNoun(event.poolConfig).toLowerCase()}</SummaryLabel>
+            <SummaryValue>{currSym}{visibleExpenses.filter((e) => e.poolDraw?.status === 'approved').reduce((sum, e) => sum + e.amount, 0).toFixed(2)}</SummaryValue>
+          </SummaryCard>
+          <SummaryCard>
+            <SummaryLabel>Awaiting approval</SummaryLabel>
+            <SummaryValue>{currSym}{visibleExpenses.filter((e) => e.poolDraw?.status === 'pending').reduce((sum, e) => sum + e.amount, 0).toFixed(2)}</SummaryValue>
+          </SummaryCard>
+        </SummaryGrid>
+      ) : (
       <SummaryGrid>
         <SummaryCard>
           <SummaryLabel>Total Expense</SummaryLabel>
@@ -1333,6 +1365,7 @@ export default function EventDetailPage() {
           <SummaryValue>{currSym}{myPrivateExpense.toFixed(2)}</SummaryValue>
         </SummaryCard>
       </SummaryGrid>
+      )}
 
       {/* Settlement Review — approval status shown during review phase */}
       {event.status === 'review' && settlements.length > 0 && (() => {
@@ -1590,28 +1623,68 @@ export default function EventDetailPage() {
       )}
 
       <TabList>
-        <Tab $active={activeTab === 'expenses'} onClick={() => setActiveTab('expenses')} data-testid="tab-expenses">
+        {poolFunded && event.poolConfig && (
+          <Tab $active={activeTab === 'pool'} onClick={() => pickTab('pool')} data-testid="tab-pool">
+            {poolNoun(event.poolConfig)}
+          </Tab>
+        )}
+        <Tab $active={activeTab === 'expenses'} onClick={() => pickTab('expenses')} data-testid="tab-expenses">
           Expenses ({visibleExpenses.length})
         </Tab>
-        <Tab $active={activeTab === 'participants'} onClick={() => setActiveTab('participants')} data-testid="tab-participants">
-          Participants ({participants.length})
-        </Tab>
-        <Tab $active={activeTab === 'groups'} onClick={() => setActiveTab('groups')} data-testid="tab-groups">
-          Groups ({groups.length})
-        </Tab>
-        <Tab $active={activeTab === 'invitations'} onClick={() => setActiveTab('invitations')} data-testid="tab-invitations">
-          Invitations ({invitations.length})
-        </Tab>
+        {isSponsorPool ? (
+          <Tab $active={activeTab === 'spenders'} onClick={() => pickTab('spenders')} data-testid="tab-spenders">
+            Spenders ({Math.max(0, participants.length - 1)})
+          </Tab>
+        ) : (
+          <>
+            <Tab $active={activeTab === 'participants'} onClick={() => pickTab('participants')} data-testid="tab-participants">
+              Participants ({participants.length})
+            </Tab>
+            <Tab $active={activeTab === 'groups'} onClick={() => pickTab('groups')} data-testid="tab-groups">
+              Groups ({groups.length})
+            </Tab>
+            <Tab $active={activeTab === 'invitations'} onClick={() => pickTab('invitations')} data-testid="tab-invitations">
+              Invitations ({invitations.length})
+            </Tab>
+          </>
+        )}
       </TabList>
+
+      {/* Pool Tab */}
+      {activeTab === 'pool' && poolFunded && event.poolConfig && (
+        <TabPanel data-testid="pool-panel">
+          <PoolTab
+            event={event}
+            currentUserId={currentUserId}
+            participants={participants}
+            groups={groups}
+            settlements={settlements}
+            refreshKey={poolRefreshKey}
+            onChanged={() => fetchAllRef.current()}
+          />
+        </TabPanel>
+      )}
+
+      {/* Spenders Tab (sponsor budgets): permissions, then people, groups and invitations */}
+      {activeTab === 'spenders' && isSponsorPool && (
+        <TabPanel data-testid="spenders-panel">
+          <SpenderPermissions event={event} participants={participants} groups={groups} canEdit={isAdmin && event.status === 'active'} onSaved={() => fetchAllRef.current()} />
+        </TabPanel>
+      )}
 
       {/* Expenses Tab */}
       {activeTab === 'expenses' && (
         <TabPanel data-testid="expenses-panel">
           {(event.status === 'active' || event.status === 'review') && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12, gap: 8 }}>
-              {isAdmin && event.status === 'active' && (
+              {isAdmin && event.status === 'active' && !poolFunded && (
                 <Button $variant="outline" onClick={handleSettle} disabled={settleLoading} data-testid="settle-btn">
                   {settleLoading ? 'Calculating...' : 'Settle Now'}
+                </Button>
+              )}
+              {isAdmin && event.status === 'active' && poolFunded && (
+                <Button $variant="outline" onClick={() => pickTab('pool')} data-testid="settle-pool-btn">
+                  Settle up in {poolNoun(event.poolConfig)}
                 </Button>
               )}
               {isAdmin && event.status === 'review' && (event as any).settlementStale && (
@@ -1648,10 +1721,16 @@ export default function EventDetailPage() {
                           <ListItemTitle>
                             {expense.title}
                             {expense.isPrivate && <Badge $variant="warning" style={{ marginLeft: 8, fontSize: 10 }}>Private</Badge>}
+                            {expense.fundingSource === 'pool' && <Badge $variant="info" style={{ marginLeft: 8, fontSize: 10 }} data-testid={`funding-badge-${expense.id}`}>Pool</Badge>}
+                            {expense.fundingSource === 'pool_reimbursement' && <Badge $variant="info" style={{ marginLeft: 8, fontSize: 10 }} data-testid={`funding-badge-${expense.id}`}>Reimbursed</Badge>}
+                            {expense.poolDraw?.status === 'pending' && <Badge $variant="warning" style={{ marginLeft: 6, fontSize: 10 }}>Awaiting approval</Badge>}
+                            {expense.poolDraw?.status === 'rejected' && <Badge $variant="error" style={{ marginLeft: 6, fontSize: 10 }}>Rejected</Badge>}
                             <span style={{ fontSize: 11, marginLeft: 6, opacity: 0.5 }}>{isExpanded ? '▲' : '▼'}</span>
                           </ListItemTitle>
                           <ListItemSub>
-                            Paid by: {getUserName(expense.paidBy)} · {expense.paidOnBehalfOf && expense.paidOnBehalfOf.length > 0 ? 'On Behalf' : expense.splitType.charAt(0).toUpperCase() + expense.splitType.slice(1)} split{!expense.isPrivate && ` · ${expense.splits.length} split(s)`}
+                            {isPoolFundedExpense(expense)
+                              ? <>{expense.fundingSource === 'pool' ? 'Paid from the pool' : 'Claimed from the pool'} by {getUserName(expense.paidBy)}{expense.attachments?.length ? ` · ${expense.attachments.length} receipt(s)` : ''}</>
+                              : <>Paid by: {getUserName(expense.paidBy)} · {expense.paidOnBehalfOf && expense.paidOnBehalfOf.length > 0 ? 'On Behalf' : expense.splitType.charAt(0).toUpperCase() + expense.splitType.slice(1)} split{!expense.isPrivate && ` · ${expense.splits.length} split(s)`}{expense.attachments?.length ? ` · ${expense.attachments.length} receipt(s)` : ''}</>}
                           </ListItemSub>
                         </ListItemInfo>
                         <Amount>{sym}{expense.amount.toFixed(2)}</Amount>
@@ -1699,6 +1778,21 @@ export default function EventDetailPage() {
                           </SplitDetailGrid>
                         </SplitDetailPanel>
                       )}
+                      {isExpanded && (expense.attachments?.length ?? 0) > 0 && (
+                        <SplitDetailPanel data-testid={`expense-receipts-${expense.id}`}>
+                          <SplitMetaRow>
+                            <SplitMetaItem>
+                              <strong>Receipts:</strong>{' '}
+                              {expense.attachments.map((url, i) => (
+                                <a key={url} href={resolveProofHref(url)} target="_blank" rel="noreferrer" style={{ marginRight: 10 }}>
+                                  Receipt {i + 1}
+                                </a>
+                              ))}
+                            </SplitMetaItem>
+                            {isPoolFundedExpense(expense) && expense.description && <SplitMetaItem><strong>Note:</strong> {expense.description}</SplitMetaItem>}
+                          </SplitMetaRow>
+                        </SplitDetailPanel>
+                      )}
                     </ExpenseRowWrapper>
                   );
                 })}
@@ -1709,7 +1803,7 @@ export default function EventDetailPage() {
       )}
 
       {/* Participants Tab */}
-      {activeTab === 'participants' && (
+      {(activeTab === 'participants' || activeTab === 'spenders') && (
         <TabPanel data-testid="participants-panel">
           {event.status === 'active' && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -1761,7 +1855,7 @@ export default function EventDetailPage() {
       )}
 
       {/* Groups Tab */}
-      {activeTab === 'groups' && (
+      {(activeTab === 'groups' || activeTab === 'spenders') && (
         <TabPanel data-testid="groups-panel">
           {event.status === 'active' && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -1807,7 +1901,7 @@ export default function EventDetailPage() {
       )}
 
       {/* Invitations Tab */}
-      {activeTab === 'invitations' && (
+      {(activeTab === 'invitations' || activeTab === 'spenders') && (
         <TabPanel data-testid="invitations-panel">
           {event.status === 'active' && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>

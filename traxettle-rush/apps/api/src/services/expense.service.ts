@@ -1,10 +1,29 @@
-import { Expense, CreateExpenseDto, UpdateExpenseDto, ExpenseSplit } from '@traxettle/shared';
+import { Expense, CreateExpenseDto, UpdateExpenseDto, ExpenseSplit, isPoolFundedExpense } from '@traxettle/shared';
+import type { PoolDrawState, PoolExpenseFlag } from '@traxettle/shared';
 import { db } from '../config/firebase';
+
+/** Pool fields are only present on pool-funded expenses; absent means 'self'. */
+function poolFields(data: Record<string, any>): Partial<Expense> {
+  if (!data.fundingSource || data.fundingSource === 'self') return {};
+  return {
+    fundingSource: data.fundingSource,
+    poolCycleId: data.poolCycleId,
+    poolDraw: data.poolDraw,
+    poolFlags: Array.isArray(data.poolFlags) ? data.poolFlags : [],
+  };
+}
+
+export interface PoolExpenseFields {
+  fundingSource: 'pool' | 'pool_reimbursement';
+  poolCycleId: string;
+  poolDraw: PoolDrawState;
+  poolFlags: PoolExpenseFlag[];
+}
 
 export class ExpenseService {
   private collection = 'expenses';
 
-  async createExpense(userId: string, dto: CreateExpenseDto): Promise<Expense> {
+  async createExpense(userId: string, dto: CreateExpenseDto, pool?: PoolExpenseFields): Promise<Expense> {
     const now = new Date().toISOString();
 
     // Validate splits sum to amount for custom splits (skip for private expenses)
@@ -35,6 +54,18 @@ export class ExpenseService {
       expenseData.paidOnBehalfOf = dto.paidOnBehalfOf;
     }
 
+    // Pool-funded expenses: transparent to everyone, splits optional (used only
+    // for consumption-weighted sharing). Peer-to-peer expenses get no pool fields.
+    if (pool) {
+      expenseData.fundingSource = pool.fundingSource;
+      expenseData.poolCycleId = pool.poolCycleId;
+      expenseData.poolDraw = pool.poolDraw;
+      expenseData.poolFlags = pool.poolFlags;
+      expenseData.isPrivate = false;
+      expenseData.splits = dto.splits || [];
+      expenseData.splitType = dto.splitType || 'equal';
+    }
+
     const docRef = await db.collection(this.collection).add(expenseData);
 
     return {
@@ -63,6 +94,7 @@ export class ExpenseService {
       splitType: data.splitType,
       splits: data.splits || [],
       attachments: data.attachments || [],
+      ...poolFields(data),
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
     } as Expense;
@@ -90,13 +122,20 @@ export class ExpenseService {
         splitType: data.splitType,
         splits: data.splits || [],
         attachments: data.attachments || [],
+        ...poolFields(data),
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
       } as Expense;
     });
   }
 
-  async updateExpense(expenseId: string, userId: string, dto: UpdateExpenseDto, isAdmin = false): Promise<Expense | null> {
+  async updateExpense(
+    expenseId: string,
+    userId: string,
+    dto: UpdateExpenseDto,
+    isAdmin = false,
+    poolUpdate?: Pick<PoolExpenseFields, 'poolDraw' | 'poolFlags'>,
+  ): Promise<Expense | null> {
     const expense = await this.getExpense(expenseId);
     if (!expense) return null;
 
@@ -129,6 +168,13 @@ export class ExpenseService {
     if (dto.paidOnBehalfOf !== undefined) {
       // null clears the field, array sets it
       updates.paidOnBehalfOf = dto.paidOnBehalfOf || [];
+    }
+    if (poolUpdate) {
+      updates.poolDraw = poolUpdate.poolDraw;
+      updates.poolFlags = poolUpdate.poolFlags;
+    }
+    if (isPoolFundedExpense(expense)) {
+      updates.isPrivate = false; // pool ledgers are always transparent
     }
 
     await db.collection(this.collection).doc(expenseId).set(updates, { merge: true });
@@ -176,6 +222,8 @@ export class ExpenseService {
     const balances: Record<string, number> = {};
 
     for (const expense of expenses) {
+      // Pool-funded expenses draw down the pool; they create no debt between people.
+      if (isPoolFundedExpense(expense)) continue;
       // Payer gets credited
       balances[expense.paidBy] = (balances[expense.paidBy] || 0) + expense.amount;
 

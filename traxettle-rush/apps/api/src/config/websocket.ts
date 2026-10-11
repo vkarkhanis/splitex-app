@@ -77,6 +77,8 @@ export type WsEventType =
   | 'invitation:revoked'
   | 'settlement:generated'
   | 'settlement:updated'
+  | 'pool:updated'
+  | 'pool:alert'
   | 'user:tier-updated';
 
 /**

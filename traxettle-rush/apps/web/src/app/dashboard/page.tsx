@@ -17,7 +17,10 @@ import {
 } from '@traxettle/ui';
 import { api } from '../../utils/api';
 import { useMultiEventSocket } from '../../hooks/useSocket';
-import type { Event as TraxettleEvent } from '@traxettle/shared';
+import type { Event as TraxettleEvent, PoolCycleSummary } from '@traxettle/shared';
+import { isPoolFundedEvent } from '@traxettle/shared';
+import { PoolTileStatus } from '../../components/pool/PoolTileStatus';
+import { poolApi } from '../../utils/pool-api';
 import GuidedTour from '../../components/GuidedTour';
 import { hasCompletedWebTour, markWebTourCompleted } from '../../services/onboarding';
 
@@ -129,6 +132,7 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
   const [unsettledSummary, setUnsettledSummary] = useState<{ pendingCount: number; eventCount: number } | null>(null);
   const [mode, setMode] = useState<'latest' | 'active'>('latest');
+  const [poolSummaries, setPoolSummaries] = useState<Record<string, PoolCycleSummary>>({});
   const [tourVisible, setTourVisible] = useState(false);
   const [tourStep, setTourStep] = useState(0);
 
@@ -174,9 +178,22 @@ export default function DashboardPage() {
     return () => { cancelled = true; };
   }, []);
 
+  // Pool events show their balance on the tile.
+  const loadPoolSummary = useCallback((eventId: string) => {
+    poolApi.summary(eventId)
+      .then((res) => { if (res.data) setPoolSummaries((prev) => ({ ...prev, [eventId]: res.data! })); })
+      .catch(() => undefined);
+  }, []);
+  const poolEventIds = useMemo(() => events.filter((e) => isPoolFundedEvent(e) && e.poolConfig).map((e) => e.id), [events]);
+  useEffect(() => { poolEventIds.forEach(loadPoolSummary); }, [poolEventIds.join(','), loadPoolSummary]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Subscribe to real-time updates for all visible events
   const eventIds = useMemo(() => events.map(e => e.id), [events]);
   useMultiEventSocket(eventIds, useCallback((type: string, payload: any) => {
+    if (type === 'pool:updated' || type === 'settlement:updated') {
+      const eid = payload?.eventId;
+      if (eid && poolEventIds.includes(eid)) loadPoolSummary(eid);
+    }
     if (type === 'event:updated') {
       const eid = payload?.eventId;
       const newStatus = payload?.event?.status || payload?.status;
@@ -196,7 +213,7 @@ export default function DashboardPage() {
         setEvents(prev => prev.filter(e => e.id !== eid));
       }
     }
-  }, []));
+  }, [poolEventIds, loadPoolSummary]));
 
   const emailHistory = async () => {
     try {
@@ -308,6 +325,9 @@ export default function DashboardPage() {
                   <MetaItem>{event.currency}</MetaItem>
                   {event.startDate && <MetaItem>{formatDate(event.startDate)}</MetaItem>}
                 </EventMeta>
+                {event.poolConfig && poolSummaries[event.id] && (
+                  <PoolTileStatus summary={poolSummaries[event.id]} config={event.poolConfig} currency={event.currency} />
+                )}
               </CardBody>
             </EventCard>
           ))}

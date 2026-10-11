@@ -18,7 +18,10 @@ import {
   useToast,
 } from '@traxettle/ui';
 import { api } from '../../../../../../utils/api';
-import type { EventParticipant, Group, Expense, OnBehalfOfEntry } from '@traxettle/shared';
+import type { EventParticipant, Group, Expense, OnBehalfOfEntry, ExpenseFundingSource } from '@traxettle/shared';
+import { isPoolFundedExpense } from '@traxettle/shared';
+import { ReceiptField } from '../../../../../../components/pool/ReceiptField';
+import { canRecordAnyway, poolErrorText, toPoolError } from '../../../../../../components/pool/poolFormat';
 
 const Page = styled.div`
   width: 100%;
@@ -239,6 +242,12 @@ export default function EditExpensePage() {
   });
 
   const [currentUserId, setCurrentUserId] = useState<string>('');
+  // Pool-funded expenses keep how they were paid; only details and receipts change.
+  const [fundingSource, setFundingSource] = useState<ExpenseFundingSource>('self');
+  const [receipts, setReceipts] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [canOverride, setCanOverride] = useState(false);
+  const isPoolDraw = fundingSource !== 'self';
 
   const [entities, setEntities] = useState<SplitEntry[]>([]);
 
@@ -266,6 +275,8 @@ export default function EditExpensePage() {
         const obEntries: OnBehalfOfEntry[] = Array.isArray(expense.paidOnBehalfOf)
           ? expense.paidOnBehalfOf
           : [];
+        setFundingSource(isPoolFundedExpense(expense) ? expense.fundingSource! : 'self');
+        setReceipts(Array.isArray(expense.attachments) ? expense.attachments : []);
         setForm({
           title: expense.title,
           description: expense.description || '',
@@ -382,11 +393,38 @@ export default function EditExpensePage() {
   const splitMismatch = !form.isPrivate && expenseAmount > 0 && selectedEntities.length > 0
     && Math.abs(splitTotal - expenseAmount) > 0.01;
 
+  const savePoolDraw = async (amount: number, alreadyIncurred: boolean) => {
+    setLoading(true);
+    setError('');
+    setCanOverride(false);
+    try {
+      await api.put(`/api/expenses/${expenseId}`, {
+        title: form.title.trim(),
+        description: form.description.trim(),
+        amount,
+        attachments: receipts,
+        ...(alreadyIncurred ? { alreadyIncurred: true } : {}),
+      });
+      pushToast({ type: 'success', title: 'Expense Updated', message: `"${form.title}" has been updated.` });
+      router.push(`/events/${eventId}`);
+    } catch (err) {
+      setError(poolErrorText(err, form.currency, 'Failed to update expense'));
+      if (canRecordAnyway(toPoolError(err).code) && !alreadyIncurred) setCanOverride(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const amount = parseFloat(form.amount);
     if (!form.title.trim() || !amount || amount <= 0) {
       setError('Title and a positive amount are required.');
+      return;
+    }
+
+    if (isPoolDraw) {
+      await savePoolDraw(amount, false);
       return;
     }
 
@@ -428,6 +466,7 @@ export default function EditExpensePage() {
       } else {
         payload.paidOnBehalfOf = null;
       }
+      payload.attachments = receipts;
 
       await api.put(`/api/expenses/${expenseId}`, payload);
 
@@ -467,6 +506,13 @@ export default function EditExpensePage() {
         </CardHeader>
         <CardBody>
           <Form onSubmit={handleSubmit} data-testid="edit-expense-form">
+            {isPoolDraw && (
+              <div style={{ fontSize: 13 }} data-testid="edit-paid-with">
+                <strong>Paid with:</strong> {fundingSource === 'pool' ? 'Pool funds' : 'My money — claimed back from the pool'}
+                <div style={{ fontSize: 12, opacity: 0.7 }}>To change how it was paid, delete this expense and add it again.</div>
+              </div>
+            )}
+
             <Field>
               <Label htmlFor="expense-title">Title</Label>
               <Input
@@ -516,7 +562,7 @@ export default function EditExpensePage() {
                   data-testid="expense-currency-select"
                   value={form.currency}
                   onChange={(e) => updateForm({ currency: e.target.value })}
-                  disabled={loading}
+                  disabled={loading || isPoolDraw}
                 >
                   <option value="USD">$ USD</option>
                   <option value="EUR">€ EUR</option>
@@ -527,6 +573,10 @@ export default function EditExpensePage() {
               </Field>
             </Row>
 
+            <ReceiptField eventId={eventId} value={receipts} onChange={setReceipts} disabled={loading} onUploadingChange={setUploading}
+              required={fundingSource === 'pool_reimbursement'} />
+
+            {!isPoolDraw && (<>
             {/* Private expense toggle */}
             <PrivateToggle>
               <input
@@ -726,7 +776,15 @@ export default function EditExpensePage() {
               </ErrorText>
             )}
 
+            </>)}
+
             {error && <ErrorText data-testid="edit-expense-error">{error}</ErrorText>}
+            {canOverride && (
+              <Button type="button" $variant="outline" disabled={loading} data-testid="record-anyway"
+                onClick={() => void savePoolDraw(parseFloat(form.amount), true)}>
+                It&apos;s already paid — save it anyway
+              </Button>
+            )}
 
             <Buttons>
               <Button type="button" $variant="outline" onClick={() => router.back()} disabled={loading}>
@@ -735,7 +793,7 @@ export default function EditExpensePage() {
               <Button
                 type="submit"
                 $variant="primary"
-                disabled={loading || !form.title.trim() || !form.amount || splitMismatch}
+                disabled={loading || uploading || !form.title.trim() || !form.amount || (!isPoolDraw && splitMismatch)}
                 data-testid="edit-expense-submit"
               >
                 {loading ? 'Saving...' : 'Save Changes'}

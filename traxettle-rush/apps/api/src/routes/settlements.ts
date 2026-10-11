@@ -6,34 +6,19 @@ import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { emitToEvent } from '../config/websocket';
 import { notifyEventParticipants } from '../utils/notification-helper';
 import { EntitlementService } from '../services/entitlement.service';
-import { db, storage, firebaseApp } from '../config/firebase';
+import { db } from '../config/firebase';
+import { storeUpload, UploadError } from '../services/upload.service';
+import { PoolError, PoolService } from '../services/pool.service';
 
 const router: Router = Router();
 const settlementService = new SettlementService();
+const poolService = new PoolService();
 const entitlementService = new EntitlementService();
 const paymentService = new PaymentService();
 
 function isProdRuntime(): boolean {
   const env = (process.env.APP_ENV || process.env.RUNTIME_ENV || process.env.NODE_ENV || '').toLowerCase();
   return env === 'production';
-}
-
-function buildEmulatorObjectUrl(bucketName: string, objectPath: string): string | null {
-  const emulatorHost = process.env.STORAGE_EMULATOR_HOST;
-  if (!emulatorHost) return null;
-  // Return an API-relative path so clients access the file through the API
-  // server (which is already reachable from all platforms).
-  const encodedPath = encodeURIComponent(objectPath);
-  return `/api/settlements/storage-proxy/${encodedPath}?bucket=${encodeURIComponent(bucketName)}`;
-}
-
-function resolveBucketName(): string | undefined {
-  const fromEnv = process.env.FIREBASE_STORAGE_BUCKET;
-  if (fromEnv) return fromEnv;
-  const fromApp = firebaseApp?.options?.storageBucket;
-  if (typeof fromApp === 'string' && fromApp.trim()) return fromApp;
-  const projectId = process.env.FIREBASE_PROJECT_ID || (firebaseApp?.options?.projectId as string | undefined);
-  return projectId ? `${projectId}.appspot.com` : undefined;
 }
 
 // Get entity balances for an event (preview before settlement)
@@ -97,6 +82,8 @@ router.get('/unsettled-payments', requireAuth, async (req: AuthenticatedRequest,
 router.post('/event/:eventId/generate', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const uid = req.user!.uid;
+    // Pool-funded events reconcile the pool first so the plan includes it.
+    await poolService.prepareForSettlement(req.params.eventId, uid);
     const plan = await settlementService.generateSettlement(req.params.eventId, uid);
     emitToEvent(req.params.eventId, 'settlement:generated', { plan });
     // Emit event:updated so dashboard tiles reflect the new status (review or settled)
@@ -107,6 +94,9 @@ router.post('/event/:eventId/generate', requireAuth, async (req: AuthenticatedRe
     });
     return res.status(201).json({ success: true, data: plan } as ApiResponse);
   } catch (err: any) {
+    if (err instanceof PoolError) {
+      return res.status(err.statusCode).json({ success: false, error: err.message, code: err.code, data: err.data } as ApiResponse);
+    }
     console.error('POST /settlements/event/:eventId/generate error:', err);
     if (err.message?.includes('Forbidden')) {
       return res.status(403).json({ success: false, error: err.message } as ApiResponse);
@@ -191,67 +181,15 @@ router.post('/:settlementId/upload-proof', requireAuth, async (req: Authenticate
       return res.status(403).json({ success: false, error: 'Forbidden: Only payer can upload payment proof' } as ApiResponse);
     }
 
-    const filename = typeof req.body?.filename === 'string' ? req.body.filename : `proof-${Date.now()}.jpg`;
-    const contentType = typeof req.body?.contentType === 'string' ? req.body.contentType : 'image/jpeg';
-    const base64Raw = typeof req.body?.base64 === 'string' ? req.body.base64 : '';
-    const base64 = base64Raw.replace(/^data:[^;]+;base64,/, '');
-    if (!base64) {
-      return res.status(400).json({ success: false, error: 'base64 is required' } as ApiResponse);
-    }
-
-    const buffer = Buffer.from(base64, 'base64');
-    const allowedTypes = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
-    if (!allowedTypes.has(contentType.toLowerCase())) {
-      return res.status(400).json({ success: false, error: 'Unsupported proof file type. Allowed: JPG, PNG, WEBP, HEIC' } as ApiResponse);
-    }
-
-    const maxBytes = 5 * 1024 * 1024;
-    if (!buffer.length || buffer.length > maxBytes) {
-      return res.status(400).json({ success: false, error: 'Invalid proof size (max 5MB)' } as ApiResponse);
-    }
-
-    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const filePath = `settlements/${settlementId}/proofs/${uid}-${Date.now()}-${safeName}`;
-    const bucketName = resolveBucketName() || 'default-bucket';
-
-    let proofUrl: string;
-    const emulatorHost = process.env.STORAGE_EMULATOR_HOST;
-
-    if (emulatorHost) {
-      // Upload directly via HTTP to the storage emulator (Admin SDK defaults
-      // to HTTPS which the emulator doesn't support).
-      const uploadUrl = `http://${emulatorHost}/upload/storage/v1/b/${encodeURIComponent(bucketName)}/o?uploadType=media&name=${encodeURIComponent(filePath)}`;
-      const uploadRes = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': contentType },
-        body: buffer,
-      });
-      if (!uploadRes.ok) {
-        const errText = await uploadRes.text().catch(() => '');
-        throw new Error(`Storage emulator upload failed (${uploadRes.status}): ${errText}`);
-      }
-      proofUrl = buildEmulatorObjectUrl(bucketName, filePath)!;
-    } else {
-      // Production: use Admin SDK
-      const bucket = storage.bucket(bucketName);
-      const file = bucket.file(filePath);
-      await file.save(buffer, {
-        metadata: { contentType },
-        resumable: false,
-      } as any);
-
-      const [signedUrl] = await file.getSignedUrl({
-        action: 'read',
-        expires: new Date('2099-01-01'),
-      } as any);
-      proofUrl = signedUrl;
-    }
-
+    const stored = await storeUpload(`settlements/${settlementId}/proofs`, uid, req.body || {}, { noun: 'proof' });
     return res.json({
       success: true,
-      data: { proofUrl, filePath, contentType, size: buffer.length },
+      data: { proofUrl: stored.url, filePath: stored.filePath, contentType: stored.contentType, size: stored.size },
     } as ApiResponse);
   } catch (err: any) {
+    if (err instanceof UploadError) {
+      return res.status(err.statusCode).json({ success: false, error: err.message } as ApiResponse);
+    }
     console.error('POST /settlements/:settlementId/upload-proof error:', err);
     return res.status(500).json({ success: false, error: 'Failed to upload proof' } as ApiResponse);
   }

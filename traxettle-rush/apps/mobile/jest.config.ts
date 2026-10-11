@@ -16,6 +16,7 @@ const config: Config = {
     'src/hooks/useSocket.ts',
     'src/context/AuthContext.tsx',
     'src/context/ThemeContext.tsx',
+    'src/services/pool.ts',
   ],
   coverageDirectory: 'coverage',
   coverageThreshold: {

@@ -20,7 +20,9 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme, THEME_NAMES } from '../context/ThemeContext';
 import { usePurchase } from '../context/PurchaseContext';
 import { api } from '../api';
-import type { Event as TraxettleEvent } from '@traxettle/shared';
+import type { Event as TraxettleEvent, PoolCycleSummary } from '@traxettle/shared';
+import { formatMinor, isPoolFundedEvent, poolNoun } from '@traxettle/shared';
+import { poolService } from '../services/pool';
 import GuidedWalkthrough from '../components/GuidedWalkthrough';
 import { hasCompletedWalkthrough, markWalkthroughCompleted } from '../services/onboarding';
 
@@ -32,6 +34,7 @@ export default function DashboardScreen({ navigation, route }: any) {
   const c = theme.colors;
   const { isPro, priceString } = usePurchase();
   const [events, setEvents] = useState<TraxettleEvent[]>([]);
+  const [poolSummaries, setPoolSummaries] = useState<Record<string, PoolCycleSummary>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
@@ -188,7 +191,12 @@ export default function DashboardScreen({ navigation, route }: any) {
   const fetchEvents = useCallback(async () => {
     try {
       const { data } = await api.get<TraxettleEvent[]>('/api/events');
-      setEvents((data || []).filter((e: TraxettleEvent) => e.status !== 'closed'));
+      const visible = (data || []).filter((e: TraxettleEvent) => e.status !== 'closed');
+      setEvents(visible);
+      // Pool events show their balance on the tile (best-effort).
+      for (const e of visible.filter((ev) => isPoolFundedEvent(ev) && ev.poolConfig)) {
+        poolService.summary(e.id).then((sum) => setPoolSummaries((prev) => ({ ...prev, [e.id]: sum }))).catch(() => undefined);
+      }
     } catch {
       // silently fail
     } finally {
@@ -245,6 +253,22 @@ export default function DashboardScreen({ navigation, route }: any) {
             <Text style={[styles.fxBadge, { color: c.info, backgroundColor: c.infoBg }]}>FX → {item.settlementCurrency}</Text>
           )}
         </View>
+        {item.poolConfig && poolSummaries[item.id] && (() => {
+          const sum = poolSummaries[item.id];
+          const o = sum.overdraft;
+          const due = sum.arrears.reduce((acc, a) => acc + a.outstandingMinor, 0);
+          const color = o.zone === 'blocked' ? c.error : o.zone === 'overdrawn' ? c.warning : c.textSecondary;
+          return (
+            <Text testID={`dashboard-pool-${item.id}`} style={[styles.metaText, { color, marginTop: 4 }]}>
+              {o.zone === 'overdrawn'
+                ? `${poolNoun(item.poolConfig)} overdrawn by ${formatMinor(-o.balanceMinor, item.currency)}`
+                : `${formatMinor(Math.max(0, o.balanceMinor), item.currency)} left of ${formatMinor(o.baselineMinor, item.currency)}`}
+              {o.zone === 'blocked' && o.baselineMinor > 0 ? ' · paused' : ''}
+              {due > 0 && item.poolConfig.funderMode !== 'sponsor' ? ` · ${formatMinor(due, item.currency)} due` : ''}
+              {sum.totals.pendingDrawsMinor > 0 ? ' · awaiting approval' : ''}
+            </Text>
+          );
+        })()}
       </TouchableOpacity>
     );
   };

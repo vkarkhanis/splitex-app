@@ -1,4 +1,15 @@
 export { isStrongPassword, PASSWORD_RULE_MESSAGE } from './passwordRules';
+export * from './pool';
+export * from './pool-math';
+export * from './pool-ui';
+import type {
+  CreatePoolConfigDto,
+  EventFundingModel,
+  ExpenseFundingSource,
+  PoolConfig,
+  PoolDrawState,
+  PoolExpenseFlag,
+} from './pool';
 
 // User Types
 export interface User {
@@ -78,6 +89,10 @@ export interface Event {
   settlementApprovals?: Record<string, SettlementApproval>;
   /** True when expenses have been modified after settlement generation but before all approvals */
   settlementStale?: boolean;
+  /** Absent ⇒ 'peer_to_peer'. Never written on peer-to-peer events. */
+  fundingModel?: EventFundingModel;
+  /** Present only when fundingModel is 'pool' or 'hybrid'. */
+  poolConfig?: PoolConfig;
   createdBy: string;
   admins: string[];
   createdAt: Date;
@@ -112,6 +127,9 @@ export interface CreateEventDto {
   settlementCurrency?: string;
   fxRateMode?: 'predefined' | 'eod';
   predefinedFxRates?: Record<string, number>;
+  /** Omit for today's split-expenses behaviour. */
+  fundingModel?: EventFundingModel;
+  pool?: CreatePoolConfigDto;
 }
 
 export interface ParticipantDto {
@@ -165,6 +183,13 @@ export interface Expense {
   splits: ExpenseSplit[];
   selectedEntities?: SplitEntity[];
   attachments: string[];
+  /** Absent ⇒ 'self' (today's behaviour). */
+  fundingSource?: ExpenseFundingSource;
+  poolCycleId?: string;
+  /** Approval state for pool-funded expenses. Only approved draws deduct. */
+  poolDraw?: PoolDrawState;
+  /** Limits this expense breached when it was recorded after the fact. */
+  poolFlags?: PoolExpenseFlag[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -194,6 +219,13 @@ export interface CreateExpenseDto {
   attachments?: string[];
   isPrivate?: boolean;
   paidOnBehalfOf?: OnBehalfOfEntry[];
+  /** Omit for 'self'. Pool events require 'pool' or 'pool_reimbursement'. */
+  fundingSource?: ExpenseFundingSource;
+  /**
+   * Pool draws: true when the money has already been spent. Such draws are
+   * always recorded (and flagged) even past the overdraft limit.
+   */
+  alreadyIncurred?: boolean;
 }
 
 // Settlement Types
@@ -238,10 +270,26 @@ export interface Settlement {
   rejectedAt?: Date;
   payeePaymentMethods?: UserPaymentMethod[];
   auditTrail?: SettlementAuditEntry[];
+  /**
+   * Absent ⇒ 'standard' (part of the event's settlement plan). Pool legs live
+   * alongside the plan without driving the event lifecycle.
+   */
+  kind?: SettlementKind;
+  poolCycleId?: string;
+  /** pool_reimbursement: the expense being reimbursed. */
+  expenseId?: string;
   initiatedAt?: Date;
   createdAt: Date;
   failedAt?: Date;
   completedAt?: Date;
+}
+
+export type SettlementKind = 'standard' | 'pool_reimbursement' | 'pool_cycle' | 'pool_member_exit';
+
+/** Legs that belong to an active pool rather than the event's final settlement. */
+export function isPoolSideLeg(settlement: { kind?: SettlementKind | null } | null | undefined): boolean {
+  const kind = settlement?.kind ?? 'standard';
+  return kind === 'pool_reimbursement' || kind === 'pool_cycle' || kind === 'pool_member_exit';
 }
 
 export interface SettlementAuditEntry {
@@ -390,6 +438,8 @@ export interface UpdateExpenseDto {
   attachments?: string[];
   isPrivate?: boolean;
   paidOnBehalfOf?: OnBehalfOfEntry[] | null;
+  /** Pool draws: see CreateExpenseDto.alreadyIncurred. */
+  alreadyIncurred?: boolean;
 }
 
 export enum InvitationStatus {

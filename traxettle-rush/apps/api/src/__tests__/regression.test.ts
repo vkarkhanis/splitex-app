@@ -362,7 +362,15 @@ describe('Regression: Participants', () => {
 
 // ─── 5. EXPENSE CRUD ────────────────────────────────────────────────────────
 
+/** Expense endpoints now require event membership: seed the events these tests use. */
+function seedMemberEvents(...ids: string[]) {
+  for (const id of ids) {
+    mockEvents[id] = { name: id, status: 'active', createdBy: 'mock-user-1', admins: ['mock-user-1'], participantIds: ['mock-user-1', 'mock-user-2'], currency: 'USD' };
+  }
+}
+
 describe('Regression: Expense CRUD', () => {
+  beforeEach(() => seedMemberEvents('evt-1', 'evt-list', 'evt-bal'));
   it('POST /api/expenses should create expense', async () => {
     const app = createApp();
     const res = await request(app)
@@ -457,6 +465,7 @@ describe('Regression: Expense CRUD', () => {
 // ─── 6. EXPENSE SPLIT TYPES ─────────────────────────────────────────────────
 
 describe('Regression: Split Types', () => {
+  beforeEach(() => seedMemberEvents('evt-1'));
   it('should create expense with equal split', async () => {
     const app = createApp();
     const res = await request(app)

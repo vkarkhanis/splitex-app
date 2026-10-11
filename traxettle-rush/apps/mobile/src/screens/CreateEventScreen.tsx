@@ -17,6 +17,9 @@ import { useTheme } from '../context/ThemeContext';
 import { api, ApiRequestError } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { usePurchase } from '../context/PurchaseContext';
+import { buildFundingPayload, DEFAULT_FUNDING_CHOICE, validateFundingChoice } from '@traxettle/shared';
+import type { FundingChoice } from '@traxettle/shared';
+import { FundingStepView } from '../components/pool/PoolViews';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
 
@@ -28,6 +31,7 @@ export default function CreateEventScreen({ navigation }: any) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'event' | 'trip'>('event');
+  const [funding, setFunding] = useState<FundingChoice>(DEFAULT_FUNDING_CHOICE);
 
   // Debug logging for Pro features
   console.log('[CreateEvent] Debug:', {
@@ -97,6 +101,12 @@ export default function CreateEventScreen({ navigation }: any) {
       }
     }
 
+    const fundingError = validateFundingChoice(funding);
+    if (fundingError) {
+      Alert.alert('Check the pool details', fundingError);
+      return;
+    }
+
     setLoading(true);
     try {
       if (!isPro) {
@@ -131,6 +141,9 @@ export default function CreateEventScreen({ navigation }: any) {
           payload.predefinedFxRates = { [key]: Number(predefinedFxRate) };
         }
       }
+
+      // Pool funding is additive: split events send no funding fields at all.
+      Object.assign(payload, buildFundingPayload(funding, currency));
 
       const { data } = await api.post('/api/events', payload);
       const createdEventId = (data as any)?.id || (data as any)?.eventId || (data as any)?.event?.id;
@@ -227,6 +240,8 @@ export default function CreateEventScreen({ navigation }: any) {
           </TouchableOpacity>
         ))}
       </View>
+
+      <FundingStepView value={funding} onChange={setFunding} currency={currency} />
 
       {/* Settlement Currency */}
       <Text style={[styles.label, { color: colors.textSecondary }]}>

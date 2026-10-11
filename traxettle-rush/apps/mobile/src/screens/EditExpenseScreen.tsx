@@ -15,7 +15,9 @@ import {
 import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../api';
-import type { EventParticipant, Group, OnBehalfOfEntry, Expense } from '@traxettle/shared';
+import type { EventParticipant, Group, OnBehalfOfEntry, Expense, ExpenseFundingSource } from '@traxettle/shared';
+import { canRecordAnyway, isPoolFundedExpense, poolErrorText, toPoolError } from '@traxettle/shared';
+import { ReceiptPicker } from '../components/pool/PoolViews';
 
 interface SplitEntry {
   entityId: string;
@@ -73,6 +75,10 @@ export default function EditExpenseScreen({ route, navigation }: any) {
   const [currentUserId, setCurrentUserId] = useState('');
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
+  // Pool-funded expenses keep how they were paid; details and receipts can change.
+  const [fundingSource, setFundingSource] = useState<ExpenseFundingSource>('self');
+  const [receipts, setReceipts] = useState<string[]>([]);
+  const isPoolDraw = fundingSource !== 'self';
 
   const fetchData = useCallback(async () => {
     try {
@@ -94,6 +100,8 @@ export default function EditExpenseScreen({ route, navigation }: any) {
       }
 
       // Pre-populate form fields
+      setFundingSource(isPoolFundedExpense(expense) ? expense.fundingSource! : 'self');
+      setReceipts(Array.isArray(expense.attachments) ? expense.attachments : []);
       setTitle(expense.title);
       setDescription(expense.description || '');
       setAmount(String(expense.amount));
@@ -212,10 +220,42 @@ export default function EditExpenseScreen({ route, navigation }: any) {
     }
   };
 
+  const savePoolDraw = async (amt: number, alreadyIncurred: boolean) => {
+    setLoading(true);
+    try {
+      await api.put(`/api/expenses/${expenseId}`, {
+        title: title.trim(),
+        description: description.trim(),
+        amount: amt,
+        attachments: receipts,
+        ...(alreadyIncurred ? { alreadyIncurred: true } : {}),
+      });
+      Alert.alert('Success', `"${title}" updated.`);
+      navigation.goBack();
+    } catch (err: unknown) {
+      const message = poolErrorText(err, expCurrency, 'Failed to update expense');
+      if (canRecordAnyway(toPoolError(err).code) && !alreadyIncurred) {
+        Alert.alert('Not allowed right now', message, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: "It's already paid — save it", onPress: () => void savePoolDraw(amt, true) },
+        ]);
+      } else {
+        Alert.alert('Error', message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     const amt = parseFloat(amount);
     if (!title.trim() || !amt || amt <= 0) {
       Alert.alert('Error', 'Title and a positive amount are required.');
+      return;
+    }
+
+    if (isPoolDraw) {
+      await savePoolDraw(amt, false);
       return;
     }
 
@@ -261,6 +301,7 @@ export default function EditExpenseScreen({ route, navigation }: any) {
       } else {
         payload.paidOnBehalfOf = null;
       }
+      payload.attachments = receipts;
 
       await api.put(`/api/expenses/${expenseId}`, payload);
       Alert.alert('Success', `"${title}" updated.`);
@@ -289,6 +330,11 @@ export default function EditExpenseScreen({ route, navigation }: any) {
     >
     <ScrollView style={[styles.container, { backgroundColor: c.background }]} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Text style={[styles.heading, { color: c.text }]}>Edit Expense</Text>
+      {isPoolDraw && (
+        <Text testID="edit-paid-with" style={{ color: c.textSecondary, marginBottom: spacing.md }}>
+          Paid with: {fundingSource === 'pool' ? 'pool funds' : 'my money — claimed back from the pool'}. To change that, delete and re-add the expense.
+        </Text>
+      )}
 
       <Text style={[styles.label, { color: c.textSecondary }]}>Title</Text>
       <TextInput style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={title} onChangeText={setTitle} placeholder="e.g. Dinner" placeholderTextColor={c.muted} />
@@ -303,6 +349,9 @@ export default function EditExpenseScreen({ route, navigation }: any) {
         </View>
       </View>
 
+      <ReceiptPicker eventId={eventId} value={receipts} onChange={setReceipts} required={fundingSource === 'pool_reimbursement'} />
+
+      {!isPoolDraw && (<>
       {/* Split type selector */}
       {!isPrivate && (
         <>
@@ -428,10 +477,12 @@ export default function EditExpenseScreen({ route, navigation }: any) {
         </Text>
       )}
 
+      </>)}
+
       <TouchableOpacity
-        style={[styles.submitBtn, { backgroundColor: c.primary }, (loading || splitMismatch) && styles.submitBtnDisabled]}
+        style={[styles.submitBtn, { backgroundColor: c.primary }, (loading || (!isPoolDraw && splitMismatch)) && styles.submitBtnDisabled]}
         onPress={handleSubmit}
-        disabled={loading || splitMismatch}
+        disabled={loading || (!isPoolDraw && splitMismatch)}
       >
         {loading ? (
           <ActivityIndicator color={c.white} />
