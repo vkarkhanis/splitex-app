@@ -15,6 +15,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { readAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import {
   CONTRIBUTION_STATUS,
+  canApproveDraw,
   entityKey,
   formatMinor,
   fromMinor,
@@ -108,7 +109,9 @@ export default function PoolScreen({ route, navigation }: any) {
   const viewingPast = Boolean(viewCycleId) && cycle.status === 'closed';
   const canAct = cycle.status === 'open' && !viewingPast && (event.status === 'active' || event.status === 'review');
   const sponsor = config.funderMode === 'sponsor';
-  const pendingDraws = entries.filter((e) => e.type === 'draw' && e.status === 'pending');
+  // Your own pending expenses wait for someone else (unless you hold the money).
+  const approvableDraws = entries.filter((e) => e.type === 'draw' && e.status === 'pending'
+    && canApproveDraw(me ?? '', e.actorUserId, config.custodianUserId, isManager));
   const money = (v: number, signed = false) => formatMinor(v, currency, { signed });
 
   const nameOf = (type: 'user' | 'group', id: string) => {
@@ -190,10 +193,10 @@ export default function PoolScreen({ route, navigation }: any) {
         </View>
 
         {/* Approvals */}
-        {isManager && pendingDraws.length > 0 && (
+        {approvableDraws.length > 0 && (
           <View style={card} testID="pool-pending-approvals">
             <Text style={h2}>Waiting for your approval</Text>
-            {pendingDraws.map((e) => (
+            {approvableDraws.map((e) => (
               <View key={e.id} style={[st.row, { borderColor: colors.border }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[st.rowTitle, { color: colors.text }]}>{e.title}</Text>

@@ -527,6 +527,43 @@ describe('sponsor budget (UC-2)', () => {
     expect(store.get('events', eventId).poolConfig.spenderCapsMinor).toEqual({ [CAROL]: 500000 });
   });
 
+  describe('an admin who is also a spender', () => {
+    async function adminSpender() {
+      const eventId = await wedding({ overrides: { authorizedSpenders: [BOB, CAROL] } });
+      const promoted = await request(app).put(`/api/events/${eventId}/participants/${BOB}/role`).set(auth(ALICE)).send({ role: 'admin' });
+      expect(promoted.status).toBe(200);
+      return eventId;
+    }
+
+    it('still needs someone else to approve their own spending', async () => {
+      const eventId = await adminSpender();
+      const claim = (await api.claim(eventId, BOB, 2000)).body.data;
+      const spend = (await api.spend(eventId, BOB, 3000, { attachments: ['https://r/1.jpg'] })).body.data;
+      expect(claim.poolDraw.status).toBe('pending');
+      expect(spend.poolDraw.status).toBe('pending');
+
+      const selfApproved = await api.approveDraw(claim.id, BOB);
+      expect(selfApproved.status).toBe(403);
+      expect(selfApproved.body.code).toBe('POOL_SELF_APPROVAL');
+      expect((await api.approveDraw(claim.id, ALICE)).status).toBe(200);
+    });
+
+    it('can approve other people\'s spending', async () => {
+      const eventId = await adminSpender();
+      const carols = (await api.spend(eventId, CAROL, 1000, { attachments: ['https://r/1.jpg'] })).body.data;
+      const approved = await api.approveDraw(carols.id, BOB);
+      expect(approved.body.data.expense.poolDraw).toMatchObject({ status: 'approved', decidedBy: BOB });
+    });
+
+    it('sends their own edited claim back for approval', async () => {
+      const eventId = await adminSpender();
+      const claim = (await api.claim(eventId, BOB, 2000)).body.data;
+      await api.approveDraw(claim.id, ALICE);
+      const edited = await request(app).put(`/api/expenses/${claim.id}`).set(auth(BOB)).send({ amount: 2500 });
+      expect(edited.body.data.poolDraw.status).toBe('pending');
+    });
+  });
+
   it('enforces a per-spender cap; an already-paid overrun is held for approval', async () => {
     const eventId = await wedding({ overrides: { authorizedSpenders: [BOB], spenderCapsMinor: { [BOB]: 1000000 }, expenseApproval: 'none' } });
     const receipt = { attachments: ['https://r/1.jpg'] };

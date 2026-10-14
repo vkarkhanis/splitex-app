@@ -470,6 +470,16 @@ export function isPoolFundedExpense(expense: { fundingSource?: ExpenseFundingSou
   return source === 'pool' || source === 'pool_reimbursement';
 }
 
+/**
+ * Whether `approverId` may approve a pool expense paid by `payerId`. Managers
+ * approve, but never their own spending, except the custodian: it is their
+ * money. This also decides whether a manager's own new expense is approved
+ * automatically.
+ */
+export function canApproveDraw(approverId: string, payerId: string, custodianUserId: string, approverIsManager: boolean): boolean {
+  return approverIsManager && (approverId !== payerId || approverId === custodianUserId);
+}
+
 /** Funding sources an expense may use in an event with this funding model. */
 export function allowedFundingSources(model: EventFundingModel): ExpenseFundingSource[] {
   if (model === 'pool') return ['pool', 'pool_reimbursement'];

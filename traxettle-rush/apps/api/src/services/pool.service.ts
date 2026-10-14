@@ -23,6 +23,7 @@ import {
   ReconcileResult,
   allowedFundingSources,
   buildPoolConfig,
+  canApproveDraw,
   computeArrears,
   computeCycleTotals,
   computeFundingState,
@@ -812,7 +813,7 @@ export class PoolService {
 
     const needsApproval =
       forcePending ||
-      (!manager && (config.expenseApproval === 'always' ||
+      (!canApproveDraw(actorId, actorId, config.custodianUserId, manager) && (config.expenseApproval === 'always' ||
         (config.expenseApproval === 'above_threshold' && amountMinor > Number(config.approvalThresholdMinor ?? 0))));
 
     const now = nowIso();
@@ -907,6 +908,9 @@ export class PoolService {
   async approveDraw(expenseId: string, actorId: string): Promise<{ expense: Record<string, any>; settlementId: string | null }> {
     const { expense, event, config, cycle } = await this.loadDraw(expenseId);
     this.requireManager(event, config, actorId);
+    if (!canApproveDraw(actorId, expense.paidBy, config.custodianUserId, true)) {
+      throw new PoolError(403, "You can't approve your own expense. Ask the custodian or another admin.", 'POOL_SELF_APPROVAL');
+    }
     this.assertEventEditable(event);
     this.assertCycleWritable(cycle);
     if (expense.poolDraw?.status !== 'pending') throw new PoolError(409, `Cannot approve: this draw is ${expense.poolDraw?.status}`);
@@ -988,8 +992,8 @@ export class PoolService {
     if (!decision.allowed) throw this.refusal(decision, released, amountMinor);
     const flags: PoolExpenseFlag[] = (Array.isArray(expense.poolFlags) ? expense.poolFlags : []).filter((f: PoolExpenseFlag) => f !== 'exceeds_tolerance' && f !== 'underfunded');
     if (decision.flag) flags.push(decision.flag);
-    const manager = this.isManager(event, config, actorId);
-    const needsApproval = !manager && (config.expenseApproval === 'always' ||
+    const approver = canApproveDraw(actorId, expense.paidBy, config.custodianUserId, this.isManager(event, config, actorId));
+    const needsApproval = !approver && (config.expenseApproval === 'always' ||
       (config.expenseApproval === 'above_threshold' && amountMinor > Number(config.approvalThresholdMinor ?? 0)));
     const poolDraw: PoolDrawState = needsApproval
       ? { status: 'pending', alreadyIncurred: incurred }

@@ -22,7 +22,7 @@ import {
   Select,
   useToast,
 } from '@traxettle/ui';
-import { REIMBURSEMENT_STATUS, entityKey, fromMinor, isPoolSideLeg, reimbursementStatus, toMinor } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, canApproveDraw, entityKey, fromMinor, isPoolSideLeg, reimbursementStatus, toMinor } from '@traxettle/shared';
 import type {
   Event as TraxettleEvent,
   EventParticipant,
@@ -233,7 +233,9 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
   const viewingPast = Boolean(viewCycleId) && cycle.status === 'closed';
   const cycleOpen = cycle.status === 'open' && !viewingPast;
   const canAct = cycleOpen && eventEditable;
-  const pendingDraws = entries.filter((e) => e.type === 'draw' && e.status === 'pending');
+  // Your own pending expenses wait for someone else (unless you hold the money).
+  const approvableDraws = entries.filter((e) => e.type === 'draw' && e.status === 'pending'
+    && canApproveDraw(currentUserId ?? '', e.actorUserId, config.custodianUserId, isManager));
   const outstanding = summary.arrears.reduce((s, a) => s + a.outstandingMinor, 0);
   const sponsor = config.funderMode === 'sponsor';
 
@@ -306,12 +308,12 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
       </Card>
 
       {/* ── Pending approvals ────────────────────────────────────── */}
-      {isManager && pendingDraws.length > 0 && (
+      {approvableDraws.length > 0 && (
         <Card data-testid="pool-pending-approvals">
           <CardHeader><CardTitle>Waiting for your approval</CardTitle></CardHeader>
           <CardBody>
             <List>
-              {pendingDraws.map((e) => (
+              {approvableDraws.map((e) => (
                 <Item key={e.id}>
                   <ItemMain>
                     <ItemTitle>

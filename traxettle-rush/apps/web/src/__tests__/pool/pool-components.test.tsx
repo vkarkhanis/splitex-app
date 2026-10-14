@@ -278,6 +278,12 @@ describe('PoolTab', () => {
     expect(q('pool-add-money')).not.toBeNull();
   });
 
+  it('never offers an admin their own pending expense to approve', async () => {
+    await render(<PoolTab event={{ ...event, admins: [ALICE, BOB] }} currentUserId={BOB} participants={participants} groups={[]} settlements={[]} refreshKey={0} onChanged={jest.fn()} />);
+    expect(q('pool-settle-up')).not.toBeNull(); // Bob is an admin...
+    expect(q('pool-pending-approvals')).toBeNull(); // ...but x2 is his own claim
+  });
+
   it('gives the custodian confirmations, approvals and settle-up', async () => {
     const onChanged = jest.fn();
     await render(<PoolTab event={event} currentUserId={ALICE} participants={participants} groups={[]} settlements={[]} refreshKey={0} onChanged={onChanged} />);

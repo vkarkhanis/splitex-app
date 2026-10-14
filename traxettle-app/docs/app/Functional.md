@@ -327,7 +327,7 @@ Pooling is an additional **funding model**: money is collected first and expense
 | 16.7 | Pool expenses | ✅ Supported | "Paid with: Pool funds" — no splits needed, deducts from the pool |
 | 16.8 | Reimbursement claims | ✅ Supported | "My money — claim it back" with receipt → approval → settlement leg paid by the custodian, without settling or locking the event |
 | 16.9 | Graduated overdraft | ✅ Supported | Warn down to −20% of the pool, then pause pre-authorised spending until the overdraft is repaid plus more; already-paid expenses are always recorded and flagged |
-| 16.10 | Approvals & spender controls | ✅ Supported | Approval never / above an amount / always; sponsor budgets authorise spenders (people or groups) with optional caps; receipts can be mandatory |
+| 16.10 | Approvals & spender controls | ✅ Supported | Approval never / above an amount / always; nobody approves their own spending except the custodian (it's their money); sponsor budgets authorise spenders (people or groups) with optional caps; receipts can be mandatory |
 | 16.11 | Transparency ledger | ✅ Supported | Balance meter, contributions, arrears, spending by person, every movement with receipts, cycle history |
 | 16.12 | Recurring cycles | ✅ Supported | Close a month: carry each person's credit forward (or pay out), open the next month with fresh dues |
 | 16.13 | Membership changes | ✅ Supported | Shared-living funds square up a leaver and carry everyone else forward; treasuries just update the roster |

@@ -3,6 +3,7 @@ import {
   POOL_PRESET_LABELS,
   allowedFundingSources,
   buildPoolConfig,
+  canApproveDraw,
   currencyExponent,
   entityKey,
   fromMinor,
@@ -152,5 +153,20 @@ describe('pool presets', () => {
   it('does not let overrides change the preset name', () => {
     const cfg = buildPoolConfig('trip_kitty', 'u1', {}, { preset: 'household' } as any);
     expect(cfg.preset).toBe('trip_kitty');
+  });
+});
+
+describe('canApproveDraw', () => {
+  it('lets a manager approve somebody else\'s pool expense', () => {
+    expect(canApproveDraw('bob', 'carol', 'alice', true)).toBe(true);
+  });
+
+  it('never lets a manager approve their own, unless they hold the money', () => {
+    expect(canApproveDraw('bob', 'bob', 'alice', true)).toBe(false);
+    expect(canApproveDraw('alice', 'alice', 'alice', true)).toBe(true);
+  });
+
+  it('never lets a non-manager approve', () => {
+    expect(canApproveDraw('carol', 'bob', 'alice', false)).toBe(false);
   });
 });
