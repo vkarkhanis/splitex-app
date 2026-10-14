@@ -8,6 +8,7 @@
  *   jest.mock('../../config/firebase', () => ({ db: store.db, auth: {}, storage: {} }));
  *   beforeEach(() => store.reset());
  */
+import { applySetMerge, applyUpdate } from '../../utils/firestore-merge';
 
 type Filter = { field: string; op: string; value: any };
 
@@ -67,12 +68,12 @@ export function createMemoryFirestore(): MemoryFirestore {
       get: async () => snapshot(path),
       set: async (data: any, options?: { merge?: boolean }) => {
         const prev = docs.get(path);
-        docs.set(path, options?.merge && prev ? { ...prev, ...clone(data) } : clone(data || {}));
+        docs.set(path, options?.merge && prev ? applySetMerge(prev, clone(data || {})) : clone(data || {}));
       },
       update: async (data: any) => {
         const prev = docs.get(path);
         if (!prev) throw new Error(`No document to update: ${path}`);
-        docs.set(path, { ...prev, ...clone(data) });
+        docs.set(path, applyUpdate(prev, clone(data || {})));
       },
       delete: async () => {
         docs.delete(path);

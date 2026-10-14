@@ -177,7 +177,9 @@ export class ExpenseService {
       updates.isPrivate = false; // pool ledgers are always transparent
     }
 
-    await db.collection(this.collection).doc(expenseId).set(updates, { merge: true });
+    // update(), not set-merge: a merge would keep stale keys inside poolDraw
+    // (e.g. the settlementId of a reimbursement leg removed by this edit).
+    await db.collection(this.collection).doc(expenseId).update(updates);
 
     return this.getExpense(expenseId);
   }

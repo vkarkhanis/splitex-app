@@ -34,7 +34,7 @@ import { getResolvedApiBaseUrl } from '../../../config/dev-options';
 import { PoolTab } from '../../../components/pool/PoolTab';
 import { SpenderPermissions } from '../../../components/pool/SpenderPermissions';
 import { poolNoun } from '../../../components/pool/poolFormat';
-import { isPoolFundedEvent, isPoolFundedExpense } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, isPoolFundedEvent, isPoolFundedExpense, reimbursementStatus } from '@traxettle/shared';
 import type {
   Event as TraxettleEvent,
   Expense,
@@ -1267,6 +1267,9 @@ export default function EventDetailPage() {
     ? expenses.filter(exp => isPoolFundedExpense(exp) || isSharedWithMyEntity(exp) || isMyEntityPrivate(exp))
     : expenses.filter(exp => !exp.isPrivate); // fallback for unauthenticated: show shared only
 
+  // A claim's pay-back status lives on its reimbursement leg, which is one of the event's settlements.
+  const legStatusById = new Map(settlements.map((s) => [s.id, s.status]));
+
   // 1. Total Expense = All shared expenses involving this entity + this entity's private expenses
   const myTotalExpense = visibleExpenses.reduce((sum, e) => sum + e.amount, 0);
 
@@ -1714,6 +1717,9 @@ export default function EventDetailPage() {
                 {visibleExpenses.map((expense) => {
                   const isExpanded = expandedExpenseId === expense.id;
                   const sym = CURRENCY_SYMBOLS[expense.currency] || expense.currency;
+                  const payBack = expense.fundingSource === 'pool_reimbursement'
+                    ? reimbursementStatus(expense.poolDraw, legStatusById.get(expense.poolDraw?.settlementId ?? ''))
+                    : null;
                   return (
                     <ExpenseRowWrapper key={expense.id} data-testid={`expense-item-${expense.id}`}>
                       <ExpenseRowClickable onClick={() => setExpandedExpenseId(isExpanded ? null : expense.id)}>
@@ -1722,9 +1728,14 @@ export default function EventDetailPage() {
                             {expense.title}
                             {expense.isPrivate && <Badge $variant="warning" style={{ marginLeft: 8, fontSize: 10 }}>Private</Badge>}
                             {expense.fundingSource === 'pool' && <Badge $variant="info" style={{ marginLeft: 8, fontSize: 10 }} data-testid={`funding-badge-${expense.id}`}>Pool</Badge>}
-                            {expense.fundingSource === 'pool_reimbursement' && <Badge $variant="info" style={{ marginLeft: 8, fontSize: 10 }} data-testid={`funding-badge-${expense.id}`}>Reimbursed</Badge>}
+                            {expense.fundingSource === 'pool_reimbursement' && <Badge $variant="info" style={{ marginLeft: 8, fontSize: 10 }} data-testid={`funding-badge-${expense.id}`}>Claim</Badge>}
                             {expense.poolDraw?.status === 'pending' && <Badge $variant="warning" style={{ marginLeft: 6, fontSize: 10 }}>Awaiting approval</Badge>}
                             {expense.poolDraw?.status === 'rejected' && <Badge $variant="error" style={{ marginLeft: 6, fontSize: 10 }}>Rejected</Badge>}
+                            {payBack && (
+                              <Badge $variant={REIMBURSEMENT_STATUS[payBack].tone} style={{ marginLeft: 6, fontSize: 10 }} data-testid={`reimbursement-badge-${expense.id}`}>
+                                {REIMBURSEMENT_STATUS[payBack].label}
+                              </Badge>
+                            )}
                             <span style={{ fontSize: 11, marginLeft: 6, opacity: 0.5 }}>{isExpanded ? '▲' : '▼'}</span>
                           </ListItemTitle>
                           <ListItemSub>

@@ -253,6 +253,20 @@ describe('PoolTab', () => {
     expect(q('ledger-x2')!.textContent).toMatch(/Awaiting approval/);
   });
 
+  it('shows how far each approved claim has been paid back', async () => {
+    const ledger = ledgerFixture();
+    const claim = (id: string, settlementStatus: string | null) => ({
+      id, type: 'draw', at: '2026-10-07', title: `Claim ${id}`, amountMinor: -10000, status: 'approved', actorUserId: BOB,
+      fundingSource: 'pool_reimbursement', settlementStatus, receiptUrls: [], counted: true,
+    });
+    ledger.entries.push(...([claim('r1', null), claim('r2', 'initiated'), claim('r3', 'completed')] as PoolLedger['entries']));
+    mockPoolApi.ledger.mockResolvedValue({ success: true, data: ledger });
+    await render(<PoolTab event={event} currentUserId={BOB} participants={participants} groups={[]} settlements={[]} refreshKey={0} onChanged={jest.fn()} />);
+    expect(q('ledger-r1')!.textContent).toMatch(/To reimburse/);
+    expect(q('ledger-r2')!.textContent).toMatch(/Reimbursement sent/);
+    expect(q('ledger-r3')!.textContent).toMatch(/Reimbursed/);
+  });
+
   it('gives a member only their own actions', async () => {
     await render(<PoolTab event={event} currentUserId={BOB} participants={participants} groups={[]} settlements={[]} refreshKey={0} onChanged={jest.fn()} />);
     expect(q('mark-paid-cb')!.textContent).toBe('Update payment');

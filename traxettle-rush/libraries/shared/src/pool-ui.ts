@@ -11,6 +11,7 @@ import type {
   PoolBalanceZone,
   PoolConfig,
   PoolContributionStatus,
+  PoolDrawState,
   PoolExpenseApprovalMode,
   PoolOverdraftState,
   PoolPreset,
@@ -62,6 +63,27 @@ export const CONTRIBUTION_STATUS: Record<PoolContributionStatus, { label: string
   confirmed: { label: 'Confirmed', tone: 'success' },
   waived: { label: 'Waived', tone: 'default' },
 };
+
+export type ReimbursementStatus = 'to_reimburse' | 'sent' | 'reimbursed';
+
+export const REIMBURSEMENT_STATUS: Record<ReimbursementStatus, { label: string; tone: 'success' | 'warning' | 'info' }> = {
+  to_reimburse: { label: 'To reimburse', tone: 'warning' },
+  sent: { label: 'Reimbursement sent', tone: 'info' },
+  reimbursed: { label: 'Reimbursed', tone: 'success' },
+};
+
+/**
+ * How far an approved claim's pay-back has got, from the claim and the status
+ * of its reimbursement leg. Null while the claim is pending or rejected.
+ */
+export function reimbursementStatus(
+  draw: Pick<PoolDrawState, 'status' | 'selfReimbursed'> | null | undefined,
+  legStatus?: string | null,
+): ReimbursementStatus | null {
+  if (draw?.status !== 'approved') return null;
+  if (draw.selfReimbursed || legStatus === 'completed') return 'reimbursed';
+  return legStatus === 'initiated' ? 'sent' : 'to_reimburse';
+}
 
 /**
  * Explain a refused pool draw in plain language, using the structured details

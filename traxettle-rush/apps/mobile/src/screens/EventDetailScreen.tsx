@@ -37,7 +37,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEventSocket } from '../hooks/useSocket';
 import { usePaymentProviders } from '../hooks/usePaymentProviders';
 import { useFeedback } from '../context/FeedbackContext';
-import { isPoolFundedEvent, isPoolFundedExpense, poolNoun } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, isPoolFundedEvent, isPoolFundedExpense, poolNoun, reimbursementStatus } from '@traxettle/shared';
 import type { PoolCycleSummary } from '@traxettle/shared';
 import { poolService } from '../services/pool';
 import { PoolMeterView } from '../components/pool/PoolViews';
@@ -249,6 +249,9 @@ export default function EventDetailScreen({ route, navigation }: any) {
       return exp.splits?.some((s: any) => s.entityId === myEntityId);
     });
   }, [expenses, currentUserId, myEntityId, myEntityMembers]);
+
+  // A claim's pay-back status lives on its reimbursement leg, which is one of the event's settlements.
+  const legStatusById = useMemo(() => new Map(settlements.map(s => [s.id, s.status])), [settlements]);
 
   const myTotalExpense = useMemo(() => visibleExpenses.reduce((s, e) => s + e.amount, 0), [visibleExpenses]);
   const myTotalShared = useMemo(() => visibleExpenses.filter(e => !e.isPrivate).reduce((s, e) => s + e.amount, 0), [visibleExpenses]);
@@ -676,6 +679,19 @@ export default function EventDetailScreen({ route, navigation }: any) {
     </View>
   );
 
+  const renderPayBackBadge = (exp: Expense) => {
+    if (exp.fundingSource !== 'pool_reimbursement') return null;
+    const payBack = reimbursementStatus(exp.poolDraw, legStatusById.get(exp.poolDraw?.settlementId ?? ''));
+    if (!payBack) return null;
+    const { label, tone } = REIMBURSEMENT_STATUS[payBack];
+    const background = { success: colors.successBg, warning: colors.warningBg, info: colors.infoBg }[tone];
+    return (
+      <Text testID={`reimbursement-badge-${exp.id}`} style={[styles.fxBadge, { color: colors[tone], backgroundColor: background }]}>
+        {label}
+      </Text>
+    );
+  };
+
   // ── Loading / Error ──
   if (loading) {
     return <View style={[styles.center, { backgroundColor: colors.background }]}><ActivityIndicator size="large" color={colors.primary} /></View>;
@@ -1038,9 +1054,10 @@ export default function EventDetailScreen({ route, navigation }: any) {
                         {exp.isPrivate && renderBadge('private')}
                         {isPoolFundedExpense(exp) && (
                           <Text style={[styles.fxBadge, { color: colors.info, backgroundColor: colors.infoBg }]}>
-                            {exp.fundingSource === 'pool' ? 'Pool' : 'Reimbursed'}{exp.poolDraw?.status === 'pending' ? ' · pending' : exp.poolDraw?.status === 'rejected' ? ' · rejected' : ''}
+                            {exp.fundingSource === 'pool' ? 'Pool' : 'Claim'}{exp.poolDraw?.status === 'pending' ? ' · pending' : exp.poolDraw?.status === 'rejected' ? ' · rejected' : ''}
                           </Text>
                         )}
+                        {renderPayBackBadge(exp)}
                       </View>
                       <Text style={[styles.listCardSub, { color: colors.muted }]}>
                         {isPoolFundedExpense(exp)

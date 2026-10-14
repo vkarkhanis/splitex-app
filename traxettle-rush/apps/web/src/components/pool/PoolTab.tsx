@@ -22,12 +22,13 @@ import {
   Select,
   useToast,
 } from '@traxettle/ui';
-import { entityKey, fromMinor, isPoolSideLeg, toMinor } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, entityKey, fromMinor, isPoolSideLeg, reimbursementStatus, toMinor } from '@traxettle/shared';
 import type {
   Event as TraxettleEvent,
   EventParticipant,
   Group,
   PoolContribution,
+  PoolDrawStatus,
   PoolLedger,
   PoolLedgerEntry,
   ReconcileResult,
@@ -524,8 +525,8 @@ function LedgerRow({ entry: e, currency, nameOf }: { entry: PoolLedgerEntry; cur
     if (e.status === 'pending') state = <Badge $variant="info">Awaiting approval</Badge>;
     else if (e.status === 'rejected') state = <Badge $variant="error">Rejected</Badge>;
     else if (e.fundingSource === 'pool_reimbursement') {
-      const paid = e.settlementStatus === 'completed';
-      state = <Badge $variant={paid ? 'success' : 'warning'}>{paid ? 'Reimbursed' : e.settlementStatus === 'initiated' ? 'Reimbursement sent' : 'To reimburse'}</Badge>;
+      const payBack = reimbursementStatus({ status: e.status as PoolDrawStatus }, e.settlementStatus);
+      if (payBack) state = <Badge $variant={REIMBURSEMENT_STATUS[payBack].tone}>{REIMBURSEMENT_STATUS[payBack].label}</Badge>;
     }
   } else if (e.status === 'initiated') {
     state = <Badge $variant="info">Awaiting confirmation</Badge>;

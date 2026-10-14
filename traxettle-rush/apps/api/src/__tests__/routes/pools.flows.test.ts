@@ -474,6 +474,59 @@ describe('sponsor budget (UC-2)', () => {
     expect((await request(app).put(`/api/expenses/${second.id}`).set(auth(BOB)).send({ title: 'Florist' })).status).toBe(200);
   });
 
+  it('pays the new amount when an approved claim is edited and approved again', async () => {
+    const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
+    const claim = (await api.claim(eventId, BOB, 4000)).body.data;
+    const firstLeg = (await api.approveDraw(claim.id, ALICE)).body.data.settlementId;
+
+    const edited = await request(app).put(`/api/expenses/${claim.id}`).set(auth(BOB)).send({ amount: 4500 });
+    expect(edited.status).toBe(200);
+    expect(edited.body.data.poolDraw).toEqual({ status: 'pending', alreadyIncurred: true });
+    expect(store.get('settlements', firstLeg)).toBeNull();
+
+    const secondLeg = (await api.approveDraw(claim.id, ALICE)).body.data.settlementId;
+    expect(secondLeg).toBeTruthy();
+    expect(secondLeg).not.toBe(firstLeg);
+    expect(store.get('settlements', secondLeg)).toMatchObject({ kind: 'pool_reimbursement', toUserId: BOB, amount: 4500, status: 'pending' });
+    const ledger = await api.ledger(eventId, ALICE);
+    expect(ledger.entries.find((e: any) => e.id === claim.id)).toMatchObject({ settlementStatus: 'pending', amountMinor: -450000 });
+  });
+
+  describe('claims still pointing at a deleted payment (written before edits replaced poolDraw)', () => {
+    async function staleClaim(status: 'pending' | 'approved') {
+      const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
+      const claim = (await api.claim(eventId, BOB, 4000)).body.data;
+      store.seed('expenses', claim.id, {
+        ...store.get('expenses', claim.id),
+        poolDraw: { status, decidedBy: ALICE, settlementId: 'leg-deleted', alreadyIncurred: true },
+      });
+      return { eventId, claimId: claim.id };
+    }
+
+    it('creates a fresh payment when such a claim is approved', async () => {
+      const { claimId } = await staleClaim('pending');
+      const legId = (await api.approveDraw(claimId, ALICE)).body.data.settlementId;
+      expect(legId).not.toBe('leg-deleted');
+      expect(store.get('settlements', legId)).toMatchObject({ toUserId: BOB, amount: 4000, status: 'pending', expenseId: claimId });
+    });
+
+    it('creates the missing payment before settling, so the claimant is still paid back', async () => {
+      const { eventId, claimId } = await staleClaim('approved');
+      expect((await api.dissolve(eventId, ALICE)).status).toBe(200);
+      const legs = store.all('settlements').filter((s: any) => s.kind === 'pool_reimbursement');
+      expect(legs).toEqual([expect.objectContaining({ toUserId: BOB, amount: 4000, status: 'pending', expenseId: claimId })]);
+      expect((await api.event(eventId, ALICE)).status).toBe('payment');
+    });
+  });
+
+  it('drops a cleared spending limit while keeping the others', async () => {
+    const eventId = await wedding();
+    const save = (body: Record<string, any>) => request(app).put(`/api/pools/event/${eventId}/config`).set(auth(ALICE)).send(body);
+    await save({ authorizedSpenders: [BOB, CAROL], spenderCapsMinor: { [BOB]: 1000000, [CAROL]: 500000 } });
+    expect((await save({ authorizedSpenders: [BOB, CAROL], spenderCapsMinor: { [CAROL]: 500000 } })).status).toBe(200);
+    expect(store.get('events', eventId).poolConfig.spenderCapsMinor).toEqual({ [CAROL]: 500000 });
+  });
+
   it('enforces a per-spender cap; an already-paid overrun is held for approval', async () => {
     const eventId = await wedding({ overrides: { authorizedSpenders: [BOB], spenderCapsMinor: { [BOB]: 1000000 }, expenseApproval: 'none' } });
     const receipt = { attachments: ['https://r/1.jpg'] };

@@ -842,7 +842,7 @@ export class PoolService {
   async finalizeApprovedDraw(expense: Expense & { poolDraw?: PoolDrawState }, actorId: string): Promise<string | null> {
     const event = await this.getEvent(expense.eventId);
     const config = this.requirePoolConfig(event);
-    if (resolveFundingSource(expense) === 'pool_reimbursement' && expense.poolDraw?.status === 'approved' && !expense.poolDraw.settlementId) {
+    if (resolveFundingSource(expense) === 'pool_reimbursement' && expense.poolDraw?.status === 'approved' && !(await this.legExists(expense.poolDraw.settlementId))) {
       if (expense.paidBy === config.custodianUserId) {
         await db.collection('expenses').doc(expense.id).set({ poolDraw: { ...expense.poolDraw, selfReimbursed: true } }, { merge: true });
       } else {
@@ -879,6 +879,15 @@ export class PoolService {
     }
     if (expense.poolCycleId) await this.refreshOverdraftLatch(expense.eventId, expense.poolCycleId);
     return null;
+  }
+
+  /**
+   * A claim can reference a leg that no longer exists: data written before
+   * edits replaced poolDraw kept the id of the leg the edit removed.
+   */
+  private async legExists(legId?: string | null): Promise<boolean> {
+    if (!legId) return false;
+    return (await db.collection(SETTLEMENTS).doc(legId).get()).exists;
   }
 
   private async loadDraw(expenseId: string): Promise<{ expense: Record<string, any> & { id: string }; event: EventRecord; config: PoolConfig; cycle: PoolCycle }> {
@@ -1347,6 +1356,12 @@ export class PoolService {
     if (built._draws.some((d) => d.poolDraw?.status === 'pending')) {
       throw new PoolError(409, 'Approve or reject pending pool expenses before settling up', 'POOL_PENDING_DRAWS');
     }
+    // Settling with an approved claim that has no leg would close the event without paying the claimant back.
+    for (const draw of built._draws) {
+      if (draw.fundingSource === 'pool_reimbursement' && draw.poolDraw?.status === 'approved' && !draw.poolDraw.selfReimbursed) {
+        await this.finalizeApprovedDraw(draw as Expense & { poolDraw?: PoolDrawState }, actorId);
+      }
+    }
     const raw = reconcileCycle(this.reconcileInput(config, cycle, built, { forDissolution: true }));
     const cover = this.normalizeCover(config, built._groups, raw.uncoveredDeficitMinor, opts.cover);
     if (cover.length > 0) await this.recordCover(event, cycle, built._groups, actorId, cover);
@@ -1522,7 +1537,8 @@ export class PoolService {
       if (!participant.exists) throw new PoolError(400, 'The new custodian must be a participant of the event');
     }
     const next: PoolConfig = { ...config, ...patch, funderMode: config.funderMode, cycleMode: config.cycleMode, preset: config.preset };
-    await db.collection('events').doc(eventId).set({ poolConfig: next, updatedAt: nowIso() }, { merge: true });
+    // update() replaces the whole map; a merge would keep removed keys such as a cleared spender cap.
+    await db.collection('events').doc(eventId).update({ poolConfig: next, updatedAt: nowIso() });
     const cycle = await this.getCurrentCycle(eventId).catch(() => null);
     if (cycle) await this.refreshOverdraftLatch(eventId, cycle.id);
     return next;

@@ -21,6 +21,8 @@ import {
   isPoolSideLeg,
   poolErrorText,
   poolNoun,
+  REIMBURSEMENT_STATUS,
+  reimbursementStatus,
   toMinor,
 } from '@traxettle/shared';
 import type {
@@ -28,6 +30,7 @@ import type {
   EventParticipant,
   Group,
   PoolContribution,
+  PoolDrawStatus,
   PoolLedger,
   Settlement,
 } from '@traxettle/shared';
@@ -321,7 +324,7 @@ export default function PoolScreen({ route, navigation }: any) {
                 <Text style={meta}>
                   {e.entityType ? nameOf(e.entityType, e.entityId!) : nameOf('user', e.actorUserId)} · {new Date(e.at).toLocaleDateString()}
                   {e.status === 'pending' ? ' · awaiting approval' : e.status === 'rejected' ? ' · rejected' : ''}
-                  {e.fundingSource === 'pool_reimbursement' && e.status === 'approved' ? (e.settlementStatus === 'completed' ? ' · reimbursed' : ' · to reimburse') : ''}
+                  {e.fundingSource === 'pool_reimbursement' ? payBackText(e.status, e.settlementStatus) : ''}
                   {e.flags?.includes('exceeds_tolerance') ? ' · over the limit' : ''}
                   {e.receiptUrls.length ? ` · ${e.receiptUrls.length} receipt(s)` : ''}
                 </Text>
@@ -402,6 +405,11 @@ function Sheet(props: { title: string; children: React.ReactNode; onClose: () =>
       </View>
     </Modal>
   );
+}
+
+function payBackText(status: string, settlementStatus?: string | null): string {
+  const payBack = reimbursementStatus({ status: status as PoolDrawStatus }, settlementStatus);
+  return payBack ? ` · ${REIMBURSEMENT_STATUS[payBack].label.toLowerCase()}` : '';
 }
 
 function parseMinor(text: string, currency: string): number | null {

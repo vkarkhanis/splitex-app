@@ -66,6 +66,18 @@ jest.mock('../config/firebase', () => {
             }
             return Promise.resolve({ writeTime: new Date() });
           }),
+          update: jest.fn().mockImplementation((data: any) => {
+            let store: Record<string, any> = {};
+            if (collectionPath === 'events') store = mockEvents;
+            else if (collectionPath === 'expenses') store = mockExpenses;
+            else if (collectionPath === 'groups') store = mockGroups;
+            else if (collectionPath === 'invitations') store = mockInvitations;
+            else if (collectionPath === 'users') store = mockUsers;
+            if (!store[docId]) return Promise.reject(new Error(`No document to update: ${docId}`));
+            const { applyUpdate } = require('../utils/firestore-merge');
+            store[docId] = applyUpdate(store[docId], data);
+            return Promise.resolve({ writeTime: new Date() });
+          }),
           delete: jest.fn().mockImplementation(() => {
             if (collectionPath === 'events') delete mockEvents[docId];
             else if (collectionPath === 'expenses') delete mockExpenses[docId];

@@ -11,6 +11,8 @@ import {
   needsTarget,
   poolErrorText,
   poolNoun,
+  REIMBURSEMENT_STATUS,
+  reimbursementStatus,
   toPoolError,
   validateFundingChoice,
   withPreset,
@@ -180,4 +182,29 @@ describe('balance meter', () => {
     expect(g.spentPoolPct + g.spentOverdraftPct).toBeCloseTo(100, 0);
   });
 
+});
+
+describe('reimbursement status of a claim', () => {
+  it('has no pay-back status until the claim is approved', () => {
+    expect(reimbursementStatus(undefined)).toBeNull();
+    expect(reimbursementStatus({ status: 'pending' }, 'pending')).toBeNull();
+    expect(reimbursementStatus({ status: 'rejected' })).toBeNull();
+  });
+
+  it('follows the reimbursement leg once approved', () => {
+    expect(reimbursementStatus({ status: 'approved' })).toBe('to_reimburse');
+    expect(reimbursementStatus({ status: 'approved' }, 'pending')).toBe('to_reimburse');
+    expect(reimbursementStatus({ status: 'approved' }, 'initiated')).toBe('sent');
+    expect(reimbursementStatus({ status: 'approved' }, 'completed')).toBe('reimbursed');
+  });
+
+  it('counts the custodian\'s own claim as reimbursed straight away', () => {
+    expect(reimbursementStatus({ status: 'approved', selfReimbursed: true })).toBe('reimbursed');
+  });
+
+  it('labels each status', () => {
+    expect(REIMBURSEMENT_STATUS.to_reimburse.label).toBe('To reimburse');
+    expect(REIMBURSEMENT_STATUS.sent.label).toBe('Reimbursement sent');
+    expect(REIMBURSEMENT_STATUS.reimbursed).toEqual({ label: 'Reimbursed', tone: 'success' });
+  });
 });

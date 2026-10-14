@@ -175,6 +175,7 @@ describe('ExpenseService - updateExpense authorization', () => {
           id: 'exp1',
         }),
         set: jest.fn().mockResolvedValue({}),
+        update: jest.fn().mockResolvedValue({}),
       }),
     });
 
