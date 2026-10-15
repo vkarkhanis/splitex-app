@@ -170,30 +170,58 @@ rushx build:android:production
 
 ## 5. iOS — TestFlight (Internal Testing)
 
-### Prerequisites
-- macOS with Xcode installed
-- Apple Developer account enrolled
-- `GoogleService-Info.staging.plist` in `apps/mobile/`
-- CocoaPods (`gem install cocoapods`)
+There is **one iOS build for every environment**. Release builds choose the API at runtime:
 
-### Steps
+- **Production by default.** The TestFlight build is the exact binary you later promote to the App Store (section 6), so it is built with production settings.
+- **Staging on request.** Testers tap **"Traxettle" 7 times on the sign-in screen** (also on Register and Forgot password) to switch between Staging and Production; the app reloads. Signed in, the same switch is under Profile → tap **"Traxettle v…" 7 times** → Developer (Hidden) → *Switch to Staging API*.
+
+The `EXPO_PUBLIC_API_URL` baked into a build only affects development builds. Deploy the API the testers will use (staging and/or production) before they test new features.
+
+### Prerequisites (one-time)
+- macOS with Xcode and CocoaPods (`gem install cocoapods`)
+- Apple Developer account enrolled, and its Apple ID added in Xcode → Settings → Accounts
+- App ID `com.traxettle.app` registered (developer.apple.com → Identifiers) and the app created in App Store Connect
+- Your 10-character Apple Team ID (developer.apple.com → Membership, or `tools/doctor-tool/scripts/doctor-apple-team.sh`)
+- `GoogleService-Info.staging.plist` in `apps/mobile/` (the production profile still uses it; see the Google sign-in note below) and `rc_prod.properties` (or `rc_production.properties`) in the repo root. Its Apple key is optional; without it Pro purchases don't work in the build.
+
+> Google sign-in: the Google client IDs are fixed at build time, and the production settings in `scripts/build-ios.sh` still use the staging IDs (marked TODO). Check Google sign-in against production before releasing; email/password sign-in is unaffected.
+
+### Build and upload (one command)
 
 ```bash
-# 1. Generate native iOS project
 cd apps/mobile
-rushx prebuild:ios
-# Or: expo prebuild --platform ios --clean
+APPLE_TEAM_ID=ABCDE12345 bash scripts/build-ios.sh testflight
+# or: APPLE_TEAM_ID=ABCDE12345 npm run build:ios:testflight
+```
 
-# 2. Install pods
-cd ios
-pod install
-cd ..
+The script writes the production settings (`.env`, restored afterwards), copies the
+Firebase plist, runs `expo prebuild --clean`, archives a Release build with `xcodebuild`
+and uploads it to App Store Connect. Each run gets a new build number (`yymmddHHMM`;
+override with `IOS_BUILD_NUMBER`). The archive is kept in Xcode's Organizer, so a failed
+upload can be retried from there. To sign without an Xcode account (e.g. on CI), set
+`ASC_KEY_PATH`, `ASC_KEY_ID` and `ASC_KEY_ISSUER_ID` for an App Store Connect API key.
 
-# 3. Open in Xcode
-open ios/Traxettle.xcworkspace
+Then, in App Store Connect → TestFlight: the build appears after processing (~10–30 min).
+Add internal testers (no review), or external testers (needs Beta App Review).
+
+### Manual alternative (Xcode)
+
+```bash
+# 1. Write apps/mobile/.env with the production values from scripts/build-ios.sh
+#    (EXPO_PUBLIC_APP_ENV=production, the Google client IDs, the RevenueCat key).
+#    Release builds read it when bundling. EXPO_PUBLIC_APP_ENV also tags RevenueCat
+#    users, so a build headed for the App Store must say "production".
+cd apps/mobile
+cp GoogleService-Info.staging.plist GoogleService-Info.plist
+
+# 2. Generate the native iOS project (also installs pods)
+npx expo prebuild --platform ios --clean
+
+# 3. Open in Xcode (the project is named after app.json "name")
+open ios/TraxettleappbyKarkhanisLabs.xcworkspace
 
 # 4. In Xcode:
-#    - Select "Traxettle" target
+#    - Select the "TraxettleappbyKarkhanisLabs" target
 #    - Set Bundle Identifier: com.traxettle.app
 #    - Select your Team (Apple Developer account)
 #    - Set version and build number
@@ -213,25 +241,22 @@ open ios/Traxettle.xcworkspace
 #    - Submit for Beta App Review (external testers only)
 ```
 
-### EAS Build Alternative
-```bash
-# Using Expo Application Services (cloud build)
-cd apps/mobile
-eas build --platform ios --profile staging
-# Follow prompts for Apple credentials
-# Download .ipa from EAS dashboard and upload to App Store Connect
-```
+### Why not EAS Build
+EAS cloud builds don't work for this monorepo: EAS installs dependencies with npm, which
+can't resolve Rush's `workspace:` packages (`@traxettle/shared`), and the `.env` the build
+scripts write is gitignored, so it never reaches EAS. The `staging` EAS profile is also an
+ad-hoc ("internal") build, not a TestFlight one.
 
 ---
 
 ## 6. iOS — App Store (Production)
 
-Same as TestFlight but select "App Store" distribution:
+Promote the build you tested in TestFlight; no rebuild is needed. It already uses the
+production API by default (section 5), and the same binary goes to App Store users.
 
 ```bash
-# 1. Prebuild, archive in Xcode (same as above)
-# 2. In Organizer → Distribute App → App Store Connect → Upload
-# 3. In App Store Connect:
+# 1. Upload a build with section 5 (or reuse one already in TestFlight)
+# 2. In App Store Connect:
 #    - Go to App Store tab (not TestFlight)
 #    - Create new version
 #    - Select the uploaded build

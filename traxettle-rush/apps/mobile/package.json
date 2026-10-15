@@ -27,6 +27,7 @@
     "build:ios:debug": "bash scripts/build-ios.sh debug",
     "build:ios:staging": "bash scripts/build-ios.sh staging",
     "build:ios:production": "bash scripts/build-ios.sh production",
+    "build:ios:testflight": "bash scripts/build-ios.sh testflight",
     "test": "jest",
     "test:coverage": "jest --coverage",
     "test:maestro": "RUN_ID=${RUN_ID:-$(date +%s)} sh maestro/scripts/run-maestro.sh normal",

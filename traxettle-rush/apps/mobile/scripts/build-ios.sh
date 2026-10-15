@@ -5,10 +5,20 @@
 #   ./scripts/build-ios.sh staging
 #   ./scripts/build-ios.sh production
 #   ./scripts/build-ios.sh debug
+#   APPLE_TEAM_ID=ABCDE12345 ./scripts/build-ios.sh testflight
 #
 # Notes:
 # - `staging` / `production` use EAS Build (recommended for signed distribution).
 # - `debug` builds and runs locally via Expo dev client.
+# - `testflight` archives the production release build locally with Xcode and
+#   uploads it to App Store Connect (TestFlight). It is the binary you later
+#   promote to the App Store. Release builds choose the API at runtime: production
+#   by default; testers switch to staging by tapping "Traxettle" 7 times on the
+#   sign-in screen. Runs locally because EAS can't install this Rush monorepo
+#   (`workspace:` dependencies).
+#   Signs with the Apple account added in Xcode → Settings → Accounts, or with
+#   an App Store Connect API key: ASC_KEY_PATH, ASC_KEY_ID, ASC_KEY_ISSUER_ID.
+#   Build number defaults to yymmddHHMM; override with IOS_BUILD_NUMBER.
 
 set -euo pipefail
 
@@ -31,19 +41,19 @@ fail()  { echo -e "${RED}❌${NC} $1"; exit 1; }
 
 if [ -z "$PROFILE" ]; then
   echo "Usage: ./scripts/build-ios.sh <profile>"
-  echo "Profiles: staging | production | debug"
+  echo "Profiles: staging | production | debug | testflight"
   exit 1
 fi
 
 case "$PROFILE" in
-  staging|production|debug) ;;
-  *) fail "Unknown profile '$PROFILE'. Use: staging, production, or debug" ;;
+  staging|production|debug|testflight) ;;
+  *) fail "Unknown profile '$PROFILE'. Use: staging, production, debug, or testflight" ;;
 esac
 
 case "$PROFILE" in
   debug) RC_ENV="local" ;;
   staging) RC_ENV="staging" ;;
-  production) RC_ENV="prod" ;;
+  production|testflight) RC_ENV="prod" ;;
 esac
 
 echo ""
@@ -56,12 +66,27 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing command: $1"
 }
 
+# Name of the generated Xcode project (derived from app.json "name"); empty before prebuild.
+ios_project_name() {
+  local proj
+  for proj in "$IOS_DIR"/*.xcodeproj; do
+    [ -d "$proj" ] && basename "$proj" .xcodeproj && return 0
+  done
+  return 0
+}
+
 require_cmd node
 require_cmd bash
+if [ "$PROFILE" = "testflight" ]; then
+  require_cmd xcodebuild
+  require_cmd npx
+  [[ "${APPLE_TEAM_ID:-}" =~ ^[A-Z0-9]{10}$ ]] \
+    || fail "Set APPLE_TEAM_ID to your 10-character Apple Team ID (help: tools/doctor-tool/scripts/doctor-apple-team.sh)"
+fi
 [ -f "$RC_LOADER" ] || fail "Missing RevenueCat loader: $RC_LOADER"
 source "$RC_LOADER" "$RC_ENV"
 
-if [ "$PROFILE" = "debug" ]; then
+if [ "$PROFILE" = "debug" ] || [ "$PROFILE" = "testflight" ]; then
   if [ -z "${EXPO_PUBLIC_REVENUECAT_APPLE_KEY:-}" ]; then
     warn "EXPO_PUBLIC_REVENUECAT_APPLE_KEY is empty in rc_${RC_ENV}.properties — iOS Pro purchases won't work in this build."
   fi
@@ -79,9 +104,12 @@ case "$PROFILE" in
     FIREBASE_ENV="staging"
     EAS_PROFILE="staging"
     ;;
-  production)
+  production|testflight)
     export EXPO_PUBLIC_APP_ENV="production"
-    if [ -z "${EXPO_PUBLIC_API_URL:-}" ]; then
+    if [ "$PROFILE" = "testflight" ]; then
+      # Release builds choose the API at runtime; this URL only feeds development builds.
+      export EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:-https://traxettle-api-prod-ncwutlgtga-uc.a.run.app}"
+    elif [ -z "${EXPO_PUBLIC_API_URL:-}" ]; then
       warn "EXPO_PUBLIC_API_URL not set. Using staging API fallback."
       warn "Set it via: EXPO_PUBLIC_API_URL=https://your-prod-api.run.app ./scripts/build-ios.sh production"
       export EXPO_PUBLIC_API_URL="https://traxettle-api-staging-lomxjapdhq-uc.a.run.app"
@@ -106,17 +134,21 @@ esac
 
 PLIST_SRC="$MOBILE_DIR/GoogleService-Info.$FIREBASE_ENV.plist"
 PLIST_FALLBACK="$MOBILE_DIR/GoogleService-Info.plist"
-PLIST_DST="$IOS_DIR/Traxettle/GoogleService-Info.plist"
 
+# The config plugin copies apps/mobile/GoogleService-Info.plist into the native
+# project on prebuild; an already-generated project gets it directly.
 if [ -f "$PLIST_SRC" ]; then
-  cp "$PLIST_SRC" "$PLIST_DST"
   cp "$PLIST_SRC" "$PLIST_FALLBACK"
-  ok "GoogleService-Info.$FIREBASE_ENV.plist → ios/Traxettle/GoogleService-Info.plist"
+  ok "GoogleService-Info.$FIREBASE_ENV.plist → GoogleService-Info.plist"
 elif [ -f "$PLIST_FALLBACK" ]; then
-  cp "$PLIST_FALLBACK" "$PLIST_DST"
   warn "GoogleService-Info.$FIREBASE_ENV.plist not found — using GoogleService-Info.plist"
 else
   fail "Missing iOS Firebase plist for env '$FIREBASE_ENV'"
+fi
+IOS_PROJECT="$(ios_project_name)"
+if [ -n "$IOS_PROJECT" ]; then
+  cp "$PLIST_FALLBACK" "$IOS_DIR/$IOS_PROJECT/GoogleService-Info.plist"
+  ok "  → ios/$IOS_PROJECT/GoogleService-Info.plist"
 fi
 
 ENV_FILE="$MOBILE_DIR/.env"
@@ -168,6 +200,69 @@ cleanup_env() {
 }
 trap cleanup_env EXIT
 
+# Prebuild → archive (Release) → upload to App Store Connect, all on this Mac.
+build_testflight() {
+  local version build_number archive_dir archive_path export_dir project
+  version="$(node -p "require('$MOBILE_DIR/app.json').expo.version")"
+  build_number="${IOS_BUILD_NUMBER:-$(date +%y%m%d%H%M)}"
+  # Archives here show up in Xcode's Organizer, so a failed upload can be retried from there.
+  archive_dir="$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)"
+  archive_path="$archive_dir/Traxettle-$version-$build_number.xcarchive"
+  export_dir="$(mktemp -d)"
+
+  local auth_flags=()
+  if [ -n "${ASC_KEY_PATH:-}" ]; then
+    auth_flags=(-authenticationKeyPath "$ASC_KEY_PATH"
+      -authenticationKeyID "${ASC_KEY_ID:?Set ASC_KEY_ID with ASC_KEY_PATH}"
+      -authenticationKeyIssuerID "${ASC_KEY_ISSUER_ID:?Set ASC_KEY_ISSUER_ID with ASC_KEY_PATH}")
+  fi
+
+  info "Generating the native iOS project (expo prebuild --clean)."
+  # .env and buildEnv.ts are written above on purpose; skip prebuild's uncommitted-changes prompt.
+  (cd "$MOBILE_DIR" && EXPO_NO_GIT_STATUS=1 npx expo prebuild --platform ios --clean)
+  project="$(ios_project_name)"
+  [ -n "$project" ] || fail "expo prebuild did not create an Xcode project in $IOS_DIR"
+  # Xcode's JS bundling phase needs node, which may live outside Xcode's default PATH (e.g. nvm).
+  echo "export NODE_BINARY=$(command -v node)" > "$IOS_DIR/.xcode.env.local"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $build_number" "$IOS_DIR/$project/Info.plist"
+  ok "Version $version, build $build_number"
+
+  info "Archiving (Release, team $APPLE_TEAM_ID)."
+  mkdir -p "$archive_dir"
+  xcodebuild -workspace "$IOS_DIR/$project.xcworkspace" -scheme "$project" -configuration Release \
+    -destination 'generic/platform=iOS' -archivePath "$archive_path" \
+    -allowProvisioningUpdates ${auth_flags[@]+"${auth_flags[@]}"} \
+    DEVELOPMENT_TEAM="$APPLE_TEAM_ID" archive
+  ok "Archive: $archive_path"
+
+  cat > "$export_dir/ExportOptions.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>method</key>
+  <string>app-store-connect</string>
+  <key>destination</key>
+  <string>upload</string>
+  <key>teamID</key>
+  <string>${APPLE_TEAM_ID}</string>
+  <key>signingStyle</key>
+  <string>automatic</string>
+  <key>manageAppVersionAndBuildNumber</key>
+  <false/>
+  <key>uploadSymbols</key>
+  <true/>
+</dict>
+</plist>
+EOF
+
+  info "Uploading to App Store Connect (logs: $export_dir)."
+  xcodebuild -exportArchive -archivePath "$archive_path" -exportOptionsPlist "$export_dir/ExportOptions.plist" \
+    -exportPath "$export_dir" -allowProvisioningUpdates ${auth_flags[@]+"${auth_flags[@]}"}
+  ok "Uploaded $version ($build_number). It appears in App Store Connect → TestFlight after processing (~10–30 min)."
+  info "The build uses production by default. To test staging, tap \"Traxettle\" 7 times on the sign-in screen."
+}
+
 echo ""
 if [ "$PROFILE" = "debug" ]; then
   require_cmd npx
@@ -176,6 +271,8 @@ if [ "$PROFILE" = "debug" ]; then
     cd "$MOBILE_DIR"
     npx expo run:ios --configuration Debug
   )
+elif [ "$PROFILE" = "testflight" ]; then
+  build_testflight
 else
   require_cmd eas
   info "Starting EAS iOS build with profile '$EAS_PROFILE'."
