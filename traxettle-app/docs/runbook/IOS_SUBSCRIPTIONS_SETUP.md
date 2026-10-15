@@ -60,10 +60,24 @@ The upgrade screen shows whatever offer the store returns. With an offer it read
 3. Price: e.g. about 10% below each base price. Apple only offers fixed price points.
 4. Introductory offers apply once per subscription group, to new subscribers only.
 
-### 1.4 In-App Purchase key for RevenueCat (one-time)
-1. **Users and Access → Integrations → In-App Purchase → Generate** (or **+**). Name it *RevenueCat*.
+### 1.4 Two keys for RevenueCat (one-time)
+RevenueCat needs **two different keys**. They are not interchangeable.
+
+**a) In-App Purchase key** (RevenueCat uses it to verify purchases)
+1. **Users and Access → Integrations → In-App Purchase → Generate** (or **+**). Name it *RevenueCat IAP*.
 2. **Download the `.p8` file now.** Apple lets you download it only once. Store it safely.
-3. Note the **Key ID**, and the **Issuer ID** shown at the top of the same page.
+3. Note its **Key ID**.
+
+**b) App Store Connect API key** (RevenueCat uses it to read products and prices; without it the
+RevenueCat Products page shows *"Connection issue: App Store Connect API not configured"*)
+1. **Users and Access → Integrations → App Store Connect API → Team Keys.** The first time, the
+   Account Holder must click **Request Access**.
+2. **Generate API Key** (or **+**): name *RevenueCat ASC*, access **App Manager** (Admin also works;
+   lower roles fail).
+3. **Download the `.p8` now** (once only). Note its **Key ID** and the **Issuer ID** shown above
+   the keys table. Use a **Team** key: individual keys have no Issuer ID and RevenueCat can't use them.
+4. Note your **Vendor number** too, if RevenueCat asks for it: **Payments and Financial Reports**,
+   top left.
 
 ### 1.5 App listing items App Review checks (one-time)
 1. **App Privacy → Privacy Policy URL:** `https://traxettle-prod.web.app/privacy.html` (served from `apps/web/public/privacy.html`).
@@ -87,8 +101,12 @@ Use **one RevenueCat project** for now. The app tags customers by environment
 ### 2.1 Add the App Store app (one-time)
 1. RevenueCat → your project → **Apps & providers** (or **Apps**) → **+ New** → **App Store**.
 2. **Bundle ID:** `com.traxettle.app`.
-3. **In-app purchase key:** upload the `.p8` from 1.4, then enter its **Key ID** and **Issuer ID**.
-4. Save. RevenueCat now shows an **Apple Server Notification URL** for this app; copy it.
+3. **In-app purchase key configuration:** upload the **In-App Purchase** `.p8` from 1.4a, with its
+   **Key ID** and the **Issuer ID**.
+4. **App Store Connect API:** upload the **App Store Connect API** `.p8` from 1.4b, with its
+   **Key ID**, the **Issuer ID** and, if asked, the **Vendor number**.
+5. Save. Both sections should show as valid. RevenueCat now shows an **Apple Server Notification
+   URL** for this app; copy it.
 
 ### 2.2 Send Apple's subscription notifications to RevenueCat (one-time)
 1. App Store Connect → **Apps → Traxettle → App Information → App Store Server Notifications**.
