@@ -12,6 +12,7 @@ import {
 import { spacing, radii, fontSizes } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { usePurchase } from '../context/PurchaseContext';
+import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL, introOfferText, renewalTerms } from '../utils/subscriptionTerms';
 
 const PRO_FEATURES = [
   {
@@ -41,21 +42,20 @@ const PRO_FEATURES = [
   },
 ];
 
-function isIndiaLocale(): boolean {
-  try {
-    const locale = Intl.DateTimeFormat().resolvedOptions().locale || '';
-    const normalized = locale.replace('_', '-').toUpperCase();
-    return normalized.endsWith('-IN');
-  } catch {
-    return false;
-  }
+function openLegalLink(url: string) {
+  Linking.openURL(url).catch(() => {});
 }
 
 export default function ProUpgradeScreen({ navigation }: any) {
   const { theme } = useTheme();
   const c = theme.colors;
-  const { isPro, purchasing, priceString, handlePurchase, handleRestore } = usePurchase();
-  const renewalPrice = isIndiaLocale() ? '₹299' : '$5.99';
+  const { isPro, purchasing, priceString, proPackage, handlePurchase, handleRestore } = usePurchase();
+  // Both prices come from the store, so the screen matches what the user is charged.
+  const intro = proPackage?.product.introPrice ?? null;
+  const offerText = introOfferText(intro, priceString);
+  const purchaseLabel = !intro
+    ? `Subscribe for ${priceString}/year`
+    : intro.price === 0 ? 'Start free trial' : `Subscribe for ${intro.priceString}`;
 
   const handleManageSubscription = () => {
     const url = Platform.OS === 'ios' 
@@ -136,11 +136,11 @@ export default function ProUpgradeScreen({ navigation }: any) {
         <Text style={[styles.priceNote, { color: c.muted }]}>
           Yearly subscription · Cancel anytime · No hidden fees
         </Text>
-        <View style={[styles.offerBanner, { backgroundColor: c.warning + '15' }]}>
-          <Text style={[styles.offerText, { color: c.warning }]}>
-            10% off for your first year. Then renews at {renewalPrice}/year.
-          </Text>
-        </View>
+        {offerText && (
+          <View testID="pro-upgrade-intro-offer" style={[styles.offerBanner, { backgroundColor: c.warning + '15' }]}>
+            <Text style={[styles.offerText, { color: c.warning }]}>{offerText}</Text>
+          </View>
+        )}
       </View>
 
       {/* Features */}
@@ -169,7 +169,7 @@ export default function ProUpgradeScreen({ navigation }: any) {
         {purchasing ? (
           <ActivityIndicator color="#ffffff" />
         ) : (
-          <Text style={styles.purchaseBtnText}>Subscribe for {priceString}/year</Text>
+          <Text style={styles.purchaseBtnText}>{purchaseLabel}</Text>
         )}
       </TouchableOpacity>
 
@@ -183,12 +183,22 @@ export default function ProUpgradeScreen({ navigation }: any) {
         <Text style={[styles.restoreBtnText, { color: c.primary }]}>Restore Purchase</Text>
       </TouchableOpacity>
 
-      {/* Fine print */}
-      <Text style={[styles.finePrint, { color: c.muted }]}>
-        Payment will be charged to your {'\n'}
-        App Store or Google Play account.{'\n'}
-        Subscription renews annually. Cancel anytime.
+      {/* Renewal terms and legal links (required next to auto-renewable subscriptions) */}
+      <Text testID="pro-upgrade-renewal-terms" style={[styles.finePrint, { color: c.muted }]}>
+        {renewalTerms(Platform.OS, priceString)}
       </Text>
+      <View style={styles.legalLinks}>
+        {Platform.OS === 'ios' && (
+          <Text testID="pro-upgrade-terms-link" style={[styles.legalLink, { color: c.primary }]}
+            onPress={() => openLegalLink(TERMS_OF_USE_URL)}>
+            Terms of Use (EULA)
+          </Text>
+        )}
+        <Text testID="pro-upgrade-privacy-link" style={[styles.legalLink, { color: c.primary }]}
+          onPress={() => openLegalLink(PRIVACY_POLICY_URL)}>
+          Privacy Policy
+        </Text>
+      </View>
     </ScrollView>
   );
 }
@@ -275,4 +285,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     lineHeight: 16,
   },
+  legalLinks: { flexDirection: 'row', justifyContent: 'center', gap: spacing.lg, marginTop: spacing.md },
+  legalLink: { fontSize: fontSizes.xs, fontWeight: '600', textDecorationLine: 'underline' },
 });

@@ -13,7 +13,8 @@ docs/
 │   └── FIRST_RELEASE_CHECKLIST.md
 ├── runbook/             — Running the app locally in different modes
 │   ├── LOCAL_DEVELOPMENT.md
-│   └── MONEY_POOLING_TESTING.md
+│   ├── MONEY_POOLING_TESTING.md
+│   └── IOS_SUBSCRIPTIONS_SETUP.md
 └── utility/             — Reference docs for integrations and features
     ├── FIREBASE_SETUP.md
     ├── REVENUECAT_INTEGRATION_RUNBOOK.md
@@ -33,6 +34,7 @@ docs/
 ### Getting Started
 - **[Local Development](runbook/LOCAL_DEVELOPMENT.md)** — 6 run modes (emulator/real Firebase × web/mobile)
 - **[Money Pooling — Run & Test](runbook/MONEY_POOLING_TESTING.md)** — automated suites, quick local run, hand-testing checklist per use case
+- **[iOS Subscriptions (RevenueCat)](runbook/IOS_SUBSCRIPTIONS_SETUP.md)** — App Store Connect, RevenueCat, builds, sandbox testing and App Review checklist
 - **Doctor Tool UI** — guided, layman-friendly setup flow:
   - Start it from repo root: `cd traxettle-rush/tools/doctor-tool && npm run dev`
   - Then open the printed localhost URL in your browser
