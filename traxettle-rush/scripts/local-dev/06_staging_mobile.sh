@@ -66,6 +66,18 @@ open_app() {
   fi
 }
 
+install_dev_build() {
+  if [[ "$PLATFORM" == "ios" ]]; then
+    npx expo run:ios --no-bundler
+  else
+    # `expo run:android` ends by opening a dev-client link this app can't
+    # handle, so build and install with Gradle instead; open_app launches it.
+    local abi
+    abi="$(adb shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r')"
+    (cd android && ./gradlew app:installDebug ${abi:+"-PreactNativeArchitectures=$abi"})
+  fi
+}
+
 open_app_when_bundler_ready() {
   for _ in $(seq 1 180); do
     if curl -fsS -m 2 http://localhost:8081/status 2>/dev/null | grep -q "packager-status:running"; then
@@ -90,9 +102,14 @@ export EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID="${BOOTSTRAP_GOOGLE_WEB_CLIENT_ID:-}"
 export EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID="${BOOTSTRAP_GOOGLE_ANDROID_CLIENT_ID:-}"
 
 cd "$MOBILE_DIR"
+if [[ "$PLATFORM" == "android" ]] && ! adb get-state >/dev/null 2>&1; then
+  echo "[local-dev] Start one Android emulator (Android Studio → Device Manager) or connect one device, then run again."
+  echo "[local-dev] With several connected, pick one: export ANDROID_SERIAL=<name from 'adb devices'>"
+  exit 1
+fi
 if [[ "$FORCE_BUILD" == "--build" ]] || ! app_installed; then
   echo "[local-dev] Installing the development build on $PLATFORM (the first build takes 10–20 min)."
-  npx expo run:"$PLATFORM" --no-bundler
+  install_dev_build
 fi
 
 # Open the app once the bundler answers. This runs in the background and never
