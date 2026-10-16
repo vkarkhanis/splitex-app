@@ -3,7 +3,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { Field, Input, Label, Select } from '@traxettle/ui';
-import { POOL_PRESET_LABELS } from '@traxettle/shared';
+import { POOL_PRESET_LABELS, choosePool } from '@traxettle/shared';
 import type { PoolPreset } from '@traxettle/shared';
 import { CONTRIBUTOR_PRESETS, FundingChoice, needsTarget, withPreset } from './fundingChoice';
 import { currencySymbol } from './poolFormat';
@@ -95,6 +95,8 @@ interface Props {
   onChange: (next: FundingChoice) => void;
   currency: string;
   disabled?: boolean;
+  /** Offer "Several of us" pools; otherwise only "Just me" (see contributorPoolsAvailable). */
+  allowContributorPools: boolean;
 }
 
 const SPLIT_TEXT = 'Everyone pays their own way. Settle up at the end.';
@@ -104,7 +106,7 @@ const POOL_TEXT = 'Collect money up front. Spend from the pool.';
  * "How is this event funded?" — split expenses (today's behaviour, default) or
  * a pool. Pool users pick a familiar shape (Kitty, Fund…) instead of policies.
  */
-export function FundingStep({ value, onChange, currency, disabled }: Props) {
+export function FundingStep({ value, onChange, currency, disabled, allowContributorPools }: Props) {
   const sym = currencySymbol(currency);
   const set = (patch: Partial<FundingChoice>) => onChange({ ...value, ...patch });
   const preset = value.funder === 'sponsor' ? 'sponsor_budget' : value.preset;
@@ -118,7 +120,7 @@ export function FundingStep({ value, onChange, currency, disabled }: Props) {
           <CardTitle>Split expenses</CardTitle>
           <CardText>{SPLIT_TEXT}</CardText>
         </ChoiceCard>
-        <ChoiceCard type="button" role="radio" aria-checked={value.kind === 'pool'} $selected={value.kind === 'pool'} onClick={() => set({ kind: 'pool' })} data-testid="funding-pool">
+        <ChoiceCard type="button" role="radio" aria-checked={value.kind === 'pool'} $selected={value.kind === 'pool'} onClick={() => onChange(choosePool(value, allowContributorPools))} data-testid="funding-pool">
           <CardTitle>Pool money</CardTitle>
           <CardText>{POOL_TEXT}</CardText>
         </ChoiceCard>
@@ -128,12 +130,14 @@ export function FundingStep({ value, onChange, currency, disabled }: Props) {
         <>
           <Question id="funding-q2">Who puts money in?</Question>
           <Cards role="radiogroup" aria-labelledby="funding-q2">
-            <ChoiceCard type="button" role="radio" aria-checked={value.funder === 'contributors'} $selected={value.funder === 'contributors'}
-              onClick={() => onChange(withPreset({ ...value, funder: 'contributors' }, CONTRIBUTOR_PRESETS.includes(value.preset) ? value.preset : 'trip_kitty'))}
-              data-testid="funder-contributors">
-              <CardTitle>Several of us</CardTitle>
-              <CardText>Everyone chips in; anyone can spend from the pool.</CardText>
-            </ChoiceCard>
+            {allowContributorPools && (
+              <ChoiceCard type="button" role="radio" aria-checked={value.funder === 'contributors'} $selected={value.funder === 'contributors'}
+                onClick={() => onChange(withPreset({ ...value, funder: 'contributors' }, CONTRIBUTOR_PRESETS.includes(value.preset) ? value.preset : 'trip_kitty'))}
+                data-testid="funder-contributors">
+                <CardTitle>Several of us</CardTitle>
+                <CardText>Everyone chips in; anyone can spend from the pool.</CardText>
+              </ChoiceCard>
+            )}
             <ChoiceCard type="button" role="radio" aria-checked={value.funder === 'sponsor'} $selected={value.funder === 'sponsor'}
               onClick={() => onChange(withPreset({ ...value, funder: 'sponsor' }, 'sponsor_budget'))}
               data-testid="funder-sponsor">
@@ -142,7 +146,7 @@ export function FundingStep({ value, onChange, currency, disabled }: Props) {
             </ChoiceCard>
           </Cards>
 
-          {value.funder === 'contributors' && (
+          {allowContributorPools && value.funder === 'contributors' && (
             <>
               <Question id="funding-q3">What kind of pool?</Question>
               <Cards $cols={2} role="radiogroup" aria-labelledby="funding-q3">

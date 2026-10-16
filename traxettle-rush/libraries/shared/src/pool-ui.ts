@@ -217,6 +217,31 @@ export const DEFAULT_FUNDING_CHOICE: FundingChoice = {
 
 export const CONTRIBUTOR_PRESETS: PoolPreset[] = ['trip_kitty', 'household', 'club_treasury', 'target_collection'];
 
+/**
+ * "Several of us" pools are held back from production for the first release:
+ * production users can only create "Just me" budgets. The API supports both.
+ * Set to true to release them.
+ */
+export const CONTRIBUTOR_POOLS_IN_PRODUCTION = false;
+
+const PRE_PRODUCTION_ENVS = ['local', 'development', 'staging', 'internal'];
+
+/**
+ * Whether the create-event form offers "Several of us" in this app environment.
+ * A missing or unknown environment counts as production, so the option can't
+ * reach production users by accident.
+ */
+export function contributorPoolsAvailable(appEnv: string | null | undefined): boolean {
+  return CONTRIBUTOR_POOLS_IN_PRODUCTION || PRE_PRODUCTION_ENVS.includes(String(appEnv ?? '').toLowerCase());
+}
+
+/** Picking "Pool money": start on "Just me" when it is the only funder on offer. */
+export function choosePool(choice: FundingChoice, contributorPools: boolean): FundingChoice {
+  return contributorPools
+    ? { ...choice, kind: 'pool' }
+    : withPreset({ ...choice, kind: 'pool', funder: 'sponsor' }, 'sponsor_budget');
+}
+
 /** Switching funder/preset resets the advanced defaults to that preset's. */
 export function withPreset(choice: FundingChoice, preset: PoolPreset): FundingChoice {
   const p = POOL_PRESETS[preset];

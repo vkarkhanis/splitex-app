@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -14,10 +14,11 @@ import {
 } from 'react-native';
 import { spacing, radii, fontSizes } from '../theme';
 import { useTheme } from '../context/ThemeContext';
-import { api, ApiRequestError } from '../api';
+import { api, ApiRequestError, isStagingModeEnabled } from '../api';
+import { ENV } from '../config/env';
 import { useAuth } from '../context/AuthContext';
 import { usePurchase } from '../context/PurchaseContext';
-import { buildFundingPayload, DEFAULT_FUNDING_CHOICE, validateFundingChoice } from '@traxettle/shared';
+import { buildFundingPayload, contributorPoolsAvailable, DEFAULT_FUNDING_CHOICE, validateFundingChoice } from '@traxettle/shared';
 import type { FundingChoice } from '@traxettle/shared';
 import { FundingStepView } from '../components/pool/PoolViews';
 
@@ -32,6 +33,13 @@ export default function CreateEventScreen({ navigation }: any) {
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'event' | 'trip'>('event');
   const [funding, setFunding] = useState<FundingChoice>(DEFAULT_FUNDING_CHOICE);
+  // Release builds are "production" even when a tester switches the app to Staging,
+  // so the runtime switch decides there: "Several of us" stays visible on staging only.
+  const [stagingMode, setStagingMode] = useState(false);
+  useEffect(() => {
+    isStagingModeEnabled().then(setStagingMode).catch(() => {});
+  }, []);
+  const allowContributorPools = contributorPoolsAvailable(stagingMode ? 'staging' : ENV.APP_ENV);
 
   // Debug logging for Pro features
   console.log('[CreateEvent] Debug:', {
@@ -241,7 +249,7 @@ export default function CreateEventScreen({ navigation }: any) {
         ))}
       </View>
 
-      <FundingStepView value={funding} onChange={setFunding} currency={currency} />
+      <FundingStepView value={funding} onChange={setFunding} currency={currency} allowContributorPools={allowContributorPools} />
 
       {/* Settlement Currency */}
       <Text style={[styles.label, { color: colors.textSecondary }]}>

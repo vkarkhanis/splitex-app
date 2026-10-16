@@ -9,6 +9,7 @@ import {
   meterGeometry,
   needsTarget,
   withPreset,
+  choosePool,
   CONTRIBUTOR_PRESETS,
 } from '@traxettle/shared';
 import type { EventFundingModel, ExpenseFundingSource, FundingChoice, PoolCycleSummary, PoolOverdraftState } from '@traxettle/shared';
@@ -164,8 +165,16 @@ export function ReceiptPicker(props: { eventId: string; value: string[]; onChang
 
 // ── Create-event funding step ─────────────────────────────────────────────
 
+type FundingStepViewProps = {
+  value: FundingChoice;
+  onChange: (v: FundingChoice) => void;
+  currency: string;
+  /** Offer "Several of us" pools; otherwise only "Just me" (see contributorPoolsAvailable). */
+  allowContributorPools: boolean;
+};
+
 /** "How is this event funded?" — split expenses (default) or a pool preset. */
-export function FundingStepView({ value, onChange, currency }: { value: FundingChoice; onChange: (v: FundingChoice) => void; currency: string }) {
+export function FundingStepView({ value, onChange, currency, allowContributorPools }: FundingStepViewProps) {
   const { colors } = useTheme().theme;
   const preset = value.funder === 'sponsor' ? 'sponsor_budget' : value.preset;
   const card = (selected: boolean) => [s.option, { borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.infoBg : colors.surface }];
@@ -179,7 +188,7 @@ export function FundingStepView({ value, onChange, currency }: { value: FundingC
           <Text style={[s.optionTitle, { color: colors.text }]}>Split expenses</Text>
           <Text style={[s.optionText, { color: colors.muted }]}>Everyone pays their own way. Settle up at the end.</Text>
         </TouchableOpacity>
-        <TouchableOpacity testID="funding-pool" style={card(value.kind === 'pool')} onPress={() => onChange({ ...value, kind: 'pool' })}>
+        <TouchableOpacity testID="funding-pool" style={card(value.kind === 'pool')} onPress={() => onChange(choosePool(value, allowContributorPools))}>
           <Text style={[s.optionTitle, { color: colors.text }]}>Pool money</Text>
           <Text style={[s.optionText, { color: colors.muted }]}>Collect money up front. Spend from the pool.</Text>
         </TouchableOpacity>
@@ -189,17 +198,19 @@ export function FundingStepView({ value, onChange, currency }: { value: FundingC
         <>
           <Text style={[s.label, { color: colors.textSecondary, marginTop: spacing.md }]}>Who puts money in?</Text>
           <View style={s.optionRow}>
-            <TouchableOpacity testID="funder-contributors" style={card(value.funder === 'contributors')}
-              onPress={() => onChange(withPreset({ ...value, funder: 'contributors' }, CONTRIBUTOR_PRESETS.includes(value.preset) ? value.preset : 'trip_kitty'))}>
-              <Text style={[s.optionTitle, { color: colors.text }]}>Several of us</Text>
-            </TouchableOpacity>
+            {allowContributorPools && (
+              <TouchableOpacity testID="funder-contributors" style={card(value.funder === 'contributors')}
+                onPress={() => onChange(withPreset({ ...value, funder: 'contributors' }, CONTRIBUTOR_PRESETS.includes(value.preset) ? value.preset : 'trip_kitty'))}>
+                <Text style={[s.optionTitle, { color: colors.text }]}>Several of us</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity testID="funder-sponsor" style={card(value.funder === 'sponsor')}
               onPress={() => onChange(withPreset({ ...value, funder: 'sponsor' }, 'sponsor_budget'))}>
               <Text style={[s.optionTitle, { color: colors.text }]}>Just me</Text>
             </TouchableOpacity>
           </View>
 
-          {value.funder === 'contributors' && (
+          {allowContributorPools && value.funder === 'contributors' && (
             <View style={[s.optionRow, { marginTop: spacing.sm }]}>
               {CONTRIBUTOR_PRESETS.map((p) => (
                 <TouchableOpacity key={p} testID={`preset-${p}`} style={card(value.preset === p)} onPress={() => onChange(withPreset(value, p))}>

@@ -1,6 +1,9 @@
 import {
   buildFundingPayload,
   canRecordAnyway,
+  choosePool,
+  contributorPoolsAvailable,
+  CONTRIBUTOR_POOLS_IN_PRODUCTION,
   currencySymbol,
   DEFAULT_FUNDING_CHOICE,
   describePoolRefusal,
@@ -206,5 +209,29 @@ describe('reimbursement status of a claim', () => {
     expect(REIMBURSEMENT_STATUS.to_reimburse.label).toBe('To reimburse');
     expect(REIMBURSEMENT_STATUS.sent.label).toBe('Reimbursement sent');
     expect(REIMBURSEMENT_STATUS.reimbursed).toEqual({ label: 'Reimbursed', tone: 'success' });
+  });
+});
+
+describe('"Several of us" pools in the first release', () => {
+  it('are held back from production', () => {
+    expect(CONTRIBUTOR_POOLS_IN_PRODUCTION).toBe(false);
+    expect(contributorPoolsAvailable('production')).toBe(false);
+  });
+
+  it('stay available everywhere before production, for testing', () => {
+    for (const env of ['local', 'development', 'staging', 'internal', 'STAGING']) {
+      expect(contributorPoolsAvailable(env)).toBe(true);
+    }
+  });
+
+  it('count a missing or unknown environment as production', () => {
+    expect(contributorPoolsAvailable(undefined)).toBe(false);
+    expect(contributorPoolsAvailable('')).toBe(false);
+    expect(contributorPoolsAvailable('prod')).toBe(false);
+  });
+
+  it('start "Pool money" on "Just me" when that is the only funder offered', () => {
+    expect(choosePool(DEFAULT_FUNDING_CHOICE, false)).toMatchObject({ kind: 'pool', funder: 'sponsor', preset: 'sponsor_budget', approval: 'always' });
+    expect(choosePool(DEFAULT_FUNDING_CHOICE, true)).toMatchObject({ kind: 'pool', funder: 'contributors', preset: 'trip_kitty' });
   });
 });

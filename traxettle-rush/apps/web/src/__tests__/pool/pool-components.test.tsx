@@ -85,10 +85,21 @@ async function click(el: Element | null) {
 // ── FundingStep ───────────────────────────────────────────────────────────
 
 describe('FundingStep', () => {
-  function Harness({ onChange }: { onChange: (v: FundingChoice) => void }) {
+  function Harness({ onChange, allowContributorPools = true }: { onChange: (v: FundingChoice) => void; allowContributorPools?: boolean }) {
     const [value, setValue] = React.useState(DEFAULT_FUNDING_CHOICE);
-    return <FundingStep value={value} currency="INR" onChange={(v) => { setValue(v); onChange(v); }} />;
+    return <FundingStep value={value} currency="INR" allowContributorPools={allowContributorPools} onChange={(v) => { setValue(v); onChange(v); }} />;
   }
+
+  it('offers only "Just me" when "Several of us" pools are held back (production)', async () => {
+    const onChange = jest.fn();
+    await render(<Harness onChange={onChange} allowContributorPools={false} />);
+    await click(q('funding-pool'));
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'pool', funder: 'sponsor', preset: 'sponsor_budget' }));
+    expect(q('funder-contributors')).toBeNull();
+    expect(q('preset-trip_kitty')).toBeNull();
+    expect(q('funder-sponsor')!.getAttribute('aria-checked')).toBe('true');
+    expect(q('pool-target-input')).not.toBeNull();
+  });
 
   it('defaults to split expenses and reveals pool choices on demand', async () => {
     const onChange = jest.fn();

@@ -22,6 +22,10 @@ import { useEffect } from 'react';
 import { FundingStep } from '../../../components/pool/FundingStep';
 import { buildFundingPayload, DEFAULT_FUNDING_CHOICE, validateFundingChoice } from '../../../components/pool/fundingChoice';
 import type { FundingChoice } from '../../../components/pool/fundingChoice';
+import { contributorPoolsAvailable } from '@traxettle/shared';
+
+// Production web builds set NEXT_PUBLIC_APP_ENV=production, which hides "Several of us" pools.
+const ALLOW_CONTRIBUTOR_POOLS = contributorPoolsAvailable(process.env.NEXT_PUBLIC_APP_ENV);
 
 const Page = styled.div`
   width: 100%;
@@ -316,7 +320,8 @@ export default function CreateEventPage() {
               </Field>
             </Row>
 
-            <FundingStep value={funding} onChange={setFunding} currency={form.currency} disabled={loading} />
+            <FundingStep value={funding} onChange={setFunding} currency={form.currency} disabled={loading}
+              allowContributorPools={ALLOW_CONTRIBUTOR_POOLS} />
 
             {/* Settlement Currency (optional — different from expense currency) */}
             <Row>

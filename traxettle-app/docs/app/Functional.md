@@ -318,7 +318,7 @@ Pooling is an additional **funding model**: money is collected first and expense
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 16.1 | Funding choice at event creation | ✅ Supported | Split expenses (default) or Pool money → Several of us / Just me |
+| 16.1 | Funding choice at event creation | ✅ Supported | Split expenses (default) or Pool money → Several of us / Just me. **First release:** production shows only *Just me*; *Several of us* stays visible in local and staging (including a release build switched to Staging) until `CONTRIBUTOR_POOLS_IN_PRODUCTION` in `libraries/shared/src/pool-ui.ts` is set to `true`. The API supports both |
 | 16.2 | Pool presets | ✅ Supported | Kitty (one-off, pro-rata refund), Fund (monthly, carry-forward), Treasury (tiered dues, keep surplus), Collection (target before spending), Budget (single sponsor) |
 | 16.3 | Hybrid events | ✅ Supported | Pool expenses and regular split expenses in one event; one combined settlement plan |
 | 16.4 | Add a pool to an existing event | ✅ Supported | One-way conversion to hybrid; existing expenses unchanged |
