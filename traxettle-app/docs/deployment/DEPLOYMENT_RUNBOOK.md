@@ -39,7 +39,6 @@ You need store accounts only for:
 ```bash
 brew install --cask google-cloud-sdk
 brew install firebase-cli
-npm install -g eas-cli
 corepack enable
 ```
 
@@ -48,7 +47,6 @@ Verify:
 ```bash
 gcloud --version
 firebase --version
-eas --version
 node --version
 ```
 
@@ -57,7 +55,6 @@ node --version
 ```bash
 gcloud auth login
 firebase login
-eas login
 ```
 
 ### 2.3 Set active gcloud project
@@ -70,45 +67,12 @@ gcloud config get-value project
 Expected output for staging should be exactly:
 - `traxettle-staging`
 
-### 2.4 Ensure EAS project/profiles exist
+### 2.4 Mobile builds run on your Mac (no EAS)
 
-From mobile app directory:
-
-```bash
-cd traxettle-rush/apps/mobile
-eas whoami
-```
-
-If `eas.json` is missing, create:
-
-```bash
-cat > traxettle-rush/apps/mobile/eas.json <<'EOF'
-{
-  "build": {
-    "staging": {
-      "distribution": "internal",
-      "ios": { "simulator": false },
-      "android": { "buildType": "app-bundle" }
-    },
-    "production": {
-      "distribution": "store",
-      "ios": { "simulator": false },
-      "android": { "buildType": "app-bundle" }
-    }
-  },
-  "submit": {
-    "production": {}
-  }
-}
-EOF
-```
-
-If EAS project is not initialized, run:
-
-```bash
-cd traxettle-rush/apps/mobile
-eas init
-```
+EAS (Expo's cloud builder) isn't used: it can't install this Rush monorepo's
+`workspace:` packages. Android builds use `apps/mobile/scripts/build-android.sh`
+(Gradle) and iOS uses `apps/mobile/scripts/build-ios.sh testflight` (Xcode). See
+[DEPLOYMENT_CHANNELS.md](DEPLOYMENT_CHANNELS.md) sections 3–6.
 
 ## 3) Firebase setup (run once per environment)
 
@@ -327,29 +291,15 @@ EXPO_PUBLIC_API_URL=http://localhost:3001 rush dev:mobile
 - Firebase: `traxettle-staging`
 - `NODE_ENV=staging`
 
-Before building mobile:
+There is **one mobile build for every environment**. Release builds open on production;
+testers switch to staging by tapping **"Traxettle" 7 times on the sign-in screen**. The
+build scripts copy the Firebase files from `traxettle-rush/apps/mobile/` into place:
 
-```bash
-cp <STAGING_GOOGLE_SERVICES_JSON> traxettle-rush/apps/mobile/google-services.json
-cp <STAGING_GOOGLESERVICE_INFO_PLIST> traxettle-rush/apps/mobile/ios/Traxettle/GoogleService-Info.plist
-```
-
-Then build:
-
-```bash
-cd traxettle-rush/apps/mobile
-EXPO_PUBLIC_API_URL=https://traxettle-api-staging-862789756309.us-central1.run.app \
-EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=<STAGING_WEB_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=<STAGING_ANDROID_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=<STAGING_IOS_CLIENT_ID> \
-eas build --platform ios --profile staging
-
-EXPO_PUBLIC_API_URL=https://traxettle-api-staging-862789756309.us-central1.run.app \
-EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=<STAGING_WEB_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=<STAGING_ANDROID_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=<STAGING_IOS_CLIENT_ID> \
-eas build --platform android --profile staging
-```
+| Build (run in `traxettle-rush/apps/mobile`) | For | Needs |
+|---|---|---|
+| `APPLE_TEAM_ID=<Team ID> npm run build:ios:testflight` | iOS → TestFlight | `GoogleService-Info.staging.plist`, `rc_prod.properties` |
+| `npm run build:android:production` | Android AAB → Play internal testing | `google-services.prod.json`, release keystore, `android/gradle.properties.local`, `rc_prod.properties` |
+| `npm run build:android:debug:staging` | Android APK to install directly | `google-services.staging.json`, release keystore, `rc_staging.properties` |
 
 ### 6.3 Production
 
@@ -357,7 +307,9 @@ eas build --platform android --profile staging
 - Firebase: `traxettle-prod`
 - `NODE_ENV=production`
 
-Before prod builds, copy prod Firebase mobile files and run same commands with prod API/client IDs.
+No separate production builds: promote the builds you tested (App Store Connect for iOS,
+the same release on the Play Console for Android). See
+[DEPLOYMENT_CHANNELS.md](DEPLOYMENT_CHANNELS.md) sections 4 and 6.
 
 ## 7) Store deployment requirements
 

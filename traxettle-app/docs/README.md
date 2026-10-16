@@ -40,7 +40,7 @@ docs/
   - Then open the printed localhost URL in your browser
 
 ### Deploying
-- **[Deployment Runbook](deployment/DEPLOYMENT_RUNBOOK.md)** — Full first-time deployment guide (Firebase, Cloud Run, EAS, stores)
+- **[Deployment Runbook](deployment/DEPLOYMENT_RUNBOOK.md)** — Full first-time deployment guide (Firebase, Cloud Run, mobile builds, stores)
 - **[Deployment Channels](deployment/DEPLOYMENT_CHANNELS.md)** — Per-channel build & deploy commands (Web, Android, iOS)
 - **[First Release Checklist](deployment/FIRST_RELEASE_CHECKLIST.md)** — Ordered checklist for initial release
 

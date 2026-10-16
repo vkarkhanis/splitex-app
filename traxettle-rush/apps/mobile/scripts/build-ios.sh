@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# build-ios.sh — iOS staging/production/debug builds with RevenueCat + env injection.
+# build-ios.sh — iOS debug and TestFlight builds with RevenueCat + env injection.
 #
 # Usage:
-#   ./scripts/build-ios.sh staging
-#   ./scripts/build-ios.sh production
 #   ./scripts/build-ios.sh debug
 #   APPLE_TEAM_ID=ABCDE12345 ./scripts/build-ios.sh testflight
 #
 # Notes:
-# - `staging` / `production` use EAS Build (recommended for signed distribution).
-# - `debug` builds and runs locally via Expo dev client.
+# - `debug` builds and runs locally via Expo (local API, traxettle-test Google IDs).
+# - The former `staging` / `production` modes used EAS Build, which can't install
+#   this Rush monorepo. They now stop and point here: one iOS build serves every
+#   environment.
 # - `testflight` archives the production release build locally with Xcode and
 #   uploads it to App Store Connect (TestFlight). It is the binary you later
 #   promote to the App Store. Release builds choose the API at runtime: production
@@ -41,19 +41,25 @@ fail()  { echo -e "${RED}❌${NC} $1"; exit 1; }
 
 if [ -z "$PROFILE" ]; then
   echo "Usage: ./scripts/build-ios.sh <profile>"
-  echo "Profiles: staging | production | debug | testflight"
+  echo "Profiles: debug | testflight"
   exit 1
 fi
 
 case "$PROFILE" in
-  staging|production|debug|testflight) ;;
-  *) fail "Unknown profile '$PROFILE'. Use: staging, production, debug, or testflight" ;;
+  debug|testflight) ;;
+  staging|production)
+    fail "'$PROFILE' builds used EAS Build, which can't install this Rush monorepo.
+   For TestFlight and the App Store (one build for every environment):
+     APPLE_TEAM_ID=<your Team ID> bash scripts/build-ios.sh testflight
+   Testers switch the app to Staging by tapping \"Traxettle\" 7 times on the sign-in screen.
+   For a simulator against the deployed staging API (from traxettle-rush/):
+     bash scripts/local-dev/06_staging_mobile.sh ios" ;;
+  *) fail "Unknown profile '$PROFILE'. Use: debug or testflight" ;;
 esac
 
 case "$PROFILE" in
   debug) RC_ENV="local" ;;
-  staging) RC_ENV="staging" ;;
-  production|testflight) RC_ENV="prod" ;;
+  testflight) RC_ENV="prod" ;;
 esac
 
 echo ""
@@ -86,40 +92,20 @@ fi
 [ -f "$RC_LOADER" ] || fail "Missing RevenueCat loader: $RC_LOADER"
 source "$RC_LOADER" "$RC_ENV"
 
-if [ "$PROFILE" = "debug" ] || [ "$PROFILE" = "testflight" ]; then
-  if [ -z "${EXPO_PUBLIC_REVENUECAT_APPLE_KEY:-}" ]; then
-    warn "EXPO_PUBLIC_REVENUECAT_APPLE_KEY is empty in rc_${RC_ENV}.properties — iOS Pro purchases won't work in this build."
-  fi
-else
-  rc_require_nonempty EXPO_PUBLIC_REVENUECAT_APPLE_KEY
+if [ -z "${EXPO_PUBLIC_REVENUECAT_APPLE_KEY:-}" ]; then
+  warn "EXPO_PUBLIC_REVENUECAT_APPLE_KEY is empty in rc_${RC_ENV}.properties — iOS Pro purchases won't work in this build."
 fi
 
 case "$PROFILE" in
-  staging)
-    export EXPO_PUBLIC_APP_ENV="staging"
-    export EXPO_PUBLIC_API_URL="https://traxettle-api-staging-lomxjapdhq-uc.a.run.app"
-    export EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID="943648574702-n7h4msh3iho1187po0dnc8tja7insc89.apps.googleusercontent.com"
-    export EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID="943648574702-0qk99r3oql0sv3k4h6cgluffdqs7letj.apps.googleusercontent.com"
-    export EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID="943648574702-cvgj086ppdcbqgcagrekjs4pekn0q1ok.apps.googleusercontent.com"
-    FIREBASE_ENV="staging"
-    EAS_PROFILE="staging"
-    ;;
-  production|testflight)
+  testflight)
     export EXPO_PUBLIC_APP_ENV="production"
-    if [ "$PROFILE" = "testflight" ]; then
-      # Release builds choose the API at runtime; this URL only feeds development builds.
-      export EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:-https://traxettle-api-prod-ncwutlgtga-uc.a.run.app}"
-    elif [ -z "${EXPO_PUBLIC_API_URL:-}" ]; then
-      warn "EXPO_PUBLIC_API_URL not set. Using staging API fallback."
-      warn "Set it via: EXPO_PUBLIC_API_URL=https://your-prod-api.run.app ./scripts/build-ios.sh production"
-      export EXPO_PUBLIC_API_URL="https://traxettle-api-staging-lomxjapdhq-uc.a.run.app"
-    fi
+    # Release builds choose the API at runtime; this URL only feeds development builds.
+    export EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:-https://traxettle-api-prod-ncwutlgtga-uc.a.run.app}"
     # Update with production OAuth client IDs once prod Firebase app is ready.
     export EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID="943648574702-n7h4msh3iho1187po0dnc8tja7insc89.apps.googleusercontent.com"
     export EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID="943648574702-0qk99r3oql0sv3k4h6cgluffdqs7letj.apps.googleusercontent.com"
     export EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID="943648574702-cvgj086ppdcbqgcagrekjs4pekn0q1ok.apps.googleusercontent.com"
     FIREBASE_ENV="staging"
-    EAS_PROFILE="production"
     ;;
   debug)
     export EXPO_PUBLIC_APP_ENV="local"
@@ -271,15 +257,8 @@ if [ "$PROFILE" = "debug" ]; then
     cd "$MOBILE_DIR"
     npx expo run:ios --configuration Debug
   )
-elif [ "$PROFILE" = "testflight" ]; then
-  build_testflight
 else
-  require_cmd eas
-  info "Starting EAS iOS build with profile '$EAS_PROFILE'."
-  (
-    cd "$MOBILE_DIR"
-    eas build --platform ios --profile "$EAS_PROFILE"
-  )
+  build_testflight
 fi
 
 echo ""

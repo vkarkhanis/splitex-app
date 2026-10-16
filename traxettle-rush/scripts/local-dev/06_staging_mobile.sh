@@ -54,6 +54,29 @@ app_installed() {
   fi
 }
 
+# The app is a plain development build (no expo-dev-client), so it is opened
+# directly rather than through a dev-client link, which it can't handle. A
+# development build loads its JS from the bundler on port 8081 when it starts.
+open_app() {
+  if [[ "$PLATFORM" == "ios" ]]; then
+    xcrun simctl launch --terminate-running-process booted "$BUNDLE_ID" >/dev/null
+  else
+    adb reverse tcp:8081 tcp:8081 >/dev/null
+    adb shell am start -S -n "$BUNDLE_ID/.MainActivity" >/dev/null
+  fi
+}
+
+open_app_when_bundler_ready() {
+  for _ in $(seq 1 180); do
+    if curl -fsS -m 2 http://localhost:8081/status 2>/dev/null | grep -q "packager-status:running"; then
+      open_app && echo "[local-dev] Opened the app on $PLATFORM. Press r here to reload; don't press i/a (that opens Expo Go)."
+      return
+    fi
+    sleep 1
+  done
+  echo "[local-dev] The bundler didn't start within 3 minutes; open the app on the $PLATFORM device yourself."
+}
+
 # Development builds take the API from EXPO_PUBLIC_API_URL. The per-platform
 # variables would override it, so they are set empty (an empty shell value also
 # wins over anything in apps/mobile/.env).
@@ -72,5 +95,9 @@ if [[ "$FORCE_BUILD" == "--build" ]] || ! app_installed; then
   npx expo run:"$PLATFORM" --no-bundler
 fi
 
+# Open the app once the bundler answers. This runs in the background and never
+# reads the terminal, so the bundler below keeps its keyboard shortcuts.
+open_app_when_bundler_ready &
+
 # --clear: the bundler caches the API address from earlier runs (e.g. the local API).
-exec npx expo start --dev-client --clear "--$PLATFORM"
+exec npx expo start --clear

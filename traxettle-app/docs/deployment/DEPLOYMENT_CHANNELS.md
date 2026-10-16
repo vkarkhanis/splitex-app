@@ -120,11 +120,13 @@ gcloud run deploy traxettle-web-production \
 #    Edit apps/mobile/app.json: increment "version"
 #    Edit apps/mobile/android/app/build.gradle: increment versionCode
 
-# 2. Build the signed .aab
+# 2. Build the signed .aab. It's the production build: you upload it to internal
+#    testing, then promote the same release to production. Testers switch to
+#    staging by tapping "Traxettle" 7 times on the sign-in screen.
 cd apps/mobile
-rushx build:android:staging
+rushx build:android:production
 # Or directly:
-# bash scripts/build-android.sh staging
+# bash scripts/build-android.sh production
 
 # 3. Output location
 #    apps/mobile/android/app/build/outputs/bundle/release/app-release.aab
