@@ -241,7 +241,7 @@ trap cleanup_env EXIT
 # Shares the version with iOS for this release; bumped only if Android already shipped
 # it. versionCode goes up for every new build.
 if [ "$PROFILE" = "production" ]; then
-  bash "$SCRIPT_DIR/version.sh" prepare android
+  bash "$MOBILE_DIR/scripts/version.sh" prepare android
 fi
 
 # ── Step 5: Run Gradle build ────────────────────────────────────────────────
@@ -272,7 +272,7 @@ esac
 NODE_ENV=production ./gradlew "$GRADLE_TASK" --no-daemon
 
 if [ "$PROFILE" = "production" ]; then
-  bash "$SCRIPT_DIR/version.sh" record android
+  bash "$MOBILE_DIR/scripts/version.sh" record android
 fi
 
 echo ""
