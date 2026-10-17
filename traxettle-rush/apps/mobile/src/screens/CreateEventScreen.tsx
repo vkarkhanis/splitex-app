@@ -17,7 +17,6 @@ import { useTheme } from '../context/ThemeContext';
 import { api, ApiRequestError, isStagingModeEnabled } from '../api';
 import { ENV } from '../config/env';
 import { useAuth } from '../context/AuthContext';
-import { usePurchase } from '../context/PurchaseContext';
 import { buildFundingPayload, contributorPoolsAvailable, DEFAULT_FUNDING_CHOICE, validateFundingChoice } from '@traxettle/shared';
 import type { FundingChoice } from '@traxettle/shared';
 import { FundingStepView } from '../components/pool/PoolViews';
@@ -27,8 +26,7 @@ const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
 export default function CreateEventScreen({ navigation }: any) {
   const { theme } = useTheme();
   const colors = theme.colors;
-  const { tier, capabilities } = useAuth();
-  const { isPro } = usePurchase();
+  const { tier, activePro, capabilities } = useAuth();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'event' | 'trip'>('event');
@@ -87,8 +85,12 @@ export default function CreateEventScreen({ navigation }: any) {
     setPickerTarget(null);
   };
 
+  // Pro here follows the server's entitlement, as on web. The server enforces the
+  // event limit and multi-currency itself; a store purchase on this device isn't needed.
+  // A lapsed subscription can still read tier 'pro', so check paid-up Pro, not the tier.
+  const canUseFx = capabilities.multiCurrencySettlement;
   const needsFx = settlementCurrency && settlementCurrency !== currency;
-  const isFxProFeature = needsFx && !isPro;
+  const isFxProFeature = needsFx && !canUseFx;
 
   const handleSubmit = async () => {
     if (!name.trim()) {
@@ -117,7 +119,7 @@ export default function CreateEventScreen({ navigation }: any) {
 
     setLoading(true);
     try {
-      if (!isPro) {
+      if (!activePro) {
         const events = await api.get<any[]>('/api/events');
         const activeOrClosedCount = (events.data || []).filter(
           (evt: any) => evt?.status === 'active' || evt?.status === 'closed'
@@ -254,7 +256,7 @@ export default function CreateEventScreen({ navigation }: any) {
       {/* Settlement Currency */}
       <Text style={[styles.label, { color: colors.textSecondary }]}>
         Settlement Currency (optional)
-        {!isPro && <Text style={[styles.proBadge, { color: colors.warning }]}> PRO</Text>}
+        {!canUseFx && <Text style={[styles.proBadge, { color: colors.warning }]}> PRO</Text>}
       </Text>
       <View style={styles.chipRow}>
         <TouchableOpacity

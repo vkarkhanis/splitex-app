@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { ApiResponse, UserProfile, UserPreferences } from '@traxettle/shared';
+import { ApiResponse, UserProfile, UserPreferences, hasActivePro } from '@traxettle/shared';
 import { auth, db } from '../config/firebase';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { EntitlementService } from '../services/entitlement.service';
@@ -107,8 +107,7 @@ router.get('/debug/entitlement', requireAuth, async (req: AuthenticatedRequest, 
         userId: uid,
         entitlement,
         capabilities,
-        isActivePro: entitlement.tier === 'pro' && 
-          (entitlement.entitlementStatus === 'active' || entitlement.entitlementStatus === 'grace_period'),
+        isActivePro: hasActivePro(entitlement),
       }
     } as ApiResponse);
   } catch (err: any) {

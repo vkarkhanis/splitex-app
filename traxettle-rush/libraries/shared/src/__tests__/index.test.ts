@@ -11,6 +11,7 @@ import {
   FxRateMode,
   PaymentProvider,
   SUPPORTED_CURRENCIES,
+  hasActivePro,
 } from '../index';
 
 import type {
@@ -48,6 +49,29 @@ import type {
   SupportedCurrency,
   OnBehalfOfEntry,
 } from '../index';
+
+describe('hasActivePro', () => {
+  it('is true for paid-up Pro and during the store grace period', () => {
+    expect(hasActivePro({ tier: 'pro', entitlementStatus: 'active' })).toBe(true);
+    expect(hasActivePro({ tier: 'pro', entitlementStatus: 'grace_period' })).toBe(true);
+  });
+
+  it('is false for a lapsed or failing subscription that still reads tier pro', () => {
+    expect(hasActivePro({ tier: 'pro', entitlementStatus: 'expired' })).toBe(false);
+    expect(hasActivePro({ tier: 'pro', entitlementStatus: 'billing_retry' })).toBe(false);
+    expect(hasActivePro({ tier: 'pro', entitlementStatus: 'revoked' })).toBe(false);
+  });
+
+  it('is false for free users whatever the status', () => {
+    expect(hasActivePro({ tier: 'free', entitlementStatus: 'active' })).toBe(false);
+    expect(hasActivePro({})).toBe(false);
+  });
+
+  it('treats a missing status as active, as the API does', () => {
+    expect(hasActivePro({ tier: 'pro' })).toBe(true);
+    expect(hasActivePro({ tier: 'pro', entitlementStatus: null })).toBe(true);
+  });
+});
 
 describe('Shared types - Enums', () => {
   it('UserRole should have ADMIN and MEMBER', () => {

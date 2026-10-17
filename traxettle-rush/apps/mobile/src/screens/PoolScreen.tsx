@@ -22,6 +22,8 @@ import {
   isPoolSideLeg,
   poolErrorText,
   poolNoun,
+  poolPaymentActions,
+  poolPaymentActionsText,
   REIMBURSEMENT_STATUS,
   reimbursementStatus,
   toMinor,
@@ -112,6 +114,11 @@ export default function PoolScreen({ route, navigation }: any) {
   // Your own pending expenses wait for someone else (unless you hold the money).
   const approvableDraws = entries.filter((e) => e.type === 'draw' && e.status === 'pending'
     && canApproveDraw(me ?? '', e.actorUserId, config.custodianUserId, isManager));
+  // Payments waiting on you come first, so they're seen without scrolling.
+  const myPayments = poolPaymentActions(legs, me);
+  const myPaymentsText = poolPaymentActionsText(myPayments.toConfirm.length, myPayments.toPay.length);
+  const myLegIds = new Set([...myPayments.toConfirm, ...myPayments.toPay].map((l) => l.id));
+  const orderedLegs = [...legs].sort((a, b) => Number(myLegIds.has(b.id)) - Number(myLegIds.has(a.id)));
   const money = (v: number, signed = false) => formatMinor(v, currency, { signed });
 
   const nameOf = (type: 'user' | 'group', id: string) => {
@@ -192,31 +199,16 @@ export default function PoolScreen({ route, navigation }: any) {
           )}
         </View>
 
-        {/* Approvals */}
-        {approvableDraws.length > 0 && (
-          <View style={card} testID="pool-pending-approvals">
-            <Text style={h2}>Waiting for your approval</Text>
-            {approvableDraws.map((e) => (
-              <View key={e.id} style={[st.row, { borderColor: colors.border }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[st.rowTitle, { color: colors.text }]}>{e.title}</Text>
-                  <Text style={meta}>{e.fundingSource === 'pool_reimbursement' ? 'Reimbursement' : 'Pool spend'} · {nameOf('user', e.actorUserId)}{e.receiptUrls.length ? ` · ${e.receiptUrls.length} receipt(s)` : ''}</Text>
-                </View>
-                <Text style={[st.amount, { color: colors.text }]}>{money(-e.amountMinor)}</Text>
-                <Btn testID={`approve-${e.id}`} label="Approve" color={colors.success} small disabled={busy || !canAct}
-                  onPress={() => run('Approve', () => poolService.approveDraw(e.id))} />
-                <Btn label="Reject" color={colors.error} small outline disabled={busy || !canAct}
-                  onPress={() => run('Reject', () => poolService.rejectDraw(e.id))} />
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* Pool payments */}
+        {/* Pool payments (above approvals: payments waiting on you are listed first) */}
         {event.status === 'active' && legs.length > 0 && (
           <View style={card} testID="pool-payments">
             <Text style={h2}>Pool payments</Text>
-            {legs.map((leg) => (
+            {myPaymentsText && (
+              <Text testID="pool-payments-mine" style={[meta, { color: colors.warning, fontWeight: '600', marginBottom: spacing.xs }]}>
+                {myPaymentsText}
+              </Text>
+            )}
+            {orderedLegs.map((leg) => (
               <View key={leg.id} style={[st.row, { borderColor: colors.border }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[st.rowTitle, { color: colors.text }]}>{nameOf('user', leg.fromUserId)} → {nameOf('user', leg.toUserId)}</Text>
@@ -232,6 +224,26 @@ export default function PoolScreen({ route, navigation }: any) {
                     <Btn label="Not received" color={colors.error} small outline disabled={busy} onPress={() => run('Reject', () => poolService.rejectLeg(leg.id))} />
                   </>
                 )}
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Approvals */}
+        {approvableDraws.length > 0 && (
+          <View style={card} testID="pool-pending-approvals">
+            <Text style={h2}>Waiting for your approval</Text>
+            {approvableDraws.map((e) => (
+              <View key={e.id} style={[st.row, { borderColor: colors.border }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[st.rowTitle, { color: colors.text }]}>{e.title}</Text>
+                  <Text style={meta}>{e.fundingSource === 'pool_reimbursement' ? 'Reimbursement' : 'Pool spend'} · {nameOf('user', e.actorUserId)}{e.receiptUrls.length ? ` · ${e.receiptUrls.length} receipt(s)` : ''}</Text>
+                </View>
+                <Text style={[st.amount, { color: colors.text }]}>{money(-e.amountMinor)}</Text>
+                <Btn testID={`approve-${e.id}`} label="Approve" color={colors.success} small disabled={busy || !canAct}
+                  onPress={() => run('Approve', () => poolService.approveDraw(e.id))} />
+                <Btn label="Reject" color={colors.error} small outline disabled={busy || !canAct}
+                  onPress={() => run('Reject', () => poolService.rejectDraw(e.id))} />
               </View>
             ))}
           </View>

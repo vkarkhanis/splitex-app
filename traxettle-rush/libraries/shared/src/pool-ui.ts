@@ -64,6 +64,14 @@ export const CONTRIBUTION_STATUS: Record<PoolContributionStatus, { label: string
   waived: { label: 'Waived', tone: 'default' },
 };
 
+/** "1 payment to confirm · 2 payments to make", or null when nothing waits on the user. */
+export function poolPaymentActionsText(toConfirm: number, toPay: number): string | null {
+  const parts: string[] = [];
+  if (toConfirm > 0) parts.push(`${toConfirm} payment${toConfirm === 1 ? '' : 's'} to confirm`);
+  if (toPay > 0) parts.push(`${toPay} payment${toPay === 1 ? '' : 's'} to make`);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
 export type ReimbursementStatus = 'to_reimburse' | 'sent' | 'reimbursed';
 
 export const REIMBURSEMENT_STATUS: Record<ReimbursementStatus, { label: string; tone: 'success' | 'warning' | 'info' }> = {

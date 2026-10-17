@@ -132,7 +132,8 @@ export default function CreateEventPage() {
   });
 
   const needsFx = form.settlementCurrency && form.settlementCurrency !== form.currency;
-  const canUseFx = Boolean(profile?.capabilities?.multiCurrencySettlement || profile?.tier === 'pro');
+  // The server's capability already means paid-up Pro; tier alone can be 'pro' after a lapse.
+  const canUseFx = Boolean(profile?.capabilities?.multiCurrencySettlement);
   const proBlocked = Boolean(needsFx && !canUseFx);
 
   useEffect(() => {

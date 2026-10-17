@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { ApiResponse, CreateEventDto, UpdateEventDto } from '@traxettle/shared';
+import { ApiResponse, CreateEventDto, UpdateEventDto, hasActivePro } from '@traxettle/shared';
 import { EventService } from '../services/event.service';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { emitToEvent } from '../config/websocket';
@@ -187,11 +187,11 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     }
 
     // Free-tier limit: max 3 active or closed events/trips.
-    // Missing tier defaults to free until billing/subscription state is available.
-    const userDoc = await db.collection('users').doc(uid).get();
-    const userTier = (userDoc.exists ? (userDoc.data()?.tier as string | undefined) : undefined) || 'free';
+    // Same rule as the Pro features: a lapsed subscription (tier still 'pro', status
+    // 'expired') counts as free. Missing tier defaults to free.
+    const entitlement = await entitlementService.getEntitlement(uid);
     const isMockUser = uid.startsWith('mock-');
-    if (userTier !== 'pro' && !isMockUser) {
+    if (!hasActivePro(entitlement) && !isMockUser) {
       const existingEvents = await eventService.getUserEvents(uid);
       const activeOrClosedCount = existingEvents.filter(
         (evt) => evt.status === 'active' || evt.status === 'closed'

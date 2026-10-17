@@ -8,6 +8,7 @@ type RevenueCatEvent = {
   aliases?: string[];
   expiration_at_ms?: number | null;
   expiration_at?: string | null;
+  grace_period_expiration_at_ms?: number | null;
   entitlement_ids?: string[];
 };
 
@@ -44,6 +45,8 @@ export class RevenueCatService {
       aliases: Array.isArray(event.aliases) ? event.aliases : [],
       expiration_at_ms: typeof event.expiration_at_ms === 'number' ? event.expiration_at_ms : null,
       expiration_at: typeof event.expiration_at === 'string' ? event.expiration_at : null,
+      grace_period_expiration_at_ms:
+        typeof event.grace_period_expiration_at_ms === 'number' ? event.grace_period_expiration_at_ms : null,
       entitlement_ids: Array.isArray(event.entitlement_ids) ? event.entitlement_ids : [],
     };
   }
@@ -113,7 +116,11 @@ export class RevenueCatService {
     return null;
   }
 
-  mapTier(event: RevenueCatEvent): PlanTier {
+  // RevenueCat still lists the Pro entitlement on events that end access (EXPIRATION),
+  // so the event type has to be checked before the entitlement list.
+  mapTier(event: RevenueCatEvent, now: number = Date.now()): PlanTier {
+    if (this.endsAccess(event, now)) return 'free';
+
     const entitlements = event.entitlement_ids || [];
     if (entitlements.some((id) => this.proEntitlementIds.includes(id))) return 'pro';
 
@@ -124,11 +131,32 @@ export class RevenueCatService {
     return 'free';
   }
 
-  mapStatus(event: RevenueCatEvent): EntitlementStatus {
+  mapStatus(event: RevenueCatEvent, now: number = Date.now()): EntitlementStatus {
+    if (this.endsAccess(event, now)) return 'expired';
+
     const t = (event.type || '').toUpperCase();
-    if (['BILLING_ISSUE', 'SUBSCRIPTION_PAUSED'].includes(t)) return 'billing_retry';
-    if (['CANCELLATION', 'EXPIRATION', 'REFUND', 'REVOKE'].includes(t)) return 'expired';
+    if (t === 'BILLING_ISSUE') {
+      // During the store's grace period the subscriber keeps access while the charge is retried.
+      const graceEndsAt = event.grace_period_expiration_at_ms;
+      return typeof graceEndsAt === 'number' && graceEndsAt > now ? 'grace_period' : 'billing_retry';
+    }
+    // CANCELLATION (auto-renew turned off) and SUBSCRIPTION_PAUSED (pause scheduled) keep access
+    // for the period already paid for; RevenueCat sends EXPIRATION when it ends.
     return 'active';
+  }
+
+  /**
+   * EXPIRATION ends access. A CANCELLATION ends it only once its expiry has passed, as with a
+   * refund; RevenueCat has no separate refund event.
+   */
+  private endsAccess(event: RevenueCatEvent, now: number): boolean {
+    const t = (event.type || '').toUpperCase();
+    if (t === 'EXPIRATION') return true;
+    if (t === 'CANCELLATION') {
+      const expiry = this.getExpiry(event);
+      return !expiry || Date.parse(expiry) <= now;
+    }
+    return false;
   }
 
   getExpiry(event: RevenueCatEvent): string | null {

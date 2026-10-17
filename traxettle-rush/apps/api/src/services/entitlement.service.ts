@@ -1,4 +1,5 @@
 import { db } from '../config/firebase';
+import { hasActivePro } from '@traxettle/shared';
 import type { EntitlementSource, EntitlementStatus, PlanTier, UserCapabilities } from '@traxettle/shared';
 
 export interface UserEntitlement {
@@ -49,12 +50,8 @@ export class EntitlementService {
   }
 
   computeCapabilities(entitlement: UserEntitlement): UserCapabilities {
-    const isActivePro =
-      entitlement.tier === 'pro' &&
-      (entitlement.entitlementStatus === 'active' || entitlement.entitlementStatus === 'grace_period');
-
     return {
-      multiCurrencySettlement: isActivePro,
+      multiCurrencySettlement: hasActivePro(entitlement),
     };
   }
 

@@ -14,6 +14,8 @@ import {
   needsTarget,
   poolErrorText,
   poolNoun,
+  poolPaymentActions,
+  poolPaymentActionsText,
   REIMBURSEMENT_STATUS,
   reimbursementStatus,
   toPoolError,
@@ -233,5 +235,38 @@ describe('"Several of us" pools in the first release', () => {
   it('start "Pool money" on "Just me" when that is the only funder offered', () => {
     expect(choosePool(DEFAULT_FUNDING_CHOICE, false)).toMatchObject({ kind: 'pool', funder: 'sponsor', preset: 'sponsor_budget', approval: 'always' });
     expect(choosePool(DEFAULT_FUNDING_CHOICE, true)).toMatchObject({ kind: 'pool', funder: 'contributors', preset: 'trip_kitty' });
+  });
+});
+
+describe('pool payments waiting on a user', () => {
+  const leg = (id: string, from: string, to: string, status: string, kind: string | null = 'pool_reimbursement') =>
+    ({ id, fromUserId: from, toUserId: to, status, kind }) as any;
+  const legs = [
+    leg('a', 'alice', 'bob', 'initiated'),          // paid to Bob, he must confirm
+    leg('b', 'alice', 'bob', 'pending'),            // Alice still has to pay
+    leg('c', 'bob', 'alice', 'failed', 'pool_member_exit'), // Bob must pay (retry)
+    leg('d', 'alice', 'bob', 'completed'),          // done
+    leg('e', 'carol', 'bob', 'initiated', 'standard'), // not a pool payment
+    leg('f', 'carol', 'bob', 'initiated', null),       // no kind: not a pool payment
+  ];
+
+  it('finds what each person has to confirm or pay', () => {
+    const bob = poolPaymentActions(legs, 'bob');
+    expect(bob.toConfirm.map((l) => l.id)).toEqual(['a']);
+    expect(bob.toPay.map((l) => l.id)).toEqual(['c']);
+    const alice = poolPaymentActions(legs, 'alice');
+    expect(alice.toConfirm).toEqual([]);
+    expect(alice.toPay.map((l) => l.id)).toEqual(['b']);
+  });
+
+  it('has nothing for an unknown user', () => {
+    expect(poolPaymentActions(legs, null)).toEqual({ toPay: [], toConfirm: [] });
+  });
+
+  it('describes the waiting payments in words', () => {
+    expect(poolPaymentActionsText(1, 0)).toBe('1 payment to confirm');
+    expect(poolPaymentActionsText(2, 1)).toBe('2 payments to confirm · 1 payment to make');
+    expect(poolPaymentActionsText(0, 3)).toBe('3 payments to make');
+    expect(poolPaymentActionsText(0, 0)).toBeNull();
   });
 });

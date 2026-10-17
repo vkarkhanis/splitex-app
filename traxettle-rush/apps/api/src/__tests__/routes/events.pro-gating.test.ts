@@ -2,10 +2,12 @@ import request from 'supertest';
 import express from 'express';
 
 const assertCapabilityMock = jest.fn();
+const getEntitlementMock = jest.fn();
 
 jest.mock('../../services/entitlement.service', () => ({
   EntitlementService: jest.fn().mockImplementation(() => ({
     assertCapability: assertCapabilityMock,
+    getEntitlement: getEntitlementMock,
   })),
 }));
 
@@ -39,6 +41,7 @@ jest.mock('../../config/firebase', () => ({
 }));
 
 import { eventRoutes } from '../../routes/events';
+import { EventService } from '../../services/event.service';
 
 function app() {
   const a = express();
@@ -50,7 +53,13 @@ function app() {
 describe('events pro gating', () => {
   beforeEach(() => {
     assertCapabilityMock.mockReset();
+    getEntitlementMock.mockReset();
+    getEntitlementMock.mockResolvedValue({ tier: 'free', entitlementStatus: 'active' });
     Object.keys(mockEvents).forEach((k) => delete mockEvents[k]);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('blocks FX event creation when capability assertion fails', async () => {
@@ -92,5 +101,44 @@ describe('events pro gating', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
+  });
+
+  describe('free-tier event limit', () => {
+    const createPlainEvent = () =>
+      request(app())
+        .post('/api/events')
+        .set('Authorization', 'Bearer real-firebase-token')
+        .send({ name: 'Fourth event', type: 'event', startDate: '2026-01-01', currency: 'USD' });
+
+    beforeEach(() => {
+      jest.spyOn(EventService.prototype, 'getUserEvents').mockResolvedValue(
+        ['e1', 'e2', 'e3'].map((id) => ({ id, status: 'active' }) as any),
+      );
+    });
+
+    it('blocks a 4th event for a lapsed subscriber whose tier still reads pro', async () => {
+      getEntitlementMock.mockResolvedValue({ tier: 'pro', entitlementStatus: 'expired' });
+
+      const res = await createPlainEvent();
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/at most 3/);
+    });
+
+    it('allows a 4th event for a paid-up Pro subscriber', async () => {
+      getEntitlementMock.mockResolvedValue({ tier: 'pro', entitlementStatus: 'active' });
+
+      const res = await createPlainEvent();
+
+      expect(res.status).toBe(201);
+    });
+
+    it('allows a 4th event during the store grace period', async () => {
+      getEntitlementMock.mockResolvedValue({ tier: 'pro', entitlementStatus: 'grace_period' });
+
+      const res = await createPlainEvent();
+
+      expect(res.status).toBe(201);
+    });
   });
 });

@@ -38,6 +38,20 @@ export interface UserCapabilities {
   multiCurrencySettlement: boolean;
 }
 
+/**
+ * Pro that is paid up (or inside the store's grace period). The API applies this one rule to
+ * every Pro limit; apps use it on profile data so they never offer what the API will refuse.
+ * A lapsed subscription can still read `tier: 'pro'` with status `expired`.
+ */
+export function hasActivePro(entitlement: {
+  tier?: string | null;
+  entitlementStatus?: string | null;
+}): boolean {
+  if (entitlement.tier !== 'pro') return false;
+  const status = entitlement.entitlementStatus || 'active';
+  return status === 'active' || status === 'grace_period';
+}
+
 export type PaymentMethodType = 'upi' | 'bank' | 'paypal' | 'wise' | 'swift' | 'other';
 
 export interface UserPaymentMethod {
@@ -290,6 +304,20 @@ export type SettlementKind = 'standard' | 'pool_reimbursement' | 'pool_cycle' | 
 export function isPoolSideLeg(settlement: { kind?: SettlementKind | null } | null | undefined): boolean {
   const kind = settlement?.kind ?? 'standard';
   return kind === 'pool_reimbursement' || kind === 'pool_cycle' || kind === 'pool_member_exit';
+}
+
+type PoolLegLike = Pick<Settlement, 'kind' | 'status' | 'fromUserId' | 'toUserId'>;
+
+/** Pool payments waiting on a user: ones they must pay, and ones paid to them awaiting their confirmation. */
+export function poolPaymentActions<T extends PoolLegLike>(
+  settlements: T[],
+  userId: string | null | undefined,
+): { toPay: T[]; toConfirm: T[] } {
+  const legs = userId ? settlements.filter((s) => isPoolSideLeg(s)) : [];
+  return {
+    toPay: legs.filter((s) => s.fromUserId === userId && (s.status === 'pending' || s.status === 'failed')),
+    toConfirm: legs.filter((s) => s.toUserId === userId && s.status === 'initiated'),
+  };
 }
 
 export interface SettlementAuditEntry {

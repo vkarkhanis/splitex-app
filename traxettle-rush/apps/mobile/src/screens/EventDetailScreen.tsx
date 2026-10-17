@@ -37,7 +37,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEventSocket } from '../hooks/useSocket';
 import { usePaymentProviders } from '../hooks/usePaymentProviders';
 import { useFeedback } from '../context/FeedbackContext';
-import { REIMBURSEMENT_STATUS, isPoolFundedEvent, isPoolFundedExpense, poolNoun, reimbursementStatus } from '@traxettle/shared';
+import {
+  REIMBURSEMENT_STATUS,
+  isPoolFundedEvent,
+  isPoolFundedExpense,
+  poolNoun,
+  poolPaymentActions,
+  poolPaymentActionsText,
+  reimbursementStatus,
+} from '@traxettle/shared';
 import type { PoolCycleSummary } from '@traxettle/shared';
 import { poolService } from '../services/pool';
 import { PoolMeterView } from '../components/pool/PoolViews';
@@ -252,6 +260,11 @@ export default function EventDetailScreen({ route, navigation }: any) {
 
   // A claim's pay-back status lives on its reimbursement leg, which is one of the event's settlements.
   const legStatusById = useMemo(() => new Map(settlements.map(s => [s.id, s.status])), [settlements]);
+  // Pool payments waiting on this user are handled on the Pool screen; flag them on its card.
+  const poolActionsText = useMemo(() => {
+    const { toConfirm, toPay } = poolPaymentActions(settlements, currentUserId);
+    return poolPaymentActionsText(toConfirm.length, toPay.length);
+  }, [settlements, currentUserId]);
 
   const myTotalExpense = useMemo(() => visibleExpenses.reduce((s, e) => s + e.amount, 0), [visibleExpenses]);
   const myTotalShared = useMemo(() => visibleExpenses.filter(e => !e.isPrivate).reduce((s, e) => s + e.amount, 0), [visibleExpenses]);
@@ -789,6 +802,11 @@ export default function EventDetailScreen({ route, navigation }: any) {
               )}
               {poolSummary && poolSummary.arrears.length > 0 && (
                 <Text style={[styles.listCardSub, { color: colors.warning }]}>{poolSummary.arrears.length} contribution(s) outstanding</Text>
+              )}
+              {event.status === 'active' && poolActionsText && (
+                <Text testID="event-detail-pool-actions" style={[styles.listCardSub, { color: colors.warning, fontWeight: '600' }]}>
+                  {poolActionsText} ›
+                </Text>
               )}
             </TouchableOpacity>
           )}

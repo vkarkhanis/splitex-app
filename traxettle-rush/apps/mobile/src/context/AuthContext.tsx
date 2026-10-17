@@ -19,6 +19,7 @@ import {
   getResolvedApiBaseUrl,
   registerAuthFailureHandler,
 } from '../api';
+import { hasActivePro } from '@traxettle/shared';
 import { ENV, isLocalLikeEnv } from '../config/env';
 import {
   getLocalUnlockState,
@@ -44,6 +45,8 @@ interface AuthContextType {
   user: AuthUser | null;
   loading: boolean;
   tier: 'free' | 'pro';
+  /** Pro that is paid up, by the same rule the API uses for Pro limits (see hasActivePro). */
+  activePro: boolean;
   capabilities: AuthCapabilities;
   internalTester: boolean;
   preferredCurrency: string;
@@ -70,6 +73,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   tier: 'free',
+  activePro: false,
   capabilities: { multiCurrencySettlement: false },
   internalTester: false,
   preferredCurrency: 'USD',
@@ -105,6 +109,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [tier, setTier] = useState<'free' | 'pro'>(ENV.DEFAULT_TIER === 'pro' ? 'pro' : 'free');
+  const [activePro, setActivePro] = useState(ENV.DEFAULT_TIER === 'pro');
   const [capabilities, setCapabilities] = useState<AuthCapabilities>({
     multiCurrencySettlement: ENV.DEFAULT_TIER === 'pro',
   });
@@ -122,6 +127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const allowLocalTierOverride = ENV.INTERNAL_FEATURES_ENABLED && isLocalLikeEnv();
     const nextTier = allowLocalTierOverride ? (ENV.DEFAULT_TIER === 'pro' ? 'pro' : serverTier) : serverTier;
     setTier(nextTier);
+    setActivePro((allowLocalTierOverride && ENV.DEFAULT_TIER === 'pro') || hasActivePro(data ?? {}));
     const serverCapabilities: AuthCapabilities = {
       multiCurrencySettlement: Boolean(data?.capabilities?.multiCurrencySettlement),
     };
@@ -356,6 +362,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await clearTokens();
     setUser(null);
     setTier('free');
+    setActivePro(false);
     setCapabilities({ multiCurrencySettlement: false });
     setInternalTester(false);
     setPreferredCurrency('USD');
@@ -460,6 +467,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         loading,
         tier,
+        activePro,
         capabilities,
         internalTester,
         preferredCurrency,

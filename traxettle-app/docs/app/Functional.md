@@ -302,7 +302,7 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
 | 15.1 | Shared entitlement model | ✅ Supported | `tier`, `entitlementStatus`, `entitlementSource`, and capability payload in shared contracts |
-| 15.2 | RevenueCat webhook ingestion | ✅ Supported | Idempotent processing and entitlement state mapping in API |
+| 15.2 | RevenueCat webhook ingestion | ✅ Supported | Idempotent processing and entitlement state mapping in API. Pro ends on `EXPIRATION` (or a `CANCELLATION` whose expiry has passed, i.e. a refund); turning off auto-renew, a scheduled pause, or a store grace period keeps Pro until then. Every Pro limit (event cap, multi-currency) uses paid-up Pro: tier `pro` with status `active` or `grace_period` |
 | 15.3 | Internal entitlement switch route | ✅ Supported | Non-prod only; gated by env flag and tester checks |
 | 15.4 | WebSocket tier update broadcast | ✅ Supported | API emits `user:tier-updated`; web refreshes profile/capabilities live |
 | 15.5 | Local tier switching (mobile + web) | ✅ Supported | Enabled only with local/internal feature flags |
