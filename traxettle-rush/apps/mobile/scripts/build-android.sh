@@ -12,8 +12,10 @@
 #   1. Validates prerequisites (google-services.json, keystore, signing creds)
 #   2. Copies google-services.json → android/app/
 #   3. Sets EXPO_PUBLIC_* env vars for the chosen profile
-#   4. Runs the Gradle build (bundleRelease for .aab, assembleDebug for .apk)
-#   5. Prints the output path
+#   4. production: sets the version shared with iOS and a new versionCode
+#      (scripts/version.sh), recorded once the build succeeds
+#   5. Runs the Gradle build (bundleRelease for .aab, assembleDebug for .apk)
+#   6. Prints the output path
 #
 # Prerequisites:
 #   - google-services.json in apps/mobile/ (gitignored)
@@ -235,7 +237,14 @@ cleanup_env() {
 }
 trap cleanup_env EXIT
 
-# ── Step 4: Run Gradle build ────────────────────────────────────────────────
+# ── Step 4: Version (Play builds) ───────────────────────────────────────────
+# Shares the version with iOS for this release; bumped only if Android already shipped
+# it. versionCode goes up for every new build.
+if [ "$PROFILE" = "production" ]; then
+  bash "$SCRIPT_DIR/version.sh" prepare android
+fi
+
+# ── Step 5: Run Gradle build ────────────────────────────────────────────────
 echo ""
 info "Starting Gradle build..."
 echo ""
@@ -261,6 +270,10 @@ case "$PROFILE" in
 esac
 
 NODE_ENV=production ./gradlew "$GRADLE_TASK" --no-daemon
+
+if [ "$PROFILE" = "production" ]; then
+  bash "$SCRIPT_DIR/version.sh" record android
+fi
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"

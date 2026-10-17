@@ -18,7 +18,8 @@
 #   (`workspace:` dependencies).
 #   Signs with the Apple account added in Xcode → Settings → Accounts, or with
 #   an App Store Connect API key: ASC_KEY_PATH, ASC_KEY_ID, ASC_KEY_ISSUER_ID.
-#   Build number defaults to yymmddHHMM; override with IOS_BUILD_NUMBER.
+#   Build number defaults to yymmddHHMM; override with IOS_BUILD_NUMBER. The version is
+#   shared with Android (scripts/version.sh) and recorded once the upload succeeds.
 
 set -euo pipefail
 
@@ -189,6 +190,8 @@ trap cleanup_env EXIT
 # Prebuild → archive (Release) → upload to App Store Connect, all on this Mac.
 build_testflight() {
   local version build_number archive_dir archive_path export_dir project
+  # Shares the version with Android for this release; bumped only if iOS already shipped it.
+  bash "$SCRIPT_DIR/version.sh" prepare ios
   version="$(node -p "require('$MOBILE_DIR/app.json').expo.version")"
   build_number="${IOS_BUILD_NUMBER:-$(date +%y%m%d%H%M)}"
   # Archives here show up in Xcode's Organizer, so a failed upload can be retried from there.
@@ -246,6 +249,7 @@ EOF
   xcodebuild -exportArchive -archivePath "$archive_path" -exportOptionsPlist "$export_dir/ExportOptions.plist" \
     -exportPath "$export_dir" -allowProvisioningUpdates ${auth_flags[@]+"${auth_flags[@]}"}
   ok "Uploaded $version ($build_number). It appears in App Store Connect → TestFlight after processing (~10–30 min)."
+  bash "$SCRIPT_DIR/version.sh" record ios "$build_number"
   info "The build uses production by default. To test staging, tap \"Traxettle\" 7 times on the sign-in screen."
 }
 

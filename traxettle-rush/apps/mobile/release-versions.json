@@ -1,0 +1,10 @@
+{
+  "ios": {
+    "version": "1.0.33",
+    "build": null
+  },
+  "android": {
+    "version": "1.0.33",
+    "build": "34"
+  }
+}

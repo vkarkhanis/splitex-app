@@ -116,9 +116,9 @@ gcloud run deploy traxettle-web-production \
 ### Steps
 
 ```bash
-# 1. Bump version (if needed)
-#    Edit apps/mobile/app.json: increment "version"
-#    Edit apps/mobile/android/app/build.gradle: increment versionCode
+# 1. Version: nothing to edit. The build sets the version it shares with iOS and a new
+#    versionCode (see "Versions" below). For a feature release, first run:
+#    npm run version:bump -- minor
 
 # 2. Build the signed .aab. It's the production build: you upload it to internal
 #    testing, then promote the same release to production. Testers switch to
@@ -150,7 +150,7 @@ rushx build:android:debug:staging
 ## 4. Android — Production (Play Store)
 
 ```bash
-# 1. Bump versionCode and version in app.json + build.gradle
+# 1. Version: set by the build (see "Versions" below)
 
 # 2. Build production .aab
 cd apps/mobile
@@ -198,8 +198,8 @@ APPLE_TEAM_ID=ABCDE12345 bash scripts/build-ios.sh testflight
 
 The script writes the production settings (`.env`, restored afterwards), copies the
 Firebase plist, runs `expo prebuild --clean`, archives a Release build with `xcodebuild`
-and uploads it to App Store Connect. Each run gets a new build number (`yymmddHHMM`;
-override with `IOS_BUILD_NUMBER`). The archive is kept in Xcode's Organizer, so a failed
+and uploads it to App Store Connect. The version is shared with Android (see "Versions"
+below), and each run gets a new build number (`yymmddHHMM`; override with `IOS_BUILD_NUMBER`). The archive is kept in Xcode's Organizer, so a failed
 upload can be retried from there. To sign without an Xcode account (e.g. on CI), set
 `ASC_KEY_PATH`, `ASC_KEY_ID` and `ASC_KEY_ISSUER_ID` for an App Store Connect API key.
 
@@ -268,18 +268,32 @@ production API by default (section 5), and the same binary goes to App Store use
 
 ---
 
-## Version Management Checklist
+## Versions
 
-Before any release, update these files:
+iOS and Android ship the same version, and the store builds set it for you:
+`build-ios.sh testflight` and `build-android.sh production` run `scripts/version.sh`
+before building. You don't edit version numbers by hand.
 
-| File | Field | Example |
-|------|-------|---------|
-| `apps/mobile/app.json` | `expo.version` | `1.0.6` |
-| `apps/mobile/android/app/build.gradle` | `versionCode` | `7` |
-| `apps/mobile/android/app/build.gradle` | `versionName` | `1.0.6` |
-| `apps/mobile/package.json` | `version` | `1.0.6` |
+- **The version** (`1.0.34`) lives in `apps/mobile/app.json` (`expo.version`), mirrored in
+  `package.json` and `android/app/build.gradle` (`versionName`).
+- **`release-versions.json`** records what each platform last shipped. A build bumps the
+  patch number only if its platform already shipped the current version. So the first
+  platform of a release moves to `1.0.34`, and the second one ships `1.0.34` too.
+- **Build numbers:** iOS uses `yymmddHHMM`. Android's `versionCode` goes up by one for each
+  `.aab`; Play rejects a `versionCode` it has seen before.
+- **A failed build** isn't recorded, so the next try reuses its version and `versionCode`.
+- **After a successful build**, commit `app.json`, `package.json`, `android/app/build.gradle`
+  and `release-versions.json`, then pull on your other Mac before building there. Otherwise
+  that Mac reuses a version (and Play rejects the repeated `versionCode`).
 
-> **Critical:** `versionCode` must be strictly incremented for every Play Console upload. You cannot re-upload the same `versionCode`.
+Run these in `apps/mobile`:
+
+| Command | What it does |
+|---|---|
+| `npm run version:show` | Current version, what each platform last shipped, what the next builds get |
+| `npm run version:bump -- minor` | Start a feature release (`1.0.34` → `1.1.0`); also `patch`, `major`, or an exact `1.2.0` |
+
+The Profile screen shows the version (`Traxettle v1.0.34`).
 
 ---
 

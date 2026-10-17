@@ -301,6 +301,10 @@ build scripts copy the Firebase files from `traxettle-rush/apps/mobile/` into pl
 | `npm run build:android:production` | Android AAB → Play internal testing | `google-services.prod.json`, release keystore, `android/gradle.properties.local`, `rc_prod.properties` |
 | `npm run build:android:debug:staging` | Android APK to install directly | `google-services.staging.json`, release keystore, `rc_staging.properties` |
 
+The TestFlight and Play builds set the version themselves and keep iOS and Android on the
+same one; commit the version files they change. See "Versions" in
+[DEPLOYMENT_CHANNELS.md](DEPLOYMENT_CHANNELS.md).
+
 ### 6.3 Production
 
 - API: production Cloud Run/custom domain
