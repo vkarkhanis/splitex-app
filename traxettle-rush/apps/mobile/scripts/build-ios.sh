@@ -18,6 +18,10 @@
 #   (`workspace:` dependencies).
 #   Signs with the Apple account added in Xcode → Settings → Accounts, or with
 #   an App Store Connect API key: ASC_KEY_PATH, ASC_KEY_ID, ASC_KEY_ISSUER_ID.
+#   Automatic signing needs a registered iPhone/iPad on the team. Without one, set
+#   IOS_PROVISIONING_PROFILE to the name of an installed App Store profile: the app then
+#   signs manually with it and the "Apple Distribution" certificate in this Mac's keychain
+#   (IOS_SIGNING_IDENTITY to override). See plugins/ios-release-signing.js.
 #   Build number defaults to yymmddHHMM; override with IOS_BUILD_NUMBER. The version is
 #   shared with Android (scripts/version.sh) and recorded once the upload succeeds.
 
@@ -82,6 +86,40 @@ ios_project_name() {
   return 0
 }
 
+# Decoded plist of the installed provisioning profile with this name (Xcode 16+ folder first).
+ios_profile_plist() {
+  local name="$1" file plist
+  for file in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"/*.mobileprovision \
+              "$HOME/Library/MobileDevice/Provisioning Profiles"/*.mobileprovision; do
+    [ -f "$file" ] || continue
+    plist="$(security cms -D -i "$file" 2>/dev/null)" || continue
+    if [ "$(plutil -extract Name raw -o - - <<<"$plist" 2>/dev/null)" = "$name" ]; then
+      printf '%s' "$plist"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Manual signing: the profile must be an installed App Store profile for this app, and the
+# keychain must hold its certificate with the private key. Checked before anything is built.
+check_manual_signing() {
+  local profile_plist app_id
+  profile_plist="$(ios_profile_plist "$IOS_PROVISIONING_PROFILE")" \
+    || fail "No installed provisioning profile named \"$IOS_PROVISIONING_PROFILE\".
+   Download it from developer.apple.com → Certificates, Identifiers & Profiles → Profiles and double-click it."
+  app_id="$(plutil -extract Entitlements.application-identifier raw -o - - <<<"$profile_plist" 2>/dev/null || true)"
+  [ "$app_id" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID" ] \
+    || fail "Profile \"$IOS_PROVISIONING_PROFILE\" is for \"$app_id\", not $APPLE_TEAM_ID.$IOS_BUNDLE_ID."
+  plutil -extract ProvisionedDevices xml1 -o /dev/null - <<<"$profile_plist" 2>/dev/null \
+    && fail "Profile \"$IOS_PROVISIONING_PROFILE\" lists devices (development or ad hoc). Use an App Store profile."
+  security find-identity -v -p codesigning | grep -q "\"$IOS_SIGNING_IDENTITY" \
+    || fail "No \"$IOS_SIGNING_IDENTITY\" certificate with its private key in this Mac's keychain.
+   On the Mac that created it: Keychain Access → My Certificates → right-click it → Export (.p12).
+   Double-click the .p12 here. (The downloaded profile alone isn't enough.)"
+  ok "Signing with App Store profile \"$IOS_PROVISIONING_PROFILE\" and \"$IOS_SIGNING_IDENTITY\""
+}
+
 require_cmd node
 require_cmd bash
 if [ "$PROFILE" = "testflight" ]; then
@@ -89,6 +127,15 @@ if [ "$PROFILE" = "testflight" ]; then
   require_cmd npx
   [[ "${APPLE_TEAM_ID:-}" =~ ^[A-Z0-9]{10}$ ]] \
     || fail "Set APPLE_TEAM_ID to your 10-character Apple Team ID (help: tools/doctor-tool/scripts/doctor-apple-team.sh)"
+  IOS_BUNDLE_ID="$(node -p "require('$MOBILE_DIR/app.json').expo.ios.bundleIdentifier")"
+  if [ -n "${IOS_PROVISIONING_PROFILE:-}" ]; then
+    # Read by plugins/ios-release-signing.js during expo prebuild.
+    export IOS_PROVISIONING_PROFILE IOS_SIGNING_IDENTITY="${IOS_SIGNING_IDENTITY:-Apple Distribution}"
+    check_manual_signing
+  else
+    info "Signing automatically, which needs a registered iPhone/iPad on the team."
+    info "  No device? Set IOS_PROVISIONING_PROFILE to the name of your App Store profile."
+  fi
 fi
 [ -f "$RC_LOADER" ] || fail "Missing RevenueCat loader: $RC_LOADER"
 source "$RC_LOADER" "$RC_ENV"
@@ -216,6 +263,20 @@ build_testflight() {
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $build_number" "$IOS_DIR/$project/Info.plist"
   ok "Version $version, build $build_number"
 
+  local signing_options="  <key>signingStyle</key>
+  <string>automatic</string>"
+  if [ -n "${IOS_PROVISIONING_PROFILE:-}" ]; then
+    signing_options="  <key>signingStyle</key>
+  <string>manual</string>
+  <key>signingCertificate</key>
+  <string>${IOS_SIGNING_IDENTITY}</string>
+  <key>provisioningProfiles</key>
+  <dict>
+    <key>${IOS_BUNDLE_ID}</key>
+    <string>${IOS_PROVISIONING_PROFILE}</string>
+  </dict>"
+  fi
+
   info "Archiving (Release, team $APPLE_TEAM_ID)."
   mkdir -p "$archive_dir"
   xcodebuild -workspace "$IOS_DIR/$project.xcworkspace" -scheme "$project" -configuration Release \
@@ -235,8 +296,7 @@ build_testflight() {
   <string>upload</string>
   <key>teamID</key>
   <string>${APPLE_TEAM_ID}</string>
-  <key>signingStyle</key>
-  <string>automatic</string>
+${signing_options}
   <key>manageAppVersionAndBuildNumber</key>
   <false/>
   <key>uploadSymbols</key>

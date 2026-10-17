@@ -203,6 +203,21 @@ below), and each run gets a new build number (`yymmddHHMM`; override with `IOS_B
 upload can be retried from there. To sign without an Xcode account (e.g. on CI), set
 `ASC_KEY_PATH`, `ASC_KEY_ID` and `ASC_KEY_ISSUER_ID` for an App Store Connect API key.
 
+Automatic signing archives with a development profile, which needs a registered iPhone or
+iPad on the team ("Your team has no devices from which to generate a provisioning profile").
+Without a device, sign with your App Store profile instead:
+
+```bash
+IOS_PROVISIONING_PROFILE="<profile name>" APPLE_TEAM_ID=ABCDE12345 npm run build:ios:testflight
+```
+
+The Mac needs the profile installed (download it from Certificates, Identifiers & Profiles →
+Profiles and double-click it) and the **Apple Distribution** certificate with its private key
+in the keychain. A downloaded profile doesn't include the key: export the certificate as a
+`.p12` from the Mac that created it (Keychain Access → My Certificates → Export) and
+double-click it on the other Mac. The script checks both before building.
+`plugins/ios-release-signing.js` applies the profile to the app's Release build only.
+
 Then, in App Store Connect → TestFlight: the build appears after processing (~10–30 min).
 Add internal testers (no review), or external testers (needs Beta App Review).
 

@@ -61,7 +61,8 @@
       "softwareKeyboardLayoutMode": "adjustResize"
     },
     "plugins": [
-      "./plugins/copy-google-service-plist"
+      "./plugins/copy-google-service-plist",
+      "./plugins/ios-release-signing"
     ],
     "owner": "vkarkhanis",
     "extra": {
