@@ -4,10 +4,15 @@
 # the DEPLOYED staging API (no local API, no Firebase emulators).
 #
 # Usage:
-#   ./scripts/local-dev/06_staging_mobile.sh [ios|android] [--build]
-#   Default: ios.
+#   ./scripts/local-dev/06_staging_mobile.sh [ios|android] [--build] [--no-bundler | --bundler-only]
+#   Default: ios; installs the app where needed, starts the bundler and opens the app.
 #   --build reinstalls the development build first. That also happens
 #   automatically when the app isn't on the running simulator/emulator.
+#   --no-bundler installs (and builds if needed) without starting the bundler,
+#   then exits; it opens the app if a bundler is already running.
+#   --bundler-only starts the bundler and opens the app, without installing.
+#   Together: one terminal runs --bundler-only, another runs --build --no-bundler
+#   (again after booting another simulator, without restarting the bundler).
 #   iOS: the app goes on every booted iOS simulator (iPhones and iPads; boot
 #   more with `xcrun simctl boot <UDID>`). It's built once and copied to the
 #   rest. With none booted, Expo boots its default simulator. After a TestFlight
@@ -16,11 +21,22 @@
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-usage() { echo "Usage: $0 [ios|android] [--build]"; exit 1; }
-PLATFORM="${1:-ios}"
-FORCE_BUILD="${2:-}"
-case "$PLATFORM" in ios|android) ;; *) usage ;; esac
-[[ -z "$FORCE_BUILD" || "$FORCE_BUILD" == "--build" ]] || usage
+usage() { echo "Usage: $0 [ios|android] [--build] [--no-bundler | --bundler-only]"; exit 1; }
+PLATFORM="ios"
+FORCE_BUILD=""
+START_BUNDLER=1
+INSTALL_APP=1
+for arg in "$@"; do
+  case "$arg" in
+    ios|android) PLATFORM="$arg" ;;
+    --build) FORCE_BUILD="--build" ;;
+    --no-bundler) START_BUNDLER=0 ;;
+    --bundler-only) INSTALL_APP=0 ;;
+    *) usage ;;
+  esac
+done
+# --bundler-only installs nothing, so it can't be combined with the install options.
+if [[ "$INSTALL_APP" == 0 && ( -n "$FORCE_BUILD" || "$START_BUNDLER" == 0 ) ]]; then usage; fi
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 MOBILE_DIR="$ROOT_DIR/apps/mobile"
@@ -63,6 +79,18 @@ booted_ios_simulators() {
 
 ios_has_app() {
   xcrun simctl get_app_container "$1" "$BUNDLE_ID" app >/dev/null 2>&1
+}
+
+# The booted simulator with the most recent install of the app: where expo run:ios just put it.
+newest_ios_install() {
+  local udid name app_path mtime best="" best_mtime=0
+  while IFS='|' read -r udid name; do
+    [[ -n "$udid" ]] || continue
+    app_path="$(xcrun simctl get_app_container "$udid" "$BUNDLE_ID" app 2>/dev/null)" || continue
+    mtime="$(stat -f %m "$app_path" 2>/dev/null || echo 0)"
+    if (( mtime > best_mtime )); then best="$udid"; best_mtime="$mtime"; fi
+  done <<< "$(booted_ios_simulators)"
+  echo "$best"
 }
 
 # A TestFlight/Release build leaves the iOS project (its precompiled React Native) and
@@ -123,16 +151,14 @@ install_on_ios_simulators() {
   if [[ -z "$source_udid" ]]; then
     reset_ios_after_release_build
     echo "[local-dev] Building the development build for iOS (the first build takes 10–20 min)."
-    if [[ -n "$sims" ]]; then
-      source_udid="$(head -n 1 <<< "$sims" | cut -d'|' -f1)"
-      npx expo run:ios --no-bundler --device "$source_udid"
-    else
-      npx expo run:ios --no-bundler
-      sims="$(booted_ios_simulators)"
-      source_udid="$(head -n 1 <<< "$sims" | cut -d'|' -f1)"
-    fi
+    # No --device: given a UDID, Expo also looks it up with Xcode's physical-device tool
+    # (devicectl), and if that lists the simulator it installs as if to an iPhone and hangs
+    # at "Connecting to: …". Without it, Expo uses its first booted simulator (or boots one).
+    npx expo run:ios --no-bundler
+    sims="$(booted_ios_simulators)"
+    source_udid="$(newest_ios_install)"
   fi
-  [[ -n "$source_udid" ]] || { echo "[local-dev] No booted iOS simulator after the build."; exit 1; }
+  [[ -n "$source_udid" ]] || { echo "[local-dev] No booted iOS simulator has the app after the build."; exit 1; }
 
   app_path="$(xcrun simctl get_app_container "$source_udid" "$BUNDLE_ID" app 2>/dev/null)" \
     || { echo "[local-dev] The app isn't on simulator $source_udid; the build didn't install it."; exit 1; }
@@ -153,9 +179,13 @@ install_android_build() {
   (cd android && ./gradlew app:installDebug ${abi:+"-PreactNativeArchitectures=$abi"})
 }
 
+bundler_running() {
+  curl -fsS -m 2 http://localhost:8081/status 2>/dev/null | grep -q "packager-status:running"
+}
+
 open_app_when_bundler_ready() {
   for _ in $(seq 1 180); do
-    if curl -fsS -m 2 http://localhost:8081/status 2>/dev/null | grep -q "packager-status:running"; then
+    if bundler_running; then
       open_app && echo "[local-dev] App opened on $PLATFORM. Press r here to reload (every device); don't press i/a (that opens Expo Go)."
       return
     fi
@@ -182,11 +212,23 @@ if [[ "$PLATFORM" == "android" ]] && ! adb get-state >/dev/null 2>&1; then
   echo "[local-dev] With several connected, pick one: export ANDROID_SERIAL=<name from 'adb devices'>"
   exit 1
 fi
-if [[ "$PLATFORM" == "ios" ]]; then
+if [[ "$INSTALL_APP" == 0 ]]; then
+  : # --bundler-only
+elif [[ "$PLATFORM" == "ios" ]]; then
   install_on_ios_simulators
 elif [[ "$FORCE_BUILD" == "--build" ]] || ! android_app_installed; then
   echo "[local-dev] Installing the development build on android (the first build takes 10–20 min)."
   install_android_build
+fi
+
+if [[ "$START_BUNDLER" == 0 ]]; then
+  if bundler_running; then
+    open_app || true
+  else
+    echo "[local-dev] Installed. Start the bundler in another terminal:"
+    echo "  bash scripts/local-dev/06_staging_mobile.sh $PLATFORM --bundler-only"
+  fi
+  exit 0
 fi
 
 # Open the app once the bundler answers. This runs in the background and never

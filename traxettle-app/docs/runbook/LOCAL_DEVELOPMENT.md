@@ -180,6 +180,17 @@ bash scripts/local-dev/06_staging_mobile.sh ios        # or: android
 bash scripts/local-dev/06_staging_mobile.sh ios --build  # reinstall the dev build first
 ```
 
+To keep the bundler running while you build or add simulators, use two terminals:
+
+```bash
+bash scripts/local-dev/06_staging_mobile.sh ios --bundler-only        # terminal 1: bundler, opens the app
+bash scripts/local-dev/06_staging_mobile.sh ios --build --no-bundler  # terminal 2: build, install, open
+```
+
+`--no-bundler` builds or installs, opens the app if a bundler is already running, and
+exits. Run it again (without `--build`) after booting another simulator: it copies the app
+there without rebuilding.
+
 The script checks the staging API is up, copies the staging Firebase files, installs the
 development build if it isn't on the running simulator/emulator (10–20 min the first time),
 then starts the bundler with the staging API and opens the app. Sign in with staging accounts.
