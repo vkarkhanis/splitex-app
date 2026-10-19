@@ -8,6 +8,9 @@
 #   Default: ios.
 #   --build reinstalls the development build first. That also happens
 #   automatically when the app isn't on the running simulator/emulator.
+#   iOS: the app goes on every booted iOS simulator (iPhones and iPads; boot
+#   more with `xcrun simctl boot <UDID>`). It's built once and copied to the
+#   rest. With none booted, Expo boots its default simulator.
 #   STAGING_API_URL overrides the staging API address.
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -46,12 +49,23 @@ else
   echo "[local-dev] rc_staging.properties not found; Pro purchases won't work in this run."
 fi
 
-app_installed() {
-  if [[ "$PLATFORM" == "ios" ]]; then
-    xcrun simctl listapps booted 2>/dev/null | grep -q "$BUNDLE_ID"
-  else
-    adb shell pm list packages 2>/dev/null | grep -q "$BUNDLE_ID"
-  fi
+# Booted iOS simulators (iPhones and iPads), one "UDID|name (iOS x.y)" line each.
+booted_ios_simulators() {
+  xcrun simctl list devices booted -j 2>/dev/null | node -e '
+    const { devices } = JSON.parse(require("fs").readFileSync(0, "utf8"));
+    for (const [runtime, list] of Object.entries(devices)) {
+      const os = /SimRuntime\.iOS-(\d+)-(\d+)$/.exec(runtime);
+      if (!os) continue;
+      for (const d of list) if (d.state === "Booted") console.log(`${d.udid}|${d.name} (iOS ${os[1]}.${os[2]})`);
+    }'
+}
+
+ios_has_app() {
+  xcrun simctl get_app_container "$1" "$BUNDLE_ID" app >/dev/null 2>&1
+}
+
+android_app_installed() {
+  adb shell pm list packages 2>/dev/null | grep -q "$BUNDLE_ID"
 }
 
 # The app is a plain development build (no expo-dev-client), so it is opened
@@ -59,29 +73,70 @@ app_installed() {
 # development build loads its JS from the bundler on port 8081 when it starts.
 open_app() {
   if [[ "$PLATFORM" == "ios" ]]; then
-    xcrun simctl launch --terminate-running-process booted "$BUNDLE_ID" >/dev/null
+    local udid name opened=1
+    while IFS='|' read -r udid name; do
+      [[ -n "$udid" ]] || continue
+      if xcrun simctl launch --terminate-running-process "$udid" "$BUNDLE_ID" >/dev/null 2>&1; then
+        echo "[local-dev] Opened the app on $name."
+        opened=0
+      else
+        echo "[local-dev] Couldn't open the app on $name."
+      fi
+    done < <(booted_ios_simulators)
+    return "$opened"
   else
     adb reverse tcp:8081 tcp:8081 >/dev/null
     adb shell am start -S -n "$BUNDLE_ID/.MainActivity" >/dev/null
   fi
 }
 
-install_dev_build() {
-  if [[ "$PLATFORM" == "ios" ]]; then
-    npx expo run:ios --no-bundler
-  else
-    # `expo run:android` ends by opening a dev-client link this app can't
-    # handle, so build and install with Gradle instead; open_app launches it.
-    local abi
-    abi="$(adb shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r')"
-    (cd android && ./gradlew app:installDebug ${abi:+"-PreactNativeArchitectures=$abi"})
+# Builds once (when asked, or when no booted simulator has the app yet), then
+# installs that same app on every other booted simulator that needs it.
+install_on_ios_simulators() {
+  local sims udid name source_udid="" app_path
+  sims="$(booted_ios_simulators)"
+  if [[ -z "$FORCE_BUILD" ]]; then
+    while IFS='|' read -r udid name; do
+      if [[ -n "$udid" ]] && ios_has_app "$udid"; then source_udid="$udid"; break; fi
+    done <<< "$sims"
   fi
+
+  if [[ -z "$source_udid" ]]; then
+    echo "[local-dev] Building the development build for iOS (the first build takes 10–20 min)."
+    if [[ -n "$sims" ]]; then
+      source_udid="$(head -n 1 <<< "$sims" | cut -d'|' -f1)"
+      npx expo run:ios --no-bundler --device "$source_udid"
+    else
+      npx expo run:ios --no-bundler
+      sims="$(booted_ios_simulators)"
+      source_udid="$(head -n 1 <<< "$sims" | cut -d'|' -f1)"
+    fi
+  fi
+  [[ -n "$source_udid" ]] || { echo "[local-dev] No booted iOS simulator after the build."; exit 1; }
+
+  app_path="$(xcrun simctl get_app_container "$source_udid" "$BUNDLE_ID" app 2>/dev/null)" \
+    || { echo "[local-dev] The app isn't on simulator $source_udid; the build didn't install it."; exit 1; }
+  while IFS='|' read -r udid name; do
+    [[ -n "$udid" && "$udid" != "$source_udid" ]] || continue
+    if [[ -n "$FORCE_BUILD" ]] || ! ios_has_app "$udid"; then
+      echo "[local-dev] Installing the app on $name."
+      xcrun simctl install "$udid" "$app_path" || echo "[local-dev] Couldn't install the app on $name."
+    fi
+  done <<< "$sims"
+}
+
+install_android_build() {
+  # `expo run:android` ends by opening a dev-client link this app can't
+  # handle, so build and install with Gradle instead; open_app launches it.
+  local abi
+  abi="$(adb shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r')"
+  (cd android && ./gradlew app:installDebug ${abi:+"-PreactNativeArchitectures=$abi"})
 }
 
 open_app_when_bundler_ready() {
   for _ in $(seq 1 180); do
     if curl -fsS -m 2 http://localhost:8081/status 2>/dev/null | grep -q "packager-status:running"; then
-      open_app && echo "[local-dev] Opened the app on $PLATFORM. Press r here to reload; don't press i/a (that opens Expo Go)."
+      open_app && echo "[local-dev] App opened on $PLATFORM. Press r here to reload (every device); don't press i/a (that opens Expo Go)."
       return
     fi
     sleep 1
@@ -107,9 +162,11 @@ if [[ "$PLATFORM" == "android" ]] && ! adb get-state >/dev/null 2>&1; then
   echo "[local-dev] With several connected, pick one: export ANDROID_SERIAL=<name from 'adb devices'>"
   exit 1
 fi
-if [[ "$FORCE_BUILD" == "--build" ]] || ! app_installed; then
-  echo "[local-dev] Installing the development build on $PLATFORM (the first build takes 10–20 min)."
-  install_dev_build
+if [[ "$PLATFORM" == "ios" ]]; then
+  install_on_ios_simulators
+elif [[ "$FORCE_BUILD" == "--build" ]] || ! android_app_installed; then
+  echo "[local-dev] Installing the development build on android (the first build takes 10–20 min)."
+  install_android_build
 fi
 
 # Open the app once the bundler answers. This runs in the background and never
