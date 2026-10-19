@@ -185,6 +185,12 @@ development build if it isn't on the running simulator/emulator (10–20 min the
 then starts the bundler with the staging API and opens the app. Sign in with staging accounts.
 Set `STAGING_API_URL` to point at a different staging address.
 
+On iOS the app goes on **every booted simulator** (iPhones and iPads; boot more with
+`xcrun simctl boot <UDID>`): it's built once and copied to the others. If the last iOS build
+was a TestFlight build, the script first clears Xcode's build cache and regenerates the iOS
+project. Building for the simulator on top of a Release build can otherwise fail with
+`Undefined symbols … facebook::react::Sealable::Sealable()`.
+
 ---
 
 ## Quick Reference

@@ -258,6 +258,9 @@ build_testflight() {
   (cd "$MOBILE_DIR" && EXPO_NO_GIT_STATUS=1 npx expo prebuild --platform ios --clean)
   project="$(ios_project_name)"
   [ -n "$project" ] || fail "expo prebuild did not create an Xcode project in $IOS_DIR"
+  # Tells scripts/local-dev/06_staging_mobile.sh to regenerate this project before its next
+  # simulator (Debug) build: building Debug on top of a Release one can fail to link.
+  touch "$IOS_DIR/.release-build"
   # Xcode's JS bundling phase needs node, which may live outside Xcode's default PATH (e.g. nvm).
   echo "export NODE_BINARY=$(command -v node)" > "$IOS_DIR/.xcode.env.local"
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $build_number" "$IOS_DIR/$project/Info.plist"

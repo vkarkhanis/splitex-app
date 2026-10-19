@@ -10,7 +10,8 @@
 #   automatically when the app isn't on the running simulator/emulator.
 #   iOS: the app goes on every booted iOS simulator (iPhones and iPads; boot
 #   more with `xcrun simctl boot <UDID>`). It's built once and copied to the
-#   rest. With none booted, Expo boots its default simulator.
+#   rest. With none booted, Expo boots its default simulator. After a TestFlight
+#   build, the iOS project and Xcode's build cache are reset before building.
 #   STAGING_API_URL overrides the staging API address.
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -64,6 +65,24 @@ ios_has_app() {
   xcrun simctl get_app_container "$1" "$BUNDLE_ID" app >/dev/null 2>&1
 }
 
+# A TestFlight/Release build leaves the iOS project (its precompiled React Native) and
+# Xcode's build cache set up for Release, and a simulator (Debug) build on top of that
+# can fail to link ("Undefined symbols … facebook::react::Sealable::Sealable()"). In that
+# case, start the Debug build from a fresh project and cache. Signs of a Release build:
+# the marker build-ios.sh testflight leaves, or React Native's own record of the last build.
+reset_ios_after_release_build() {
+  local marker="ios/.release-build" rncore="ios/Pods/React-Core-prebuilt/.last_build_configuration" ws
+  if [[ -f "$marker" ]] || { [[ -f "$rncore" ]] && [[ "$(cat "$rncore")" == "Release" ]]; }; then
+    echo "[local-dev] The iOS project was last built for TestFlight/Release. Clearing Xcode's build cache and regenerating it (a few extra minutes)."
+    for ws in ios/*.xcworkspace; do
+      if [[ -d "$ws" ]]; then
+        rm -rf "$HOME/Library/Developer/Xcode/DerivedData/$(basename "$ws" .xcworkspace)"-*
+      fi
+    done
+    EXPO_NO_GIT_STATUS=1 npx expo prebuild --platform ios --clean
+  fi
+}
+
 android_app_installed() {
   adb shell pm list packages 2>/dev/null | grep -q "$BUNDLE_ID"
 }
@@ -102,6 +121,7 @@ install_on_ios_simulators() {
   fi
 
   if [[ -z "$source_udid" ]]; then
+    reset_ios_after_release_build
     echo "[local-dev] Building the development build for iOS (the first build takes 10–20 min)."
     if [[ -n "$sims" ]]; then
       source_udid="$(head -n 1 <<< "$sims" | cut -d'|' -f1)"
