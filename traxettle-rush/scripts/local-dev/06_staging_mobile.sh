@@ -81,6 +81,15 @@ ios_has_app() {
   xcrun simctl get_app_container "$1" "$BUNDLE_ID" app >/dev/null 2>&1
 }
 
+# Fingerprint of the app's native code on a simulator (empty if it isn't installed). A
+# simulator still on an older build gets a different one; JavaScript comes from the bundler.
+ios_app_fingerprint() {
+  local app_path exe
+  app_path="$(xcrun simctl get_app_container "$1" "$BUNDLE_ID" app 2>/dev/null)" || return 0
+  exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app_path/Info.plist" 2>/dev/null)" || return 0
+  shasum "$app_path/$exe" 2>/dev/null | cut -d' ' -f1 || true
+}
+
 # The booted simulator with the most recent install of the app: where expo run:ios just put it.
 newest_ios_install() {
   local udid name app_path mtime best="" best_mtime=0
@@ -138,14 +147,13 @@ open_app() {
 }
 
 # Builds once (when asked, or when no booted simulator has the app yet), then
-# installs that same app on every other booted simulator that needs it.
+# installs that same app on every other booted simulator that lacks it or has an
+# older build (whose native code wouldn't match the bundler's JavaScript).
 install_on_ios_simulators() {
-  local sims udid name source_udid="" app_path
+  local sims udid name source_udid="" app_path source_print
   sims="$(booted_ios_simulators)"
   if [[ -z "$FORCE_BUILD" ]]; then
-    while IFS='|' read -r udid name; do
-      if [[ -n "$udid" ]] && ios_has_app "$udid"; then source_udid="$udid"; break; fi
-    done <<< "$sims"
+    source_udid="$(newest_ios_install)"
   fi
 
   if [[ -z "$source_udid" ]]; then
@@ -162,10 +170,15 @@ install_on_ios_simulators() {
 
   app_path="$(xcrun simctl get_app_container "$source_udid" "$BUNDLE_ID" app 2>/dev/null)" \
     || { echo "[local-dev] The app isn't on simulator $source_udid; the build didn't install it."; exit 1; }
+  source_print="$(ios_app_fingerprint "$source_udid")"
   while IFS='|' read -r udid name; do
     [[ -n "$udid" && "$udid" != "$source_udid" ]] || continue
-    if [[ -n "$FORCE_BUILD" ]] || ! ios_has_app "$udid"; then
-      echo "[local-dev] Installing the app on $name."
+    if [[ -n "$FORCE_BUILD" ]] || ! ios_has_app "$udid" || [[ "$(ios_app_fingerprint "$udid")" != "$source_print" ]]; then
+      if ios_has_app "$udid"; then
+        echo "[local-dev] Updating the app on $name (it had a different build)."
+      else
+        echo "[local-dev] Installing the app on $name."
+      fi
       xcrun simctl install "$udid" "$app_path" || echo "[local-dev] Couldn't install the app on $name."
     fi
   done <<< "$sims"
