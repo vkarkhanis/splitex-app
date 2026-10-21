@@ -129,6 +129,44 @@ export interface EventParticipant {
 /** Shown to other participants in place of a deleted account's name. */
 export const DELETED_USER_NAME = 'Deleted user';
 
+/** What is still unsettled for one user in one event (amounts in the event's currency, ≥ 0). */
+export interface OutstandingBalance {
+  eventId: string;
+  eventName: string;
+  currency: string;
+  /** What the user still owes. */
+  owes: number;
+  /** What others still owe the user. */
+  owed: number;
+}
+
+const MONEY_SYMBOLS: Record<string, string> = { USD: '$', EUR: '€', GBP: '£', INR: '₹', JPY: '¥', AUD: 'A$', CAD: 'C$' };
+
+/** "₹1,200.00" (no decimals for JPY); unknown currencies get their code, e.g. "CHF 5.00". */
+export function formatMoney(amount: number, currency: string): string {
+  const [whole, decimals] = Math.abs(amount).toFixed(currency === 'JPY' ? 0 : 2).split('.');
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const symbol = MONEY_SYMBOLS[currency] ?? `${currency} `;
+  return `${amount < 0 ? '-' : ''}${symbol}${grouped}${decimals ? `.${decimals}` : ''}`;
+}
+
+/**
+ * The warning shown before deleting an account when amounts are still unsettled, or null.
+ * Deleting stays possible: it's a reminder, not a block (the app tracks money, it doesn't collect it).
+ */
+export function accountDeletionWarning(items: OutstandingBalance[]): string | null {
+  const lines = items.flatMap((item) => [
+    ...(item.owes > 0 ? [`${item.eventName}: you owe ${formatMoney(item.owes, item.currency)}`] : []),
+    ...(item.owed > 0 ? [`${item.eventName}: you're owed ${formatMoney(item.owed, item.currency)}`] : []),
+  ]);
+  if (lines.length === 0) return null;
+  return (
+    `You still have unsettled amounts:\n${lines.map((line) => `• ${line}`).join('\n')}\n\n` +
+    `Deleting your account won't settle them. Others will see you as "${DELETED_USER_NAME}", ` +
+    'and an event admin can close these payments as paid or written off.'
+  );
+}
+
 export interface SettlementApproval {
   approved: boolean;
   approvedAt?: string;

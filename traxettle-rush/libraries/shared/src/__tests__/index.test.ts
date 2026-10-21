@@ -15,6 +15,8 @@ import {
   showsProviderFxRates,
   FX_RATES_ATTRIBUTION,
   deletedPaymentParty,
+  formatMoney,
+  accountDeletionWarning,
 } from '../index';
 
 import type {
@@ -73,6 +75,40 @@ describe('hasActivePro', () => {
   it('treats a missing status as active, as the API does', () => {
     expect(hasActivePro({ tier: 'pro' })).toBe(true);
     expect(hasActivePro({ tier: 'pro', entitlementStatus: null })).toBe(true);
+  });
+});
+
+describe('formatMoney', () => {
+  it('uses the currency symbol, thousands separators and two decimals', () => {
+    expect(formatMoney(1200, 'INR')).toBe('₹1,200.00');
+    expect(formatMoney(1234567.891, 'USD')).toBe('$1,234,567.89');
+    expect(formatMoney(-42.5, 'EUR')).toBe('-€42.50');
+  });
+
+  it('has no decimals for JPY and falls back to the code for other currencies', () => {
+    expect(formatMoney(15000, 'JPY')).toBe('¥15,000');
+    expect(formatMoney(5, 'CHF')).toBe('CHF 5.00');
+  });
+});
+
+describe('accountDeletionWarning', () => {
+  it('lists what is owed each way, per event, and says deleting will not settle it', () => {
+    const warning = accountDeletionWarning([
+      { eventId: 'trip', eventName: 'Goa Trip', currency: 'INR', owes: 1200, owed: 0 },
+      { eventId: 'flat', eventName: 'Flat', currency: 'INR', owes: 0, owed: 300 },
+      { eventId: 'both', eventName: 'Offsite', currency: 'USD', owes: 10, owed: 4 },
+    ]);
+    expect(warning).toContain('• Goa Trip: you owe ₹1,200.00');
+    expect(warning).toContain("• Flat: you're owed ₹300.00");
+    expect(warning).toContain('• Offsite: you owe $10.00');
+    expect(warning).toContain("• Offsite: you're owed $4.00");
+    expect(warning).toContain("Deleting your account won't settle them");
+    expect(warning).toContain('"Deleted user"');
+  });
+
+  it('is null when nothing is outstanding', () => {
+    expect(accountDeletionWarning([])).toBeNull();
+    expect(accountDeletionWarning([{ eventId: 'x', eventName: 'X', currency: 'INR', owes: 0, owed: 0 }])).toBeNull();
   });
 });
 

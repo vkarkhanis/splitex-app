@@ -38,6 +38,8 @@ import {
 } from '../api';
 import { ENV, isLocalLikeEnv } from '../config/env';
 import { toUserFriendlyError } from '../utils/errorMessages';
+import { accountDeletionWarning } from '@traxettle/shared';
+import type { OutstandingBalance } from '@traxettle/shared';
 import PasswordInput from '../components/PasswordInput';
 import { resetWalkthroughCompletion } from '../services/onboarding';
 import { switchEnvironmentAndRebootstrap } from '../services/environment-switch';
@@ -316,10 +318,18 @@ export default function ProfileScreen({ navigation }: any) {
     }
   };
 
-  const handleDeleteAccount = () => {
+  const handleDeleteAccount = async () => {
+    // Remind (not block) when money is still unsettled; if the check fails, just confirm as usual.
+    let warning: string | null = null;
+    try {
+      const { data } = await api.get<OutstandingBalance[]>('/api/users/account/outstanding');
+      warning = accountDeletionWarning(Array.isArray(data) ? data : []);
+    } catch {
+      warning = null;
+    }
     Alert.alert(
       'Delete Account',
-      'This will permanently delete:\n\n• Your sign-in and profile\n• Payment methods and settings\n• Events only you are part of\n\nIn events shared with others, your expenses and payments stay so their balances remain correct, shown as "Deleted user".\n\nDeleting your account doesn\'t cancel a subscription; cancel it in your App Store or Google Play account.\n\nThis cannot be undone. Are you sure?',
+      `${warning ? `${warning}\n\n` : ''}This will permanently delete:\n\n• Your sign-in and profile\n• Payment methods and settings\n• Events only you are part of\n\nIn events shared with others, your expenses and payments stay so their balances remain correct, shown as "Deleted user".\n\nDeleting your account doesn't cancel a subscription; cancel it in your App Store or Google Play account.\n\nThis cannot be undone. Are you sure?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {

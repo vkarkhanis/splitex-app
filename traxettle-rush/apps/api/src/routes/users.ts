@@ -1,13 +1,16 @@
 import { Router } from 'express';
 import { ApiResponse, UserProfile, UserPreferences, hasActivePro } from '@traxettle/shared';
+import type { OutstandingBalance } from '@traxettle/shared';
 import { auth, db } from '../config/firebase';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { EntitlementService } from '../services/entitlement.service';
 import { AccountDeletionService } from '../services/account-deletion.service';
+import { SettlementService } from '../services/settlement.service';
 
 const router: Router = Router();
 const entitlementService = new EntitlementService();
 const accountDeletionService = new AccountDeletionService();
+const settlementService = new SettlementService();
 const PAYMENT_METHOD_TYPES = new Set(['upi', 'bank', 'paypal', 'wise', 'swift', 'other']);
 interface UserPaymentMethod {
   id: string;
@@ -373,6 +376,17 @@ router.delete('/payment-methods/:methodId', requireAuth, async (req: Authenticat
   } catch (err) {
     console.error('DELETE /payment-methods/:methodId error:', err);
     return res.status(500).json({ success: false, error: 'Failed to delete payment method' } as ApiResponse);
+  }
+});
+
+// What the user still owes or is owed, per event: shown as a warning before deleting the account.
+router.get('/account/outstanding', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const outstanding = await settlementService.getOutstandingForUser(req.user!.uid);
+    return res.json({ success: true, data: outstanding } as ApiResponse<OutstandingBalance[]>);
+  } catch (err) {
+    console.error('GET /account/outstanding error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to check unsettled amounts' } as ApiResponse);
   }
 });
 

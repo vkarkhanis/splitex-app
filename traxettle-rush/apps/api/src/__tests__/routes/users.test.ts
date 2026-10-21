@@ -23,6 +23,12 @@ jest.mock('../../services/account-deletion.service', () => ({
   AccountDeletionService: jest.fn().mockImplementation(() => ({ deleteAccount: mockDeleteAccount })),
 }));
 
+// The outstanding-amounts query has its own service test (settlement.outstanding.test.ts).
+const mockGetOutstanding = jest.fn();
+jest.mock('../../services/settlement.service', () => ({
+  SettlementService: jest.fn().mockImplementation(() => ({ getOutstandingForUser: mockGetOutstanding })),
+}));
+
 // Mock firebase config before importing routes
 jest.mock('../../config/firebase', () => {
   const makeDocRef = (collectionName: string, id: string) => ({
@@ -680,6 +686,30 @@ describe('User debug entitlement and account deletion', () => {
 
     expect(res.status).toBe(500);
     expect(res.body.error).toBe('entitlement lookup failed');
+  });
+
+  it('lists what the user still owes or is owed, for the deletion warning', async () => {
+    const outstanding = [{ eventId: 'trip', eventName: 'Goa Trip', currency: 'INR', owes: 1200, owed: 0 }];
+    mockGetOutstanding.mockResolvedValue(outstanding);
+
+    const res = await request(createApp())
+      .get('/api/users/account/outstanding')
+      .set('Authorization', 'Bearer mock-delete-user');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual(outstanding);
+    expect(mockGetOutstanding).toHaveBeenCalledWith('mock-delete-user');
+  });
+
+  it('returns 500 when the unsettled-amounts check fails', async () => {
+    mockGetOutstanding.mockRejectedValue(new Error('boom'));
+
+    const res = await request(createApp())
+      .get('/api/users/account/outstanding')
+      .set('Authorization', 'Bearer mock-delete-user');
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('Failed to check unsettled amounts');
   });
 
   it('deletes the signed-in account', async () => {

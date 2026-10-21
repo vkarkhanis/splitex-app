@@ -1,5 +1,5 @@
 import { Balance, Settlement, SettlementPlan, ExpenseSplit, Group, SettlementApproval, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg } from '@traxettle/shared';
-import type { SettlementAuditEntry } from '@traxettle/shared';
+import type { OutstandingBalance, SettlementAuditEntry } from '@traxettle/shared';
 import { db } from '../config/firebase';
 import { ExpenseService } from './expense.service';
 import { GroupService } from './group.service';
@@ -1248,6 +1248,47 @@ export class SettlementService {
       } as unknown as Settlement,
       allComplete,
     };
+  }
+
+  /**
+   * What is still unsettled for a user across their events, for the warning shown before they
+   * delete their account. Events in payment use their open payments; events not yet settled use
+   * the user's current balance (their group's, if they're in one). Settled and closed events
+   * have nothing outstanding.
+   */
+  async getOutstandingForUser(userId: string): Promise<OutstandingBalance[]> {
+    const events = await this.eventService.getUserEvents(userId);
+    const results: OutstandingBalance[] = [];
+    for (const event of events) {
+      if (event.status === 'settled' || event.status === 'closed') continue;
+      let owes = 0;
+      let owed = 0;
+      if (event.status === 'payment') {
+        const snap = await db.collection(this.collection).where('eventId', '==', event.id).get();
+        snap.docs.forEach((doc: any) => {
+          const leg = doc.data() || {};
+          if (leg.status === 'completed') return;
+          const amount = Number(leg.amount) || 0;
+          if (leg.fromUserId === userId) owes += amount;
+          if (leg.toUserId === userId) owed += amount;
+        });
+      } else {
+        const [balances, groups] = await Promise.all([
+          this.calculateEntityBalances(event.id),
+          this.groupService.getEventGroups(event.id),
+        ]);
+        const entityId = groups.find((g) => (g.members || []).includes(userId))?.id ?? userId;
+        const balance = balances.find((b) => b.entityId === entityId)?.amount ?? 0;
+        if (balance < 0) owes = -balance;
+        else owed = balance;
+      }
+      owes = Math.round(owes * 100) / 100;
+      owed = Math.round(owed * 100) / 100;
+      if (owes >= 0.01 || owed >= 0.01) {
+        results.push({ eventId: event.id, eventName: event.name, currency: event.currency, owes, owed });
+      }
+    }
+    return results;
   }
 
   /**

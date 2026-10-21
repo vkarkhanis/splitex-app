@@ -16,6 +16,7 @@ import {
   setFirebaseEmulatorEnabled,
 } from '../../config/dev-options';
 import { toUserFriendlyError } from '../../utils/errorMessages';
+import { accountDeletionWarning } from '@traxettle/shared';
 
 type UserPreferences = {
   notifications: boolean;
@@ -604,10 +605,24 @@ export default function ProfilePage() {
 
   const handleDeleteAccount = async () => {
     if (!profile) return;
+    // Remind (not block) when money is still unsettled; if the check fails, just confirm as usual.
+    let warning: string | null = null;
+    try {
+      const token = await getFreshToken();
+      if (token) {
+        const resp = await fetch(`${apiBaseUrl}/api/users/account/outstanding`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const json = await resp.json();
+        if (resp.ok && json.success) warning = accountDeletionWarning(Array.isArray(json.data) ? json.data : []);
+      }
+    } catch {
+      warning = null;
+    }
     const confirmed = typeof window === 'undefined'
       ? false
       : window.confirm(
-          'This will permanently delete your account: your sign-in, profile, payment methods and settings, and any events only you are part of.\n\nIn events shared with others, your expenses and payments stay so their balances remain correct, shown as "Deleted user".\n\nDeleting your account doesn\'t cancel a subscription; cancel it in your store account.\n\nThis cannot be undone. Do you want to continue?',
+          `${warning ? `${warning}\n\n` : ''}This will permanently delete your account: your sign-in, profile, payment methods and settings, and any events only you are part of.\n\nIn events shared with others, your expenses and payments stay so their balances remain correct, shown as "Deleted user".\n\nDeleting your account doesn't cancel a subscription; cancel it in your store account.\n\nThis cannot be undone. Do you want to continue?`,
         );
 
     if (!confirmed) return;
