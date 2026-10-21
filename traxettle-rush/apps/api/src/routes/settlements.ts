@@ -281,6 +281,33 @@ router.post('/:settlementId/mark-paid-by-payee', requireAuth, async (req: Authen
   }
 });
 
+// Close a payment with someone who deleted their account (event admins): body.outcome is
+// 'paid' (the money changed hands) or 'written_off' (it didn't).
+router.post('/:settlementId/close-deleted-user', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { settlement, allComplete } = await settlementService.closeForDeletedUser(
+      req.params.settlementId,
+      req.user!.uid,
+      req.body?.outcome,
+      typeof req.body?.note === 'string' ? req.body.note : undefined,
+    );
+    emitToEvent(settlement.eventId, 'settlement:updated', { settlement, allComplete });
+    if (allComplete) {
+      emitToEvent(settlement.eventId, 'event:updated', { status: 'settled' });
+    }
+    return res.json({ success: true, data: { settlement, allComplete } } as ApiResponse);
+  } catch (err: any) {
+    console.error('POST /settlements/:settlementId/close-deleted-user error:', err);
+    if (err.message?.includes('Forbidden')) {
+      return res.status(403).json({ success: false, error: err.message } as ApiResponse);
+    }
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ success: false, error: err.message } as ApiResponse);
+    }
+    return res.status(400).json({ success: false, error: err.message } as ApiResponse);
+  }
+});
+
 // Reject payment confirmation for a settlement transaction (payee only)
 router.post('/:settlementId/reject', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {

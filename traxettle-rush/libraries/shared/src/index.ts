@@ -301,6 +301,22 @@ export interface Settlement {
   createdAt: Date;
   failedAt?: Date;
   completedAt?: Date;
+  /**
+   * Closed by an event admin because one side deleted their account: 'paid' records the money
+   * changed hands; 'written_off' records it didn't. Either way the payment counts as done.
+   */
+  closedForDeletedUser?: { outcome: 'paid' | 'written_off'; by: string; at: string };
+}
+
+/**
+ * The participant who deleted their account on one side of this payment, if any. Such a
+ * payment can't finish the usual way (they can't pay or confirm), so an admin may close it.
+ */
+export function deletedPaymentParty<P extends { userId: string; deleted?: boolean }>(
+  leg: Pick<Settlement, 'fromUserId' | 'toUserId'>,
+  participants: P[],
+): P | null {
+  return participants.find((p) => p.deleted && (p.userId === leg.fromUserId || p.userId === leg.toUserId)) ?? null;
 }
 
 export type SettlementKind = 'standard' | 'pool_reimbursement' | 'pool_cycle' | 'pool_member_exit';
@@ -355,7 +371,7 @@ export function showsProviderFxRates(
 
 export interface SettlementAuditEntry {
   id: string;
-  action: 'created' | 'marked_paid' | 'confirmed' | 'rejected' | 'retry_requested';
+  action: 'created' | 'marked_paid' | 'confirmed' | 'rejected' | 'retry_requested' | 'closed_by_admin';
   actorUserId: string;
   note?: string;
   referenceId?: string;

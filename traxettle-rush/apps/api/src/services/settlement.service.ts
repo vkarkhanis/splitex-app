@@ -1,4 +1,5 @@
 import { Balance, Settlement, SettlementPlan, ExpenseSplit, Group, SettlementApproval, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg } from '@traxettle/shared';
+import type { SettlementAuditEntry } from '@traxettle/shared';
 import { db } from '../config/firebase';
 import { ExpenseService } from './expense.service';
 import { GroupService } from './group.service';
@@ -203,7 +204,7 @@ export class SettlementService {
   }
 
   private buildAuditEntry(params: {
-    action: 'created' | 'marked_paid' | 'confirmed' | 'rejected' | 'retry_requested';
+    action: SettlementAuditEntry['action'];
     actorUserId: string;
     note?: string | null;
     referenceId?: string | null;
@@ -1177,6 +1178,79 @@ export class SettlementService {
   }
 
   /**
+   * An event admin closes a payment that can't finish the usual way because one side deleted
+   * their account (they can't pay, mark paid or confirm). 'paid' records that the money changed
+   * hands; 'written_off' records that it didn't. Either way it counts as done, so the event can
+   * settle, and the audit trail says who closed it and how.
+   */
+  async closeForDeletedUser(
+    settlementId: string,
+    userId: string,
+    outcome: 'paid' | 'written_off',
+    note?: string,
+  ): Promise<{ settlement: Settlement; allComplete: boolean }> {
+    if (outcome !== 'paid' && outcome !== 'written_off') {
+      throw new Error("Outcome must be 'paid' or 'written_off'");
+    }
+    const doc = await db.collection(this.collection).doc(settlementId).get();
+    if (!doc.exists) throw new Error('Settlement not found');
+    const data = doc.data()!;
+
+    const eventDoc = await db.collection('events').doc(data.eventId).get();
+    const event = eventDoc.exists ? (eventDoc.data() || {}) : {};
+    if (event.createdBy !== userId && !(event.admins || []).includes(userId)) {
+      throw new Error('Forbidden: Only an event admin can close this payment');
+    }
+    if (data.status === 'completed') throw new Error('Settlement is already completed');
+
+    const parties = [...new Set([data.fromUserId, data.toUserId].filter(Boolean).map(String))];
+    const participantSnaps = await Promise.all(
+      parties.map((id) => db.collection('events').doc(data.eventId).collection('participants').doc(id).get()),
+    );
+    if (!participantSnaps.some((snap: any) => snap.exists && snap.data()?.deleted)) {
+      throw new Error('Only a payment with someone who deleted their account can be closed this way');
+    }
+
+    const now = new Date().toISOString();
+    const closure = { outcome, by: userId, at: now };
+    const audit = this.buildAuditEntry({
+      action: 'closed_by_admin',
+      actorUserId: userId,
+      note: note?.trim() || (outcome === 'paid'
+        ? 'Closed by an admin as paid: the other person deleted their account'
+        : 'Closed by an admin as not paid (written off): the other person deleted their account'),
+      statusFrom: data.status,
+      statusTo: 'completed',
+    });
+    const auditTrail = this.appendAuditTrail(data.auditTrail, audit);
+    await db.collection(this.collection).doc(settlementId).set(
+      {
+        status: 'completed',
+        completedAt: now,
+        closedForDeletedUser: closure,
+        rejectionReason: null,
+        rejectedAt: null,
+        failureReason: null,
+        auditTrail,
+      },
+      { merge: true },
+    );
+
+    const allComplete = await this.settleEventIfComplete(data.eventId, settlementId, now);
+    return {
+      settlement: {
+        id: settlementId,
+        ...data,
+        status: 'completed',
+        completedAt: new Date(now),
+        closedForDeletedUser: closure,
+        auditTrail,
+      } as unknown as Settlement,
+      allComplete,
+    };
+  }
+
+  /**
    * Get existing settlement plan for an event.
    */
   async getEventSettlements(eventId: string): Promise<Settlement[]> {
@@ -1238,6 +1312,7 @@ export class SettlementService {
         ...(data.kind ? { kind: data.kind } : {}),
         ...(data.poolCycleId ? { poolCycleId: data.poolCycleId } : {}),
         ...(data.expenseId ? { expenseId: data.expenseId } : {}),
+        ...(data.closedForDeletedUser ? { closedForDeletedUser: data.closedForDeletedUser } : {}),
         initiatedAt: data.initiatedAt,
         failedAt: data.failedAt,
         createdAt: data.createdAt,

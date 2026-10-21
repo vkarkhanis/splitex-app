@@ -46,6 +46,8 @@ import {
   poolPaymentActionsText,
   reimbursementStatus,
   showsProviderFxRates,
+  deletedPaymentParty,
+  DELETED_USER_NAME,
 } from '@traxettle/shared';
 import type { PoolCycleSummary } from '@traxettle/shared';
 import { poolService } from '../services/pool';
@@ -510,6 +512,28 @@ export default function EventDetailScreen({ route, navigation }: any) {
             }
           },
         },
+      ],
+    );
+  };
+
+  // One side deleted their account, so the payment can't finish the usual way: an admin records
+  // whether it was paid. Either outcome closes it, so the event can settle.
+  const handleCloseForDeletedUser = (settlementId: string) => {
+    const close = async (outcome: 'paid' | 'written_off') => {
+      try {
+        await api.post(`/api/settlements/${settlementId}/close-deleted-user`, { outcome });
+        fetchAll();
+      } catch (err: any) {
+        Alert.alert('Error', err.message || 'Failed to close the payment');
+      }
+    };
+    Alert.alert(
+      'Close This Payment?',
+      `${DELETED_USER_NAME} deleted their account, so they can't pay or confirm. Record what happened:`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Not paid (write off)', style: 'destructive', onPress: () => close('written_off') },
+        { text: 'It was paid', onPress: () => close('paid') },
       ],
     );
   };
@@ -986,7 +1010,20 @@ export default function EventDetailScreen({ route, navigation }: any) {
                           </TouchableOpacity>
                         </View>
                       )}
-                      {settlementStatus === 'completed' && <Text style={[styles.doneText, { color: colors.success }]}>✓ Done</Text>}
+                      {isAdmin && settlementStatus !== 'completed' && deletedPaymentParty(s, participants) && (
+                        <TouchableOpacity
+                          testID={`event-detail-settlement-close-deleted-${s.id}`}
+                          style={[styles.smallBtnOutline, { borderColor: colors.primary }]}
+                          onPress={() => handleCloseForDeletedUser(s.id)}
+                        >
+                          <Text style={[styles.smallBtnOutlineText, { color: colors.primary }]}>Close Payment</Text>
+                        </TouchableOpacity>
+                      )}
+                      {settlementStatus === 'completed' && (
+                        s.closedForDeletedUser?.outcome === 'written_off'
+                          ? <Text style={[styles.doneText, { color: colors.muted }]}>Written off</Text>
+                          : <Text style={[styles.doneText, { color: colors.success }]}>✓ Done</Text>
+                      )}
                       {settlementStatus === 'failed' && !isPayer && renderBadge('failed')}
                       {settlementStatus === 'pending' && !isPayer && renderBadge('pending')}
                       {settlementStatus === 'initiated' && !isPayee && renderBadge('initiated')}

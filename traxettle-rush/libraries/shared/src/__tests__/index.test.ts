@@ -14,6 +14,7 @@ import {
   hasActivePro,
   showsProviderFxRates,
   FX_RATES_ATTRIBUTION,
+  deletedPaymentParty,
 } from '../index';
 
 import type {
@@ -72,6 +73,24 @@ describe('hasActivePro', () => {
   it('treats a missing status as active, as the API does', () => {
     expect(hasActivePro({ tier: 'pro' })).toBe(true);
     expect(hasActivePro({ tier: 'pro', entitlementStatus: null })).toBe(true);
+  });
+});
+
+describe('deletedPaymentParty', () => {
+  const people = [
+    { userId: 'alice', deleted: true },
+    { userId: 'bob' },
+    { userId: 'carol' },
+  ];
+
+  it('finds a deleted account on either side of the payment', () => {
+    expect(deletedPaymentParty({ fromUserId: 'alice', toUserId: 'bob' }, people)?.userId).toBe('alice');
+    expect(deletedPaymentParty({ fromUserId: 'bob', toUserId: 'alice' }, people)?.userId).toBe('alice');
+  });
+
+  it('is null when both people still have accounts', () => {
+    expect(deletedPaymentParty({ fromUserId: 'bob', toUserId: 'carol' }, people)).toBeNull();
+    expect(deletedPaymentParty({ fromUserId: 'bob', toUserId: 'carol' }, [])).toBeNull();
   });
 });
 

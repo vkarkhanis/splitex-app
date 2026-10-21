@@ -34,7 +34,7 @@ import { getResolvedApiBaseUrl } from '../../../config/dev-options';
 import { PoolTab } from '../../../components/pool/PoolTab';
 import { SpenderPermissions } from '../../../components/pool/SpenderPermissions';
 import { poolNoun } from '../../../components/pool/poolFormat';
-import { REIMBURSEMENT_STATUS, isPoolFundedEvent, isPoolFundedExpense, reimbursementStatus, showsProviderFxRates } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, isPoolFundedEvent, isPoolFundedExpense, reimbursementStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
 import { FxRatesAttribution } from '../../../components/FxRatesAttribution';
 import type {
   Event as TraxettleEvent,
@@ -1012,6 +1012,35 @@ export default function EventDetailPage() {
     });
   };
 
+  // One side deleted their account, so the payment can't finish the usual way: an admin records
+  // whether it was paid. Either outcome closes it, so the event can settle.
+  const handleCloseForDeletedUser = (settlementId: string, outcome: 'paid' | 'written_off') => {
+    const paid = outcome === 'paid';
+    setConfirmModal({
+      open: true,
+      title: paid ? 'Close as paid?' : 'Write off this payment?',
+      message: paid
+        ? `${DELETED_USER_NAME} deleted their account and can't confirm. Close this payment as paid?`
+        : `${DELETED_USER_NAME} deleted their account and can't pay. Close this payment as not paid?`,
+      variant: 'warning',
+      confirmLabel: paid ? 'Close as paid' : 'Write off',
+      onConfirm: async () => {
+        closeConfirmModal();
+        try {
+          const res = await api.post<{ settlement: Settlement; allComplete: boolean }>(
+            `/api/settlements/${settlementId}/close-deleted-user`,
+            { outcome },
+          );
+          setSettlements(prev => prev.map(s => (s.id === settlementId && res.data?.settlement ? { ...s, ...res.data.settlement } : s)));
+          pushToast({ type: 'success', title: paid ? 'Closed as paid' : 'Written off', message: 'The payment is closed.' });
+          if (res.data?.allComplete) fetchAll();
+        } catch (err: any) {
+          pushToast({ type: 'error', title: 'Error', message: err.message });
+        }
+      },
+    });
+  };
+
   const handleReject = async (settlementId: string) => {
     try {
       await api.post(`/api/settlements/${settlementId}/reject`, {
@@ -1596,8 +1625,20 @@ export default function EventDetailPage() {
                     {settlementStatus === 'failed' && !isPayer && (
                       <Badge $variant="error">Failed</Badge>
                     )}
+                    {isAdmin && settlementStatus !== 'completed' && deletedPaymentParty(s, participants) && (
+                      <>
+                        <Button $variant="outline" $size="sm" onClick={() => handleCloseForDeletedUser(s.id, 'paid')} data-testid={`close-deleted-paid-${s.id}`}>
+                          Close as paid
+                        </Button>
+                        <Button $variant="outline" $size="sm" onClick={() => handleCloseForDeletedUser(s.id, 'written_off')} data-testid={`close-deleted-writeoff-${s.id}`}>
+                          Write off
+                        </Button>
+                      </>
+                    )}
                     {settlementStatus === 'completed' && (
-                      <Badge $variant="success">Done</Badge>
+                      s.closedForDeletedUser?.outcome === 'written_off'
+                        ? <Badge $variant="default">Written off</Badge>
+                        : <Badge $variant="success">Done</Badge>
                     )}
                     {settlementStatus === 'pending' && !isPayer && (
                       <Badge $variant="default">Pending</Badge>
