@@ -3,9 +3,11 @@ import { ApiResponse, UserProfile, UserPreferences, hasActivePro } from '@traxet
 import { auth, db } from '../config/firebase';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { EntitlementService } from '../services/entitlement.service';
+import { AccountDeletionService } from '../services/account-deletion.service';
 
 const router: Router = Router();
 const entitlementService = new EntitlementService();
+const accountDeletionService = new AccountDeletionService();
 const PAYMENT_METHOD_TYPES = new Set(['upi', 'bank', 'paypal', 'wise', 'swift', 'other']);
 interface UserPaymentMethod {
   id: string;
@@ -374,46 +376,11 @@ router.delete('/payment-methods/:methodId', requireAuth, async (req: Authenticat
   }
 });
 
+// Deletes the account (including its Firebase sign-in) and the user's own data; events shared
+// with others are kept for them with this user shown as "Deleted user" (AccountDeletionService).
 router.delete('/account', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    const uid = req.user!.uid;
-    const batch = db.batch();
-
-    // Delete user document
-    const userRef = db.collection('users').doc(uid);
-    batch.delete(userRef);
-
-    // Delete events where user is the creator
-    const eventsSnapshot = await db.collection('events').where('createdBy', '==', uid).get();
-    eventsSnapshot.forEach(doc => batch.delete(doc.ref));
-
-    // Delete expenses where user is the payer
-    const expensesSnapshot = await db.collection('expenses').where('paidBy', '==', uid).get();
-    expensesSnapshot.forEach(doc => batch.delete(doc.ref));
-
-    // Remove user from participants in events they didn't create
-    const otherEventsSnapshot = await db.collection('events').get();
-    otherEventsSnapshot.forEach(eventDoc => {
-      const eventData = eventDoc.data();
-      const participants = eventData.participants || [];
-      const updatedParticipants = participants.filter((p: any) => p.userId !== uid);
-      if (updatedParticipants.length !== participants.length) {
-        batch.update(eventDoc.ref, { participants: updatedParticipants });
-      }
-    });
-
-    // Remove user from groups in events
-    otherEventsSnapshot.forEach(eventDoc => {
-      const eventData = eventDoc.data();
-      const groups = eventData.groups || [];
-      const updatedGroups = groups.map((group: any) => ({
-        ...group,
-        members: group.members.filter((memberId: string) => memberId !== uid)
-      })).filter((group: any) => group.members.length > 0);
-      batch.update(eventDoc.ref, { groups: updatedGroups });
-    });
-
-    await batch.commit();
+    await accountDeletionService.deleteAccount(req.user!.uid);
     return res.json({ success: true, data: { deleted: true } } as ApiResponse<{ deleted: boolean }>);
   } catch (err) {
     console.error('DELETE /account error:', err);

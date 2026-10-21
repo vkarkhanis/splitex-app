@@ -122,7 +122,12 @@ export interface EventParticipant {
   joinedAt: Date;
   invitedBy: string;
   status: 'pending' | 'accepted' | 'declined';
+  /** The account was deleted; the record stays (anonymised) because expenses and payments refer to it. */
+  deleted?: boolean;
 }
+
+/** Shown to other participants in place of a deleted account's name. */
+export const DELETED_USER_NAME = 'Deleted user';
 
 export interface SettlementApproval {
   approved: boolean;

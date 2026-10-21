@@ -29,7 +29,7 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 1.11 | Email/password sign-in | ✅ Supported | `POST /api/auth/register` and `/login` (bcrypt-hashed passwords) |
 | 1.12 | Apple sign-in | ❌ Not Currently Supported | — |
 | 1.13 | Multi-factor authentication | ❌ Not Currently Supported | — |
-| 1.14 | Account deletion | ✅ Supported | `DELETE /api/users/account` |
+| 1.14 | Account deletion | ✅ Supported | `DELETE /api/users/account` (`AccountDeletionService`): deletes the Firebase Authentication account (so it can't sign in again), profile, sessions and events only the user joined. Shared events stay for the others: the participant record becomes "Deleted user", admin passes to the earliest-joined participant, a pending review approval is given on the user's behalf, expenses and payments are kept so balances stay correct. Groups drop the user; invitations to them are deleted |
 
 ---
 

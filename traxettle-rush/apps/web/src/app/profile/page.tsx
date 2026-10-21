@@ -607,7 +607,7 @@ export default function ProfilePage() {
     const confirmed = typeof window === 'undefined'
       ? false
       : window.confirm(
-          'This will permanently delete your account and all associated data, including your profile, events, expenses, payment methods, and settings. This cannot be undone.\n\nDo you want to continue?',
+          'This will permanently delete your account: your sign-in, profile, payment methods and settings, and any events only you are part of.\n\nIn events shared with others, your expenses and payments stay so their balances remain correct, shown as "Deleted user".\n\nDeleting your account doesn\'t cancel a subscription; cancel it in your store account.\n\nThis cannot be undone. Do you want to continue?',
         );
 
     if (!confirmed) return;

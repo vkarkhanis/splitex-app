@@ -17,6 +17,12 @@ jest.mock('../../services/entitlement.service', () => ({
   })),
 }));
 
+// Account deletion has its own service test (account-deletion.service.test.ts) on a real-query store.
+const mockDeleteAccount = jest.fn();
+jest.mock('../../services/account-deletion.service', () => ({
+  AccountDeletionService: jest.fn().mockImplementation(() => ({ deleteAccount: mockDeleteAccount })),
+}));
+
 // Mock firebase config before importing routes
 jest.mock('../../config/firebase', () => {
   const makeDocRef = (collectionName: string, id: string) => ({
@@ -676,15 +682,8 @@ describe('User debug entitlement and account deletion', () => {
     expect(res.body.error).toBe('entitlement lookup failed');
   });
 
-  it('deletes account data successfully', async () => {
-    mockData['users:mock-delete-user'] = { displayName: 'Delete Me' };
-    mockData['events:event-owned'] = { createdBy: 'mock-delete-user', participants: [], groups: [] };
-    mockData['events:event-other'] = {
-      createdBy: 'someone-else',
-      participants: [{ userId: 'mock-delete-user' }, { userId: 'other' }],
-      groups: [{ members: ['mock-delete-user', 'other'] }, { members: ['mock-delete-user'] }],
-    };
-    mockData['expenses:expense-1'] = { paidBy: 'mock-delete-user' };
+  it('deletes the signed-in account', async () => {
+    mockDeleteAccount.mockResolvedValue({ deletedEventIds: [], keptEventIds: [] });
 
     const app = createApp();
     const res = await request(app)
@@ -693,10 +692,11 @@ describe('User debug entitlement and account deletion', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ deleted: true });
+    expect(mockDeleteAccount).toHaveBeenCalledWith('mock-delete-user');
   });
 
-  it('returns 500 when account deletion batch commit fails', async () => {
-    shouldThrowOnBatchCommit = true;
+  it("returns 500, so the app doesn't report success, when deletion fails", async () => {
+    mockDeleteAccount.mockRejectedValue(new Error('auth/internal-error'));
     const app = createApp();
     const res = await request(app)
       .delete('/api/users/account')

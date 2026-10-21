@@ -319,7 +319,7 @@ export default function ProfileScreen({ navigation }: any) {
   const handleDeleteAccount = () => {
     Alert.alert(
       'Delete Account',
-      'This will permanently delete your account and all associated data including:\n\n• Profile information\n• All events you created\n• All expenses you added\n• Payment methods\n• Account settings\n\nThis action cannot be undone. Are you sure?',
+      'This will permanently delete:\n\n• Your sign-in and profile\n• Payment methods and settings\n• Events only you are part of\n\nIn events shared with others, your expenses and payments stay so their balances remain correct, shown as "Deleted user".\n\nDeleting your account doesn\'t cancel a subscription; cancel it in your App Store or Google Play account.\n\nThis cannot be undone. Are you sure?',
       [
         { text: 'Cancel', style: 'cancel' },
         {

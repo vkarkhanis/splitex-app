@@ -1,4 +1,4 @@
-import { Event, CreateEventDto, UpdateEventDto, EventParticipant, ApiResponse } from '@traxettle/shared';
+import { Event, CreateEventDto, UpdateEventDto, EventParticipant, ApiResponse, DELETED_USER_NAME } from '@traxettle/shared';
 import type { PoolConfig } from '@traxettle/shared';
 import { auth, db } from '../config/firebase';
 
@@ -313,12 +313,15 @@ export class EventService {
         joinedAt: data.joinedAt,
         invitedBy: data.invitedBy,
         status: data.status || 'accepted',
+        ...(data.deleted ? { deleted: true, displayName: DELETED_USER_NAME } : {}),
       } as EventParticipant;
     });
 
     // Enrich with user profile data (displayName, email)
     const enriched = await Promise.all(
       participants.map(async (p) => {
+        // A deleted account keeps its anonymised record; there's no profile to look up.
+        if (p.deleted) return p;
         try {
           const userDoc = await db.collection('users').doc(p.userId).get();
           if (userDoc.exists) {
