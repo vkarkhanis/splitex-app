@@ -320,6 +320,34 @@ export function poolPaymentActions<T extends PoolLegLike>(
   };
 }
 
+/**
+ * Credit that ExchangeRate-API's free service (open.er-api.com, the API's end-of-day
+ * rates) requires on every page that shows its rates.
+ */
+export const FX_RATES_ATTRIBUTION = {
+  text: 'Rates By Exchange Rate API',
+  url: 'https://www.exchangerate-api.com',
+} as const;
+
+/**
+ * Whether any of these settlement legs shows a rate from the end-of-day provider, so the
+ * page needs FX_RATES_ATTRIBUTION. Mirrors the API: a predefined event uses the group's own
+ * rate for a pair it set (either direction) and the provider for any other pair.
+ */
+export function showsProviderFxRates(
+  event: { fxRateMode?: 'predefined' | 'eod'; predefinedFxRates?: Record<string, number> } | null | undefined,
+  legs: Array<Pick<Settlement, 'currency' | 'settlementCurrency' | 'fxRate'>>,
+): boolean {
+  return legs.some((leg) => {
+    if (typeof leg.fxRate !== 'number' || !leg.settlementCurrency || leg.settlementCurrency === leg.currency) {
+      return false;
+    }
+    if (event?.fxRateMode !== 'predefined') return true;
+    const rates = event.predefinedFxRates ?? {};
+    return !rates[`${leg.currency}_${leg.settlementCurrency}`] && !rates[`${leg.settlementCurrency}_${leg.currency}`];
+  });
+}
+
 export interface SettlementAuditEntry {
   id: string;
   action: 'created' | 'marked_paid' | 'confirmed' | 'rejected' | 'retry_requested';

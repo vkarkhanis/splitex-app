@@ -12,6 +12,8 @@ import {
   PaymentProvider,
   SUPPORTED_CURRENCIES,
   hasActivePro,
+  showsProviderFxRates,
+  FX_RATES_ATTRIBUTION,
 } from '../index';
 
 import type {
@@ -70,6 +72,37 @@ describe('hasActivePro', () => {
   it('treats a missing status as active, as the API does', () => {
     expect(hasActivePro({ tier: 'pro' })).toBe(true);
     expect(hasActivePro({ tier: 'pro', entitlementStatus: null })).toBe(true);
+  });
+});
+
+describe('showsProviderFxRates', () => {
+  const usdToInr = { currency: 'USD', settlementCurrency: 'INR', fxRate: 83.1 };
+  const eurToInr = { currency: 'EUR', settlementCurrency: 'INR', fxRate: 90.4 };
+
+  it('needs the credit when an end-of-day event shows a converted amount', () => {
+    expect(showsProviderFxRates({ fxRateMode: 'eod' }, [usdToInr])).toBe(true);
+    expect(showsProviderFxRates({}, [usdToInr])).toBe(true); // mode defaults to end-of-day
+  });
+
+  it("doesn't need it when every rate shown is the group's own", () => {
+    expect(showsProviderFxRates({ fxRateMode: 'predefined', predefinedFxRates: { USD_INR: 83 } }, [usdToInr])).toBe(false);
+    expect(showsProviderFxRates({ fxRateMode: 'predefined', predefinedFxRates: { INR_USD: 0.012 } }, [usdToInr])).toBe(false);
+  });
+
+  it('needs it when a predefined event falls back to the provider for a pair it did not set', () => {
+    expect(
+      showsProviderFxRates({ fxRateMode: 'predefined', predefinedFxRates: { USD_INR: 83 } }, [usdToInr, eurToInr]),
+    ).toBe(true);
+  });
+
+  it("doesn't need it when nothing is converted", () => {
+    expect(showsProviderFxRates({ fxRateMode: 'eod' }, [])).toBe(false);
+    expect(showsProviderFxRates({ fxRateMode: 'eod' }, [{ currency: 'INR', settlementCurrency: undefined, fxRate: undefined }])).toBe(false);
+    expect(showsProviderFxRates({ fxRateMode: 'eod' }, [{ currency: 'INR', settlementCurrency: 'INR', fxRate: 1 }])).toBe(false);
+  });
+
+  it('credits ExchangeRate-API with the wording and link its terms ask for', () => {
+    expect(FX_RATES_ATTRIBUTION).toEqual({ text: 'Rates By Exchange Rate API', url: 'https://www.exchangerate-api.com' });
   });
 });
 

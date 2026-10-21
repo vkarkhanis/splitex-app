@@ -34,7 +34,8 @@ import { getResolvedApiBaseUrl } from '../../../config/dev-options';
 import { PoolTab } from '../../../components/pool/PoolTab';
 import { SpenderPermissions } from '../../../components/pool/SpenderPermissions';
 import { poolNoun } from '../../../components/pool/poolFormat';
-import { REIMBURSEMENT_STATUS, isPoolFundedEvent, isPoolFundedExpense, reimbursementStatus } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, isPoolFundedEvent, isPoolFundedExpense, reimbursementStatus, showsProviderFxRates } from '@traxettle/shared';
+import { FxRatesAttribution } from '../../../components/FxRatesAttribution';
 import type {
   Event as TraxettleEvent,
   Expense,
@@ -1608,6 +1609,7 @@ export default function EventDetailPage() {
                 </TransactionCard>
               );
             })}
+            {showsProviderFxRates(event, settlements) && <FxRatesAttribution />}
           </SettlementSection>
         );
       })()}

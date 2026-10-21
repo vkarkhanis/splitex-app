@@ -45,10 +45,12 @@ import {
   poolPaymentActions,
   poolPaymentActionsText,
   reimbursementStatus,
+  showsProviderFxRates,
 } from '@traxettle/shared';
 import type { PoolCycleSummary } from '@traxettle/shared';
 import { poolService } from '../services/pool';
 import { PoolMeterView } from '../components/pool/PoolViews';
+import { FxRatesAttribution } from '../components/FxRatesAttribution';
 
 // ── Helpers ──
 
@@ -992,6 +994,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                   </View>
                 );
               })}
+              {showsProviderFxRates(event, settlements) && <FxRatesAttribution />}
             </View>
           )}
 

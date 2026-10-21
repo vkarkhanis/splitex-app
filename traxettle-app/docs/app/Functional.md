@@ -160,7 +160,7 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 7.11 | Settlement summary UI | ✅ Supported | Card-based layout with progress bar, per-transaction status (pending/initiated/completed), Pay/Confirm Receipt buttons |
 | 7.12 | Group payer resolution | ✅ Supported | For group entities, the group's designated payer sees Pay button; group's payer receives Confirm Receipt button |
 | 7.13 | Real-time settlement broadcast | ✅ Supported | WebSocket emits `settlement:generated`, `settlement:updated`, and `event:updated` to all event room clients; dashboard tiles update in real-time via multi-event room subscription |
-| 7.14 | FX rate service (EOD + predefined) | ✅ Supported | Fetches rates from open.er-api.com with Firestore caching; supports predefined rates with reverse lookup; `convert()` helper |
+| 7.14 | FX rate service (EOD + predefined) | ✅ Supported | Fetches rates from open.er-api.com with Firestore caching; supports predefined rates with reverse lookup; `convert()` helper. Its free terms require the credit "Rates By Exchange Rate API" (linking to exchangerate-api.com) wherever its rates are shown: web and mobile show it under settlements that use provider rates (`showsProviderFxRates`) and under the EOD option when creating an event |
 | 7.15 | Dual currency settlement display | ✅ Supported | Settlement summary shows original + converted amounts with FX rate; total converted amount shown |
 | 7.16 | Settlement currency configuration | ✅ Supported | Event creation UI: settlement currency selector, FX rate mode (EOD/predefined), predefined rate input |
 | 7.17 | Payment gateway integration | 🚧 In Progress | Mock default in non-prod; real gateway path available with internal opt-in policy |

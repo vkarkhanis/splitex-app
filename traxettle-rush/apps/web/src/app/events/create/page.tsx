@@ -20,6 +20,7 @@ import {
 import { api } from '../../../utils/api';
 import { useEffect } from 'react';
 import { FundingStep } from '../../../components/pool/FundingStep';
+import { FxRatesAttribution } from '../../../components/FxRatesAttribution';
 import { buildFundingPayload, DEFAULT_FUNDING_CHOICE, validateFundingChoice } from '../../../components/pool/fundingChoice';
 import type { FundingChoice } from '../../../components/pool/fundingChoice';
 import { contributorPoolsAvailable } from '@traxettle/shared';
@@ -393,6 +394,7 @@ export default function CreateEventPage() {
                       Predefined Rate
                     </RadioLabel>
                   </RadioGroup>
+                  {form.fxRateMode === 'eod' && <FxRatesAttribution />}
                 </Field>
                 {form.fxRateMode === 'predefined' && (
                   <Field>

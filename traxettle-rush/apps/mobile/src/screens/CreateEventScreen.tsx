@@ -20,6 +20,7 @@ import { useAuth } from '../context/AuthContext';
 import { buildFundingPayload, contributorPoolsAvailable, DEFAULT_FUNDING_CHOICE, validateFundingChoice } from '@traxettle/shared';
 import type { FundingChoice } from '@traxettle/shared';
 import { FundingStepView } from '../components/pool/PoolViews';
+import { FxRatesAttribution } from '../components/FxRatesAttribution';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
 
@@ -304,6 +305,7 @@ export default function CreateEventScreen({ navigation }: any) {
               <Text style={[styles.chipText, { color: colors.text }, fxRateMode === 'predefined' && { color: colors.primary, fontWeight: '600' }]}>Predefined</Text>
             </TouchableOpacity>
           </View>
+          {fxRateMode === 'eod' && <FxRatesAttribution />}
           {fxRateMode === 'predefined' && (
             <>
               <Text style={[styles.label, { color: colors.textSecondary }]}>1 {currency} = ? {settlementCurrency}</Text>
