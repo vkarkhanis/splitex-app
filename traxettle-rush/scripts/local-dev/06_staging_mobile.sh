@@ -17,6 +17,9 @@
 #   more with `xcrun simctl boot <UDID>`). It's built once and copied to the
 #   rest. With none booted, Expo boots its default simulator. After a TestFlight
 #   build, the iOS project and Xcode's build cache are reset before building.
+#   Android: the app goes on every running emulator/device (only ANDROID_SERIAL's,
+#   if set). One Gradle build for their CPU types, installed with adb on each
+#   that lacks it or has a different build; adb reverse connects each to the bundler.
 #   STAGING_API_URL overrides the staging API address.
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -120,8 +123,50 @@ reset_ios_after_release_build() {
   fi
 }
 
-android_app_installed() {
-  adb shell pm list packages 2>/dev/null | grep -q "$BUNDLE_ID"
+ANDROID_APK="android/app/build/outputs/apk/debug/app-debug.apk"
+
+# Running Android emulators/devices (state "device" in `adb devices`), one serial per line.
+# ANDROID_SERIAL, if set, limits it to that one.
+android_devices() {
+  local serial state
+  adb devices 2>/dev/null | tail -n +2 | while read -r serial state; do
+    if [[ "$state" == "device" ]] && [[ -z "${ANDROID_SERIAL:-}" || "$serial" == "$ANDROID_SERIAL" ]]; then
+      echo "$serial"
+    fi
+  done
+}
+
+# A readable name: the emulator's AVD name, or the device's model.
+android_device_name() {
+  local name
+  name="$(adb -s "$1" emu avd name 2>/dev/null | head -n 1 | tr -d '\r' || true)"
+  if [[ -z "$name" || "$name" == "OK" ]]; then
+    name="$(adb -s "$1" shell getprop ro.product.model 2>/dev/null | tr -d '\r' || true)"
+  fi
+  echo "${name:-$1} ($1)"
+}
+
+android_has_app() {
+  adb -s "$1" shell pm list packages "$BUNDLE_ID" 2>/dev/null | tr -d '\r' | grep -qx "package:$BUNDLE_ID"
+}
+
+# SHA-256 of the installed APK on a device (empty if it isn't installed). A device still
+# on an older build gets a different one; JavaScript comes from the bundler.
+android_app_fingerprint() {
+  local apk_path
+  apk_path="$(adb -s "$1" shell pm path "$BUNDLE_ID" 2>/dev/null | tr -d '\r' | awk 'sub(/^package:/, "") { print; exit }' || true)"
+  [[ -n "$apk_path" ]] || return 0
+  adb -s "$1" shell sha256sum "$apk_path" 2>/dev/null | tr -d '\r' | cut -d' ' -f1 || true
+}
+
+# CPU types of these devices, comma-separated (e.g. arm64-v8a), so one build runs on all.
+android_abis() {
+  local serial abi abis=""
+  for serial in "$@"; do
+    abi="$(adb -s "$serial" shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r' || true)"
+    if [[ -n "$abi" && ",$abis," != *",$abi,"* ]]; then abis="${abis:+$abis,}$abi"; fi
+  done
+  echo "$abis"
 }
 
 # The app is a plain development build (no expo-dev-client), so it is opened
@@ -141,8 +186,21 @@ open_app() {
     done < <(booted_ios_simulators)
     return "$opened"
   else
-    adb reverse tcp:8081 tcp:8081 >/dev/null
-    adb shell am start -S -n "$BUNDLE_ID/.MainActivity" >/dev/null
+    local serial name opened=1
+    while read -r serial; do
+      [[ -n "$serial" ]] || continue
+      name="$(android_device_name "$serial")"
+      # adb reverse lets each device reach the bundler at its own localhost:8081.
+      if android_has_app "$serial" \
+        && adb -s "$serial" reverse tcp:8081 tcp:8081 >/dev/null 2>&1 \
+        && adb -s "$serial" shell am start -S -n "$BUNDLE_ID/.MainActivity" >/dev/null 2>&1; then
+        echo "[local-dev] Opened the app on $name."
+        opened=0
+      else
+        echo "[local-dev] Couldn't open the app on $name."
+      fi
+    done < <(android_devices)
+    return "$opened"
   fi
 }
 
@@ -184,12 +242,44 @@ install_on_ios_simulators() {
   done <<< "$sims"
 }
 
-install_android_build() {
-  # `expo run:android` ends by opening a dev-client link this app can't
-  # handle, so build and install with Gradle instead; open_app launches it.
-  local abi
-  abi="$(adb shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r')"
-  (cd android && ./gradlew app:installDebug ${abi:+"-PreactNativeArchitectures=$abi"})
+# Builds the debug APK once (when asked, or when a device lacks the app and there's no build
+# yet), then installs it on every running device that lacks it or has a different build.
+install_on_android_devices() {
+  local devices serial name abis apk_print missing=0
+  devices="$(android_devices)"
+  if [[ -z "$devices" ]]; then
+    echo "[local-dev] Start an Android emulator (Android Studio → Device Manager) or connect a device, then run again."
+    exit 1
+  fi
+  while read -r serial; do
+    if ! android_has_app "$serial"; then missing=1; fi
+  done <<< "$devices"
+
+  if [[ -n "$FORCE_BUILD" ]] || { [[ "$missing" == 1 ]] && [[ ! -f "$ANDROID_APK" ]]; }; then
+    # shellcheck disable=SC2086 # one serial per word
+    abis="$(android_abis $devices)"
+    echo "[local-dev] Building the development build for Android${abis:+ ($abis)} (the first build takes 10–20 min)."
+    # `expo run:android` ends by opening a dev-client link this app can't handle, so build
+    # with Gradle and install with adb; open_app launches it.
+    (cd android && ./gradlew app:assembleDebug ${abis:+"-PreactNativeArchitectures=$abis"})
+  fi
+  # Every device already has the app, and there's no local build to compare it with.
+  [[ -f "$ANDROID_APK" ]] || return 0
+
+  apk_print="$(shasum -a 256 "$ANDROID_APK" | cut -d' ' -f1)"
+  while read -r serial; do
+    [[ -n "$serial" ]] || continue
+    if [[ -n "$FORCE_BUILD" ]] || [[ "$(android_app_fingerprint "$serial")" != "$apk_print" ]]; then
+      name="$(android_device_name "$serial")"
+      if android_has_app "$serial"; then
+        echo "[local-dev] Updating the app on $name (it had a different build)."
+      else
+        echo "[local-dev] Installing the app on $name."
+      fi
+      adb -s "$serial" install -r "$ANDROID_APK" >/dev/null \
+        || echo "[local-dev] Couldn't install the app on $name. If it says INSTALL_FAILED_UPDATE_INCOMPATIBLE (a differently signed copy is installed), run: adb -s $serial uninstall $BUNDLE_ID"
+    fi
+  done <<< "$devices"
 }
 
 bundler_running() {
@@ -220,18 +310,12 @@ export EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID="${BOOTSTRAP_GOOGLE_WEB_CLIENT_ID:-}"
 export EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID="${BOOTSTRAP_GOOGLE_ANDROID_CLIENT_ID:-}"
 
 cd "$MOBILE_DIR"
-if [[ "$PLATFORM" == "android" ]] && ! adb get-state >/dev/null 2>&1; then
-  echo "[local-dev] Start one Android emulator (Android Studio → Device Manager) or connect one device, then run again."
-  echo "[local-dev] With several connected, pick one: export ANDROID_SERIAL=<name from 'adb devices'>"
-  exit 1
-fi
 if [[ "$INSTALL_APP" == 0 ]]; then
   : # --bundler-only
 elif [[ "$PLATFORM" == "ios" ]]; then
   install_on_ios_simulators
-elif [[ "$FORCE_BUILD" == "--build" ]] || ! android_app_installed; then
-  echo "[local-dev] Installing the development build on android (the first build takes 10–20 min)."
-  install_android_build
+else
+  install_on_android_devices
 fi
 
 if [[ "$START_BUNDLER" == 0 ]]; then

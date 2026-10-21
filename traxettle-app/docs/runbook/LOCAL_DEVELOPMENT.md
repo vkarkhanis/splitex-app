@@ -202,6 +202,11 @@ was a TestFlight build, the script first clears Xcode's build cache and regenera
 project. Building for the simulator on top of a Release build can otherwise fail with
 `Undefined symbols … facebook::react::Sealable::Sealable()`.
 
+On Android the app goes on **every running emulator or device** (start several from
+Android Studio → Device Manager): one Gradle build for their CPU types, installed with `adb`
+on each one that lacks it or has an older build, and connected to the bundler with
+`adb reverse`. Set `ANDROID_SERIAL=<serial from adb devices>` to use just one.
+
 ---
 
 ## Quick Reference
