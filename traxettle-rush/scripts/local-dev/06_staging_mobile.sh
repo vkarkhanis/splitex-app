@@ -35,11 +35,16 @@ for arg in "$@"; do
     --build) FORCE_BUILD="--build" ;;
     --no-bundler) START_BUNDLER=0 ;;
     --bundler-only) INSTALL_APP=0 ;;
-    *) usage ;;
+    *) echo "Unknown option: '$arg'"; usage ;;
   esac
 done
 # --bundler-only installs nothing, so it can't be combined with the install options.
-if [[ "$INSTALL_APP" == 0 && ( -n "$FORCE_BUILD" || "$START_BUNDLER" == 0 ) ]]; then usage; fi
+if [[ "$INSTALL_APP" == 0 && ( -n "$FORCE_BUILD" || "$START_BUNDLER" == 0 ) ]]; then
+  echo "--bundler-only only starts the bundler (no build or install), so it can't go with --build or --no-bundler."
+  echo "  Build, then start the bundler here:  $0 $PLATFORM --build"
+  echo "  Or build in another terminal:        $0 $PLATFORM --build --no-bundler"
+  exit 1
+fi
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 MOBILE_DIR="$ROOT_DIR/apps/mobile"
