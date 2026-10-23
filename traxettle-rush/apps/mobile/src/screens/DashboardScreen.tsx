@@ -25,6 +25,7 @@ import { formatMinor, isPoolFundedEvent, poolNoun } from '@traxettle/shared';
 import { poolService } from '../services/pool';
 import GuidedWalkthrough from '../components/GuidedWalkthrough';
 import { hasCompletedWalkthrough, markWalkthroughCompleted } from '../services/onboarding';
+import { groupEventsForLists } from '../utils/eventLists';
 
 type WalkthroughTargetKey = 'create' | 'menu' | 'events' | null;
 
@@ -79,14 +80,8 @@ export default function DashboardScreen({ navigation, route }: any) {
   ];
 
   const dashboardEvents = useMemo(() => {
-    const active = events
-      .filter(e => e.status === 'active' || e.status === 'payment')
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    const settled = events
-      .filter(e => e.status === 'settled')
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    const combined = [...active, ...settled];
-    return combined.slice(0, MAX_DASHBOARD_EVENTS);
+    const { inProgress, settled } = groupEventsForLists(events);
+    return [...inProgress, ...settled].slice(0, MAX_DASHBOARD_EVENTS);
   }, [events]);
 
   const hasMore = events.length > MAX_DASHBOARD_EVENTS;
@@ -183,6 +178,7 @@ export default function DashboardScreen({ navigation, route }: any) {
 
   const STATUS_COLORS: Record<string, string> = {
     active: c.success,
+    review: c.primary,
     payment: c.warning,
     settled: c.info,
     closed: c.muted,
