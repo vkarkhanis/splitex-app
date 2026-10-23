@@ -316,9 +316,21 @@ ${signing_options}
 </plist>
 EOF
 
-  info "Uploading to App Store Connect (logs: $export_dir)."
+  if [ -n "${ASC_KEY_PATH:-}" ]; then
+    info "Uploading to App Store Connect with API key $ASC_KEY_ID (logs: $export_dir)."
+  else
+    info "Uploading to App Store Connect as the Apple account signed in to Xcode (logs: $export_dir)."
+    info "  No ASC_KEY_PATH set, so Xcode → Settings → Accounts must be signed in to this team."
+  fi
   xcodebuild -exportArchive -archivePath "$archive_path" -exportOptionsPlist "$export_dir/ExportOptions.plist" \
-    -exportPath "$export_dir" -allowProvisioningUpdates ${auth_flags[@]+"${auth_flags[@]}"}
+    -exportPath "$export_dir" -allowProvisioningUpdates ${auth_flags[@]+"${auth_flags[@]}"} \
+    || fail "The upload failed, but the archive is fine: $archive_path
+   Upload it from Xcode: Window → Organizer → Archives → version $version ($build_number) →
+   Distribute App → App Store Connect → Upload. Then record it:
+     bash scripts/version.sh record ios $build_number
+   So this script can upload next time: sign in again in Xcode → Settings → Accounts (an account
+   with the App Manager or Admin role), or set ASC_KEY_PATH, ASC_KEY_ID and ASC_KEY_ISSUER_ID for a
+   Team key (App Store Connect → Users and Access → Integrations → App Store Connect API)."
   ok "Uploaded $version ($build_number). It appears in App Store Connect → TestFlight after processing (~10–30 min)."
   bash "$MOBILE_DIR/scripts/version.sh" record ios "$build_number"
   info "The build uses production by default. To test staging, tap \"Traxettle\" 7 times on the sign-in screen."
