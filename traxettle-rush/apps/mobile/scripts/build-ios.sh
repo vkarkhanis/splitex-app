@@ -86,19 +86,23 @@ ios_project_name() {
   return 0
 }
 
-# Decoded plist of the installed provisioning profile with this name (Xcode 16+ folder first).
+# Decoded plist of the installed provisioning profile with this name. A regenerated profile keeps
+# its name and the old copy stays installed, so the newest (CreationDate) wins.
 ios_profile_plist() {
-  local name="$1" file plist
+  local name="$1" file plist created best="" best_created=""
   for file in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"/*.mobileprovision \
               "$HOME/Library/MobileDevice/Provisioning Profiles"/*.mobileprovision; do
     [ -f "$file" ] || continue
     plist="$(security cms -D -i "$file" 2>/dev/null)" || continue
-    if [ "$(plutil -extract Name raw -o - - <<<"$plist" 2>/dev/null)" = "$name" ]; then
-      printf '%s' "$plist"
-      return 0
+    [ "$(plutil -extract Name raw -o - - <<<"$plist" 2>/dev/null)" = "$name" ] || continue
+    created="$(plutil -extract CreationDate raw -o - - <<<"$plist" 2>/dev/null || true)"
+    if [ -z "$best" ] || [[ "$created" > "$best_created" ]]; then
+      best="$plist"
+      best_created="$created"
     fi
   done
-  return 1
+  [ -n "$best" ] || return 1
+  printf '%s' "$best"
 }
 
 # Manual signing: the profile must be an installed App Store profile for this app, and the
