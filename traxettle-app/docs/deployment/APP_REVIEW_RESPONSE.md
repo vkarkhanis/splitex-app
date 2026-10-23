@@ -43,7 +43,7 @@ fill in the `<…>` placeholders. **Never commit real demo passwords to this pub
 | **Build and subscription** | Version page → **Build** (new build) and **In-App Purchases and Subscriptions** |
 | **Resubmit** | Version page → **Add for Review** / **Resubmit to App Review** after replying |
 
-## 2. Reply to App Review (questions 1–5) — 3414 of 4,000 characters
+## 2. Reply to App Review (questions 1–5) — 3481 of 4,000 characters
 
 ```text
 Hello App Review team, thank you for the review. Our answers, in the order you asked:
@@ -58,7 +58,7 @@ Sign-in is required. Demo account (production server, pre-loaded with sample dat
 - Dashboard → "Goa Trip (sample)": expenses, splits, receipts and settlement payments ("I've Paid" for the payer; "Mark as Paid" / "Confirm" for the receiver).
 - "+ Create Event" → name, dates, currency → "Split expenses" or "Pool money → Just me". Inside an event: "+ Add Expense" (attach a receipt with the camera or photo library), "+ Invite", "Settle Now".
 - "Family Holiday Budget (sample)": open the pool card to approve or reject a pending claim.
-- Profile → "Upgrade to Pro" for the subscription (use a Sandbox account); Profile → "Delete Account".
+- Profile → "Upgrade to Pro" for the subscription (use a Sandbox account); Profile → "Delete Account" (please try it with a newly registered account, not the demo ones).
 No sample files are needed. A demo video is attached.
 
 3. EXTERNAL SERVICES
@@ -80,7 +80,7 @@ Not applicable. Traxettle is a record-keeping tool. It does not hold, transfer o
 Thank you!
 ```
 
-## 3. App Review Information → Notes — 2438 of 4,000 characters
+## 3. App Review Information → Notes — 2580 of 4,000 characters
 
 ```text
 DEMO ACCOUNTS (production server, sample data pre-loaded)
@@ -96,7 +96,7 @@ WHERE TO LOOK
 3. In an event: "+ Add Expense" (attach a receipt with the camera or photo library), "+ Invite", "Settle Now".
 4. "Family Holiday Budget (sample)": tap the pool card for the balance, spending by person and a claim waiting for approval.
 5. Traxettle Pro (yearly auto-renewable subscription via In-App Purchase): Profile → "Upgrade to Pro". It unlocks unlimited events and multi-currency settlement. Price, renewal terms, Restore Purchase, Terms of Use (Apple standard EULA) and Privacy Policy are on that screen. Please buy with a Sandbox account.
-6. Profile → "Delete Account": removes the sign-in and personal data. Shared events stay for the other members, with the user shown as "Deleted user". For a Sign in with Apple account, the app asks Apple for confirmation and revokes the Apple ID authorization.
+6. Profile → "Delete Account": removes the sign-in and personal data. Shared events stay for the other members, with the user shown as "Deleted user". For a Sign in with Apple account, the app asks Apple for confirmation and revokes the Apple ID authorization. To try it, please register a new account (or use Sign in with Apple) rather than deleting the demo accounts, which we keep for later reviews.
 
 PERMISSIONS
 Camera and photo library, only to attach receipt or payment-proof photos. No location, contacts, tracking or push notifications.
