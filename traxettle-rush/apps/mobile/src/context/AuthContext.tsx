@@ -421,11 +421,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (backgroundedAt && Date.now() - backgroundedAt >= 5 * 60 * 1000) {
           setSessionLocked(true);
         }
+        // Pick up changes made elsewhere, e.g. a subscription bought, renewed or cancelled
+        // (the server learns of those from RevenueCat while the app is in the background).
+        refreshProfile().catch(() => {});
       }
     });
 
     return () => sub.remove();
-  }, [user]);
+  }, [user, refreshProfile]);
 
   const setupPin = useCallback(async (pin: string, enableBiometrics: boolean) => {
     await saveLocalUnlockPreferences(pin, enableBiometrics);

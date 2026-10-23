@@ -15,6 +15,7 @@ import {
 } from '../services/purchases';
 import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import { ENV } from '../config/env';
+import { waitForServerPro } from '../services/serverPro';
 
 interface PurchaseContextType {
   /** Whether the user has an active Pro entitlement via RevenueCat */
@@ -51,6 +52,11 @@ function fallbackPrice(): string {
   return isIndiaLocale() ? '₹299' : '$5.99';
 }
 
+const PRO_READY = 'You now have access to all Pro features including multi-currency settlement.';
+const PRO_PENDING =
+  'Your purchase is complete. Pro features are being switched on and should be ready in a moment. ' +
+  'If a Pro feature still looks locked, close and reopen the app.';
+
 function resolveRevenueCatAppUserId(userId: string): string {
   const envTag = (ENV.APP_ENV || 'local').toLowerCase();
   return `${envTag}::${userId}`;
@@ -71,7 +77,7 @@ const PurchaseContext = createContext<PurchaseContextType>({
 export const usePurchase = () => useContext(PurchaseContext);
 
 export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, tier } = useAuth();
+  const { user, tier, refreshProfile } = useAuth();
   const [isPro, setIsPro] = useState(tier === 'pro');
   const [isReady, setIsReady] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
@@ -187,7 +193,8 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // User cancelled — do nothing
       } else if (result.success) {
         setIsPro(true);
-        Alert.alert('🎉 Welcome to Pro!', 'You now have access to all Pro features including multi-currency settlement.');
+        const serverPro = await waitForServerPro(refreshProfile);
+        Alert.alert('🎉 Welcome to Pro!', serverPro ? PRO_READY : PRO_PENDING);
       } else if (result.error) {
         Alert.alert('Purchase Failed', result.error);
       }
@@ -196,7 +203,7 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } finally {
       setPurchasing(false);
     }
-  }, []);
+  }, [refreshProfile]);
 
   const handleRestore = useCallback(async () => {
     if (!isPurchasesConfigured()) {
@@ -209,7 +216,8 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const result = await restorePurchases();
       if (result.success) {
         setIsPro(true);
-        Alert.alert('Restored!', 'Your Pro purchase has been restored.');
+        const serverPro = await waitForServerPro(refreshProfile);
+        Alert.alert('Restored!', serverPro ? 'Your Pro purchase has been restored.' : PRO_PENDING);
       } else {
         Alert.alert('No Purchase Found', 'We could not find a previous Pro purchase for this account.');
       }
@@ -218,7 +226,7 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } finally {
       setPurchasing(false);
     }
-  }, []);
+  }, [refreshProfile]);
 
   return (
     <PurchaseContext.Provider
