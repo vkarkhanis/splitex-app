@@ -29,7 +29,11 @@ fill in the `<…>` placeholders. **Never commit real demo passwords to this pub
    15 s) for the server to confirm Pro, and re-reads the profile whenever the app returns to the foreground.
    Before this, a reviewer who bought Pro saw Pro features locked until restarting the app. Ship it in the
    next build.
-8. **Age rating:** 13+ (matches the privacy policy).
+8. **RevenueCat offering and settings.** Fixed 2026-10-23: the `default` offering had no App Store product,
+   so Upgrade to Pro had nothing to sell (fixed in the RevenueCat dashboard; no build needed). And the app
+   kept the server settings (incl. the RevenueCat key) it first saved; it now refreshes them on every start.
+   A reviewer's fresh install was never affected, but ship the refresh in the next build.
+9. **Age rating:** 13+ (matches the privacy policy).
 
 ## 1. Where each piece goes in App Store Connect
 
@@ -127,7 +131,7 @@ buy Pro.
   account revokes its Apple authorization (`DELETE /api/users/account` with a fresh authorization code).
 - **Services:** Firestore and Cloud Storage for Firebase (receipts), API on Google Cloud Run, Socket.IO on our
   own API for live updates, Firebase Hosting (web, privacy, delete-account pages), RevenueCat with Apple
-  In-App Purchase (`traxettle_pro_yearly`, entitlement `pro`), ExchangeRate-API (`open.er-api.com`),
+  In-App Purchase (`traxettle_pro_yearly`, entitlement `traxettle-pro`, offering `default`), ExchangeRate-API (`open.er-api.com`),
   Nodemailer through Gmail SMTP for invitations.
 - **No:** ads, analytics or tracking SDKs, AI services, push notifications, location, contacts.
 - **Payments:** the production API returns only the "manual" provider (`SETTLEMENT_GATEWAY_PILOT_ENABLED` is
@@ -151,16 +155,21 @@ The difference is the account: they use your demo account or sign up themselves.
 - **App Store Connect:** "Traxettle Pro" (`traxettle_pro_yearly`) has complete metadata (no "Missing
   Metadata"); Paid Apps agreement **Active**; tax and banking done.
 - **RevenueCat → your App Store app:** the In-App Purchase key and App Store Connect API key are uploaded,
-  with no "Connection issue" on Products. The product is attached to entitlement **`pro`**, and offering
-  **`default`** is *Current* with an Annual package.
+  with no "Connection issue" on Products. The product grants entitlement **`traxettle-pro`**, and offering
+  **`default`** is *Current*, with package `$rc_annual` holding the App Store product `traxettle_pro_yearly`
+  and the Play product `pro_yearly_1` (one offering for both stores). Checked 2026-10-23 with production's keys.
 - **RevenueCat → Integrations → Webhooks (production):**
   - URL `https://traxettle-api-prod-ncwutlgtga-uc.a.run.app/api/billing/revenuecat/webhook`
   - Authorization header = `RC_REVENUECAT_WEBHOOK_SECRET` from `rc_production.properties`
   - events for **Production and Sandbox**
 - **`rc_production.properties`:** `RC_REVENUECAT_APPLE_PUBLIC_KEY` is the production app's public key
-  (`appl_…`), and `RC_REVENUECAT_PRO_ENTITLEMENT_ID=pro`. The TestFlight build and the API both read this file.
-- *(Recommended)* App Store Connect → App Information → **App Store Server Notifications**: set the
-  Production and Sandbox URLs that RevenueCat shows, so it hears about changes immediately.
+  (`appl_…`), and `RC_REVENUECAT_PRO_ENTITLEMENT_ID=traxettle-pro`. The TestFlight build and the API both read
+  this file; the app uses the key the API serves (`/api/config`), so a changed key needs an API deploy.
+  `rc_staging.properties` needs the same real key: on 2026-10-23 staging still served `appl_CHANGE_ME`.
+- *(Recommended)* App Store Connect → App Information → **App Store Server Notifications**: paste
+  RevenueCat's **Apple Server Notification URL** (one URL per app) into both **Production Server URL**
+  and **Sandbox Server URL**, Version 2, so it hears about changes immediately. The Sandbox one matters
+  for TestFlight, whose purchases are sandbox purchases.
 
 ### B. Free plan, new account
 
@@ -178,7 +187,7 @@ The difference is the account: they use your demo account or sign up themselves.
 6. The app shows **Welcome to Pro!** after a few seconds. *Builds before 2026-10-23 show it at once, but Pro
    features stay locked until the app is reopened (fixed in the next build).*
 7. **RevenueCat → Customers**: search `production::<Firebase UID>` (find the UID in Firebase → Authentication).
-   It shows entitlement `pro` active, a Sandbox purchase and an `INITIAL_PURCHASE` event.
+   It shows entitlement `traxettle-pro` active, a Sandbox purchase and an `INITIAL_PURCHASE` event.
 8. **RevenueCat → Webhooks → delivery history**: that event was delivered with **200**. *401 means the
    webhook secret doesn't match the deployed one; no delivery means Sandbox events aren't enabled.*
 9. **Firestore → `users/<uid>`**: `tier: "pro"`, `entitlementStatus: "active"`, `entitlementSource: "revenuecat"`.
@@ -206,6 +215,8 @@ The difference is the account: they use your demo account or sign up themselves.
 | Symptom | Likely cause |
 |---|---|
 | No price / "not configured" | Wrong `RC_REVENUECAT_APPLE_PUBLIC_KEY` in the build, offering not Current, or products not imported |
+| "Invalid API key" (RevenueCat troubleshooting link) | On Staging: `rc_staging.properties` still has `appl_CHANGE_ME`. On Production with a build before 2026-10-23: the device kept the key it first saved; switch to Staging and back (7 taps twice) or reinstall |
+| "You have configured the SDK with an App Store API key, but there are no App Store products registered…" | The `default` offering's `$rc_annual` package has no App Store product attached (RevenueCat → Offerings → `default`) |
 | Purchase succeeds, Pro features stay locked | Webhook not reaching the API: wrong secret (401), Sandbox events off, or wrong URL |
 | Webhook 200 but Firestore unchanged | Entitlement ID mismatch (`RC_REVENUECAT_PRO_ENTITLEMENT_ID` vs RevenueCat) |
 | Pro in the app on one account, not another | Expected: RevenueCat customers are per Traxettle account (`production::<uid>`) |

@@ -1,7 +1,7 @@
 # RevenueCat Integration Runbook (Traxettle)
 
 ## Purpose
-Set up RevenueCat as the source of truth for `pro` entitlement, with API-side webhook processing and environment-safe controls.
+Set up RevenueCat as the source of truth for the Pro entitlement (`traxettle-pro`), with API-side webhook processing and environment-safe controls.
 
 ## Prerequisites
 1. Traxettle API running locally (`rush dev:api`).
@@ -37,7 +37,7 @@ cd traxettle-rush
 ## RevenueCat Dashboard Configuration
 
 1. Create/confirm Product Entitlement:
-- Entitlement ID: `pro` (or update `.env.local` `REVENUECAT_PRO_ENTITLEMENT_ID` accordingly).
+- Entitlement ID: `traxettle-pro` (or update `.env.local` `REVENUECAT_PRO_ENTITLEMENT_ID` accordingly).
 
 2. Configure webhook:
 - URL:
@@ -53,7 +53,7 @@ cd traxettle-rush
 - `APP_ENV=local|staging|production`
 - `REVENUECAT_WEBHOOK_SECRET`
 - `REVENUECAT_API_KEY`
-- `REVENUECAT_PRO_ENTITLEMENT_ID=pro`
+- `REVENUECAT_PRO_ENTITLEMENT_ID=traxettle-pro`
 - `INTERNAL_TIER_SWITCH_ENABLED=true|false`
 - `PAYMENT_GATEWAY_MODE=auto|mock|live`
 - `PAYMENT_ALLOW_REAL_IN_NON_PROD=true|false`
@@ -71,7 +71,7 @@ Template to commit and share with developers:
 Required keys inside each file:
 - `RC_REVENUECAT_APPLE_PUBLIC_KEY`
 - `RC_REVENUECAT_GOOGLE_PUBLIC_KEY`
-- `RC_REVENUECAT_PRO_ENTITLEMENT_ID` (typically `pro`)
+- `RC_REVENUECAT_PRO_ENTITLEMENT_ID` (Traxettle's: `traxettle-pro`)
 - `RC_REVENUECAT_OFFERING_ID` (typically `default`)
 - `RC_REVENUECAT_WEBHOOK_SECRET`
 - `RC_REVENUECAT_SECRET_API_KEY` (optional; server REST usage only)

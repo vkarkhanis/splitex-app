@@ -19,9 +19,9 @@ These come from the code; the setup below has to match them.
 
 | Item | Value | Where in code |
 |---|---|---|
-| Entitlement | `pro` | `RC_REVENUECAT_PRO_ENTITLEMENT_ID`, API `REVENUECAT_PRO_ENTITLEMENT_ID` |
-| Offering | `default`, marked **Current** | `RC_REVENUECAT_OFFERING_ID` |
-| Package the app sells | the offering's **Annual** package (falls back to Lifetime, then the first package) | `apps/mobile/src/services/purchases.ts` |
+| Entitlement | `traxettle-pro` (must equal the identifier in RevenueCat) | `RC_REVENUECAT_PRO_ENTITLEMENT_ID`; the API sends it to the app (`/api/config`) and checks webhooks against it |
+| Offering | `default`, marked **Current**, one offering for both stores | The API always tells the app `default` (the deploy scripts don't pass `RC_REVENUECAT_OFFERING_ID`; it only feeds the build's fallback) |
+| Package the app sells | the offering's **Annual** package (`$rc_annual`; falls back to Lifetime, then the first package), holding App Store `traxettle_pro_yearly` and Play `pro_yearly_1` | `apps/mobile/src/services/purchases.ts` |
 | Product | yearly auto-renewable subscription | `ProUpgradeScreen.tsx` ("Yearly subscription") |
 | Webhook | `POST https://<API>/api/billing/revenuecat/webhook`, secret in the `Authorization` header (`Bearer` optional) | `apps/api/src/routes/billing.ts` |
 | Bundle ID | `com.traxettle.app` | `apps/mobile/app.json` |
@@ -114,9 +114,14 @@ Use **one RevenueCat project** for now. The app tags customers by environment
 
 ### 2.3 Product → entitlement → offering (one-time)
 1. **Product catalog → Products → + New** → choose the App Store app → Product ID `traxettle_pro_yearly` (from 1.2).
-2. **Product catalog → Entitlements → + New** → identifier **`pro`** → **Attach** the product.
+2. **Product catalog → Entitlements → + New** → identifier **`traxettle-pro`** → **Attach** the product
+   (and the Play product `pro_yearly_1`, if Android is set up).
 3. **Product catalog → Offerings → + New** → identifier **`default`** → **Make current**.
-4. In `default`, **+ New package** → identifier **Annual** (`$rc_annual`) → attach the product.
+4. In `default`, **+ New package** → identifier **Annual** (`$rc_annual`) → attach the App Store product.
+   Attach the Play product `pro_yearly_1` to the **same** package: one offering serves both stores, with one
+   product per store in each package. If the package has no App Store product, the iOS app shows "You have
+   configured the SDK with an App Store API key, but there are no App Store products registered in the
+   RevenueCat dashboard for your offerings".
 
 ### 2.4 Public API key (one-time)
 **API keys** → copy the **App Store public key** (starts with `appl_`).
@@ -125,7 +130,7 @@ Never use the secret key (`sk_…`) in the app.
 ### 2.5 Webhook to the API (one-time per API)
 1. **Integrations → Webhooks → + New**.
 2. **URL:** `https://<production API>/api/billing/revenuecat/webhook`
-3. **Authorization header value:** the value of `RC_REVENUECAT_WEBHOOK_SECRET` from `rc_prod.properties`. It must equal the secret the production API was deployed with.
+3. **Authorization header value:** the value of `RC_REVENUECAT_WEBHOOK_SECRET` from `rc_production.properties`. It must equal the secret the production API was deployed with.
 4. **Environment:** production **and** sandbox, so TestFlight purchases (which are sandbox) reach the API too.
 
 > Test purchases while the app is on **Production** (its default). The API matches unknown users by
@@ -137,12 +142,13 @@ Never use the secret key (`sk_…`) in the app.
 ## 3. Repo and builds
 
 ### 3.1 RevenueCat keys in the properties files
-In `traxettle-rush/`, set this line in `rc_prod.properties`:
+In `traxettle-rush/`, set this line in `rc_production.properties` (the scripts fall back to the older name
+`rc_prod.properties` only when `rc_production.properties` doesn't exist):
 ```
 RC_REVENUECAT_APPLE_PUBLIC_KEY=appl_xxxxxxxxxxxxxxxx
 ```
 Put the same value in `rc_staging.properties`, because one project serves both environments.
-Keep `RC_REVENUECAT_PRO_ENTITLEMENT_ID=pro`, `RC_REVENUECAT_OFFERING_ID=default`, and the
+Keep `RC_REVENUECAT_PRO_ENTITLEMENT_ID=traxettle-pro`, `RC_REVENUECAT_OFFERING_ID=default`, and the
 webhook secret as they are. The build and deploy scripts read these files automatically.
 Nothing fills them in for you.
 
@@ -155,12 +161,22 @@ bash scripts/api-deployment/deploy-staging.sh
 ```
 Make sure `jq` is installed first; see the production steps in the deployment docs.
 
+Check what the app will receive (prints only the end of each key):
+```bash
+for u in https://traxettle-api-prod-ncwutlgtga-uc.a.run.app https://traxettle-api-staging-lomxjapdhq-uc.a.run.app; do /usr/bin/curl -s "$u/api/config" | python3 -c 'import json,sys; rc=json.load(sys.stdin)["data"]["revenueCatConfig"]; [print(n, "…"+rc[n][-4:], "length", len(rc[n])) for n in ("appleApiKey","googleApiKey")]; print("offering", rc["offering"], "| entitlement", rc["proEntitlement"])'; done
+```
+Real keys are about 32 characters and end like the keys under RevenueCat → **API keys**; 14 characters is
+the example file's `appl_CHANGE_ME`. The entitlement must equal RevenueCat's.
+
 ### 3.3 TestFlight build
 ```bash
 cd apps/mobile
 APPLE_TEAM_ID=<your Team ID> bash scripts/build-ios.sh testflight
 ```
-The Apple key is baked into the build, so rebuild whenever it changes.
+The app uses the RevenueCat key the API serves; the key built into the app is only a fallback for when
+the API can't be reached. So a new key needs an API deploy, not a new build. The app saves the API's
+settings and, since 2026-10-23, refreshes them from the API every time it starts; builds before that kept
+the first copy they saved until the app was reinstalled or switched between Production and Staging.
 
 ---
 
@@ -173,7 +189,7 @@ Use a tester account that is **not** Pro yet, with the app on **Production**.
 | 1 | Profile → **Upgrade to Pro** | Price loads from the App Store; the intro offer shows if set up |
 | 2 | **Subscribe**, confirm with Face ID / password | Apple's sheet says *[Environment: Sandbox]*; no real charge |
 | 3 | Return to the app (allow up to a minute) | **Pro Active** on Profile; Pro features unlocked. The app needs **both** the App Store entitlement and the API's record from the webhook, so this also proves the webhook works |
-| 4 | RevenueCat → **Customers** → search `production::<user id>` | Active `pro` entitlement, sandbox transaction |
+| 4 | RevenueCat → **Customers** → search `production::<user id>` | Active `traxettle-pro` entitlement, sandbox transaction |
 | 5 | Still not Pro after a minute | RevenueCat → **Integrations → Webhooks** → recent deliveries: expect **200**. A **401** means the Authorization value doesn't match the API's webhook secret |
 | 6 | Second device, same account → **Restore Purchase** | Pro restored |
 | 7 | **Manage Subscription** → cancel | Pro ends when the period runs out. Sandbox years last about an hour |

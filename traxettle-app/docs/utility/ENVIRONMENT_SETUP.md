@@ -189,7 +189,7 @@ EXPO_PUBLIC_REVENUECAT_APPLE_KEY=appl_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 EXPO_PUBLIC_REVENUECAT_GOOGLE_KEY=goog_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # RevenueCat Configuration (optional overrides)
-EXPO_PUBLIC_REVENUECAT_PRO_ENTITLEMENT_ID=pro
+EXPO_PUBLIC_REVENUECAT_PRO_ENTITLEMENT_ID=traxettle-pro
 EXPO_PUBLIC_REVENUECAT_OFFERING_ID=default
 
 # ===========================================
