@@ -191,7 +191,7 @@ Use a tester account that is **not** Pro yet, with the app on **Production**.
 | 3 | Return to the app (allow up to a minute) | **Pro Active** on Profile; Pro features unlocked. The app needs **both** the App Store entitlement and the API's record from the webhook, so this also proves the webhook works |
 | 4 | RevenueCat → **Customers** → search `production::<user id>` | Active `traxettle-pro` entitlement, sandbox transaction |
 | 5 | Still not Pro after a minute | RevenueCat → **Integrations → Webhooks** → recent deliveries: expect **200**. A **401** means the Authorization value doesn't match the API's webhook secret |
-| 6 | Second device, same account → **Restore Purchase** | Pro restored |
+| 6 | Same Apple Account, a **second** Traxettle account → Upgrade to Pro → **Restore Purchase** | "Restored!" and Pro on the new account; the first account returns to free (`TRANSFER` webhook, 200). The same account on a second device needs no restore: Pro comes with the sign-in, and the Upgrade screen (with the button) isn't shown to Pro accounts |
 | 7 | **Manage Subscription** → cancel | Pro ends when the period runs out. Sandbox years last about an hour |
 
 If step 1 shows no price, check in this order: Paid Applications agreement **Active** (1.1),

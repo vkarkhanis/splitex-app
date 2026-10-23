@@ -33,7 +33,10 @@ fill in the `<…>` placeholders. **Never commit real demo passwords to this pub
    so Upgrade to Pro had nothing to sell (fixed in the RevenueCat dashboard; no build needed). And the app
    kept the server settings (incl. the RevenueCat key) it first saved; it now refreshes them on every start.
    A reviewer's fresh install was never affected, but ship the refresh in the next build.
-9. **Age rating:** 13+ (matches the privacy policy).
+9. **Restore onto another account.** Fixed 2026-10-23 (API only, deploy it): Restore Purchase on a second
+   Traxettle account made RevenueCat move the subscription (`TRANSFER`), which the API rejected, so the
+   new account stayed locked and the old one kept Pro. The API now applies transfers (section 6, step 13).
+10. **Age rating:** 13+ (matches the privacy policy).
 
 ## 1. Where each piece goes in App Store Connect
 
@@ -195,19 +198,31 @@ The difference is the account: they use your demo account or sign up themselves.
 
 ### D. Restore
 
-11. Delete and reinstall the app (or sign out and in), sign in with the same account → Upgrade to Pro →
-    **Restore Purchase** → "Restored!" and Pro features still work.
-    *Restoring onto a different Traxettle account moves the purchase in RevenueCat (a `TRANSFER` event),
-    which the server doesn't apply yet. Test restores on the same account.*
+**Restore Purchase** is only on the Upgrade screen, which a Pro account doesn't see (it shows "You're a Pro!").
+Pro also follows the Traxettle account to any device by itself, so signing in again needs no restore. Restore
+matters when an Apple Account that already subscribed is used with a **different** Traxettle account:
+RevenueCat then moves the subscription to it (a `TRANSFER`). That needs RevenueCat → Project settings →
+**Restore behavior** (*Transfer behavior* in newer dashboards) = *Transfer to new App User ID* (the default) and the API from 2026-10-23 or later.
+
+11. **The button is there:** on a free account, Upgrade to Pro shows **Restore Purchase** (Apple checks this).
+12. **Nothing to restore:** a free Traxettle account with an Apple Account that has never subscribed (e.g. a
+    new Sandbox Apple Account) → **Restore Purchase** → "No Purchase Found".
+13. **Moving the subscription:** keep the Apple Account that bought in C. Sign out, register a second
+    Traxettle account (e.g. `traxettleapp+rc2@gmail.com`) → Upgrade to Pro → **Restore Purchase** →
+    "Restored!" within about 15 s, and Pro features work.
+    - RevenueCat → Customers: the subscription is now on `production::<new uid>`, with a `TRANSFER` event;
+      Webhooks shows it delivered with **200**.
+    - Firestore: the new account `tier: "pro"`; the first one `tier: "free"`, `entitlementStatus: "expired"`.
+    - Sign in to the first account again: it's on the free plan. Restore there moves the subscription back.
 
 ### E. Cancel and expire
 
-12. Cancel the subscription in the device's subscription settings. For TestFlight purchases use
+14. Cancel the subscription in the device's subscription settings. For TestFlight purchases use
     Settings → *your name* → Subscriptions; for a Sandbox tester account use Settings → App Store →
     Sandbox Account → Manage.
-13. RevenueCat shows `CANCELLATION`, and the webhook returns 200. Firestore stays `tier: "pro"`, `entitlementStatus:
+15. RevenueCat shows `CANCELLATION`, and the webhook returns 200. Firestore stays `tier: "pro"`, `entitlementStatus:
     "active"`, so Pro is kept until the paid period ends.
-14. After the accelerated period ends: `EXPIRATION`, then Firestore `tier: "free"`, `entitlementStatus: "expired"`.
+16. After the accelerated period ends: `EXPIRATION`, then Firestore `tier: "free"`, `entitlementStatus: "expired"`.
     The app returns to the free plan the next time it comes to the foreground; a 4th event is blocked again.
 
 ### F. If something fails
@@ -219,4 +234,5 @@ The difference is the account: they use your demo account or sign up themselves.
 | "You have configured the SDK with an App Store API key, but there are no App Store products registered…" | The `default` offering's `$rc_annual` package has no App Store product attached (RevenueCat → Offerings → `default`) |
 | Purchase succeeds, Pro features stay locked | Webhook not reaching the API: wrong secret (401), Sandbox events off, or wrong URL |
 | Webhook 200 but Firestore unchanged | Entitlement ID mismatch (`RC_REVENUECAT_PRO_ENTITLEMENT_ID` vs RevenueCat) |
+| "Restored!" on a second account, but Pro stays locked | The `TRANSFER` webhook failed or the API predates 2026-10-23. RevenueCat → Webhooks: a **500** means the API couldn't look the customer up in RevenueCat (check the key `/api/config` serves) |
 | Pro in the app on one account, not another | Expected: RevenueCat customers are per Traxettle account (`production::<uid>`) |
