@@ -24,6 +24,12 @@
 #   (IOS_SIGNING_IDENTITY to override). See plugins/ios-release-signing.js.
 #   Build number defaults to yymmddHHMM; override with IOS_BUILD_NUMBER. The version is
 #   shared with Android (scripts/version.sh) and recorded once the upload succeeds.
+# - `xcode` prepares the same TestFlight build (version, build number, signing, native
+#   project) and opens it in Xcode to archive and upload by hand (Product → Archive). It
+#   leaves .env and src/config/buildEnv.ts in place, because Xcode bundles the JavaScript
+#   during the archive and reads the RevenueCat key from them. Afterwards run
+#   `build-ios.sh xcode-done` (records the version, restores both files), or
+#   `build-ios.sh xcode-done --not-uploaded` if nothing was uploaded.
 
 set -euo pipefail
 
@@ -46,12 +52,12 @@ fail()  { echo -e "${RED}❌${NC} $1"; exit 1; }
 
 if [ -z "$PROFILE" ]; then
   echo "Usage: ./scripts/build-ios.sh <profile>"
-  echo "Profiles: debug | testflight"
+  echo "Profiles: debug | testflight | xcode | xcode-done [--not-uploaded]"
   exit 1
 fi
 
 case "$PROFILE" in
-  debug|testflight) ;;
+  debug|testflight|xcode|xcode-done) ;;
   staging|production)
     fail "'$PROFILE' builds used EAS Build, which can't install this Rush monorepo.
    For TestFlight and the App Store (one build for every environment):
@@ -59,12 +65,55 @@ case "$PROFILE" in
    Testers switch the app to Staging by tapping \"Traxettle\" 7 times on the sign-in screen.
    For a simulator against the deployed staging API (from traxettle-rush/):
      bash scripts/local-dev/06_staging_mobile.sh ios" ;;
-  *) fail "Unknown profile '$PROFILE'. Use: debug or testflight" ;;
+  *) fail "Unknown profile '$PROFILE'. Use: debug, testflight, xcode or xcode-done" ;;
 esac
+
+ENV_FILE="$MOBILE_DIR/.env"
+BUILD_ENV_TS="$MOBILE_DIR/src/config/buildEnv.ts"
+# Set by `xcode` while a build waits to be archived in Xcode; removed by `xcode-done`.
+XCODE_PENDING_FILE="$MOBILE_DIR/.xcode-build-pending"
+
+# Puts back the .env and buildEnv.ts that were there before this build wrote its own.
+restore_build_env() {
+  if [ "$ENV_FILE_EXISTED" = true ]; then
+    mv "$ENV_FILE.build-backup" "$ENV_FILE"
+  else
+    rm -f "$ENV_FILE"
+  fi
+  if [ "$BUILD_ENV_TS_EXISTED" = true ]; then
+    mv "$BUILD_ENV_TS.build-backup" "$BUILD_ENV_TS"
+  else
+    rm -f "$BUILD_ENV_TS"
+  fi
+}
+
+if [ "$PROFILE" = "xcode-done" ]; then
+  [ -f "$XCODE_PENDING_FILE" ] || fail "No Xcode build is waiting. Start one with: bash scripts/build-ios.sh xcode"
+  case "${2:-}" in
+    ""|--not-uploaded) ;;
+    *) fail "Unknown option '${2}'. Use: build-ios.sh xcode-done [--not-uploaded]" ;;
+  esac
+  # shellcheck disable=SC1090
+  source "$XCODE_PENDING_FILE"
+  restore_build_env
+  ok "Restored .env and src/config/buildEnv.ts"
+  if [ "${2:-}" = "--not-uploaded" ]; then
+    info "Not recorded: the next store build reuses version $VERSION."
+  else
+    bash "$MOBILE_DIR/scripts/version.sh" record ios "$BUILD_NUMBER"
+  fi
+  rm -f "$XCODE_PENDING_FILE"
+  exit 0
+fi
+
+# Another build would back up the Xcode build's .env and buildEnv.ts as if they were the originals.
+[ -f "$XCODE_PENDING_FILE" ] && fail "An Xcode build is still waiting (it holds .env and src/config/buildEnv.ts).
+   After uploading it: bash scripts/build-ios.sh xcode-done
+   If you didn't upload: bash scripts/build-ios.sh xcode-done --not-uploaded"
 
 case "$PROFILE" in
   debug) RC_ENV="local" ;;
-  testflight) RC_ENV="prod" ;;
+  testflight|xcode) RC_ENV="prod" ;;
 esac
 
 echo ""
@@ -130,7 +179,7 @@ check_manual_signing() {
 
 require_cmd node
 require_cmd bash
-if [ "$PROFILE" = "testflight" ]; then
+if [ "$PROFILE" = "testflight" ] || [ "$PROFILE" = "xcode" ]; then
   require_cmd xcodebuild
   require_cmd npx
   [[ "${APPLE_TEAM_ID:-}" =~ ^[A-Z0-9]{10}$ ]] \
@@ -153,7 +202,7 @@ if [ -z "${EXPO_PUBLIC_REVENUECAT_APPLE_KEY:-}" ]; then
 fi
 
 case "$PROFILE" in
-  testflight)
+  testflight|xcode)
     export EXPO_PUBLIC_APP_ENV="production"
     # Release builds choose the API at runtime; this URL only feeds development builds.
     export EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:-https://traxettle-api-prod-ncwutlgtga-uc.a.run.app}"
@@ -193,10 +242,8 @@ if [ -n "$IOS_PROJECT" ]; then
   ok "  → ios/$IOS_PROJECT/GoogleService-Info.plist"
 fi
 
-ENV_FILE="$MOBILE_DIR/.env"
 ENV_FILE_EXISTED=false
 [ -f "$ENV_FILE" ] && ENV_FILE_EXISTED=true && cp "$ENV_FILE" "$ENV_FILE.build-backup"
-BUILD_ENV_TS="$MOBILE_DIR/src/config/buildEnv.ts"
 BUILD_ENV_TS_EXISTED=false
 [ -f "$BUILD_ENV_TS" ] && BUILD_ENV_TS_EXISTED=true && cp "$BUILD_ENV_TS" "$BUILD_ENV_TS.build-backup"
 
@@ -228,27 +275,71 @@ export const BUILD_ENV = {
 EOF
 ok "buildEnv.ts written for release bundle fallback"
 
+# `xcode` keeps them once it has prepared the project: Xcode still has to bundle the JavaScript.
+KEEP_BUILD_ENV=false
 cleanup_env() {
-  if [ "$ENV_FILE_EXISTED" = true ]; then
-    mv "$ENV_FILE.build-backup" "$ENV_FILE"
-  else
-    rm -f "$ENV_FILE"
-  fi
-  if [ "$BUILD_ENV_TS_EXISTED" = true ]; then
-    mv "$BUILD_ENV_TS.build-backup" "$BUILD_ENV_TS"
-  else
-    rm -f "$BUILD_ENV_TS"
-  fi
+  [ "$KEEP_BUILD_ENV" = true ] || restore_build_env
 }
 trap cleanup_env EXIT
+
+# Version, native project and build number of a store build (testflight and xcode).
+# Sets release_version, release_build and release_project.
+prepare_release_project() {
+  # Shares the version with Android for this release; bumped only if iOS already shipped it.
+  bash "$MOBILE_DIR/scripts/version.sh" prepare ios
+  release_version="$(node -p "require('$MOBILE_DIR/app.json').expo.version")"
+  release_build="${IOS_BUILD_NUMBER:-$(date +%y%m%d%H%M)}"
+
+  info "Generating the native iOS project (expo prebuild --clean)."
+  # .env and buildEnv.ts are written above on purpose; skip prebuild's uncommitted-changes prompt.
+  (cd "$MOBILE_DIR" && EXPO_NO_GIT_STATUS=1 npx expo prebuild --platform ios --clean)
+  release_project="$(ios_project_name)"
+  [ -n "$release_project" ] || fail "expo prebuild did not create an Xcode project in $IOS_DIR"
+  # Tells scripts/local-dev/06_staging_mobile.sh to regenerate this project before its next
+  # simulator (Debug) build: building Debug on top of a Release one can fail to link.
+  touch "$IOS_DIR/.release-build"
+  # Xcode's JS bundling phase needs node, which may live outside Xcode's default PATH (e.g. nvm).
+  echo "export NODE_BINARY=$(command -v node)" > "$IOS_DIR/.xcode.env.local"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $release_build" "$IOS_DIR/$release_project/Info.plist"
+  ok "Version $release_version, build $release_build"
+}
+
+# Prepares the build and hands it to Xcode for Product → Archive and the upload.
+prepare_xcode_build() {
+  prepare_release_project
+  cat > "$XCODE_PENDING_FILE" <<EOF
+# Written by build-ios.sh xcode; read and removed by build-ios.sh xcode-done.
+VERSION=$release_version
+BUILD_NUMBER=$release_build
+ENV_FILE_EXISTED=$ENV_FILE_EXISTED
+BUILD_ENV_TS_EXISTED=$BUILD_ENV_TS_EXISTED
+EOF
+  KEEP_BUILD_ENV=true
+
+  local signing="Manual: profile \"${IOS_PROVISIONING_PROFILE:-}\" with \"${IOS_SIGNING_IDENTITY:-}\""
+  [ -n "${IOS_PROVISIONING_PROFILE:-}" ] \
+    || signing="Automatic: pick team $APPLE_TEAM_ID under Signing & Capabilities if Xcode asks"
+  ok "Ready to archive version $release_version (build $release_build) in Xcode."
+  echo ""
+  echo "  In Xcode (opening $release_project.xcworkspace):"
+  echo "    1. Destination (top bar): Any iOS Device (arm64)."
+  echo "    2. Product → Archive. Signing — $signing."
+  echo "    3. Organizer → Distribute App → App Store Connect → Upload."
+  echo "  Then, from apps/mobile:"
+  echo "    bash scripts/build-ios.sh xcode-done                  # uploaded: records $release_version, restores files"
+  echo "    bash scripts/build-ios.sh xcode-done --not-uploaded   # didn't upload: restores files only"
+  echo ""
+  warn "Until then .env and src/config/buildEnv.ts hold this build's values (RevenueCat key): don't commit them."
+  open "$IOS_DIR/$release_project.xcworkspace" || warn "Open $IOS_DIR/$release_project.xcworkspace in Xcode yourself."
+}
 
 # Prebuild → archive (Release) → upload to App Store Connect, all on this Mac.
 build_testflight() {
   local version build_number archive_dir archive_path export_dir project
-  # Shares the version with Android for this release; bumped only if iOS already shipped it.
-  bash "$MOBILE_DIR/scripts/version.sh" prepare ios
-  version="$(node -p "require('$MOBILE_DIR/app.json').expo.version")"
-  build_number="${IOS_BUILD_NUMBER:-$(date +%y%m%d%H%M)}"
+  prepare_release_project
+  version="$release_version"
+  build_number="$release_build"
+  project="$release_project"
   # Archives here show up in Xcode's Organizer, so a failed upload can be retried from there.
   archive_dir="$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)"
   archive_path="$archive_dir/Traxettle-$version-$build_number.xcarchive"
@@ -260,19 +351,6 @@ build_testflight() {
       -authenticationKeyID "${ASC_KEY_ID:?Set ASC_KEY_ID with ASC_KEY_PATH}"
       -authenticationKeyIssuerID "${ASC_KEY_ISSUER_ID:?Set ASC_KEY_ISSUER_ID with ASC_KEY_PATH}")
   fi
-
-  info "Generating the native iOS project (expo prebuild --clean)."
-  # .env and buildEnv.ts are written above on purpose; skip prebuild's uncommitted-changes prompt.
-  (cd "$MOBILE_DIR" && EXPO_NO_GIT_STATUS=1 npx expo prebuild --platform ios --clean)
-  project="$(ios_project_name)"
-  [ -n "$project" ] || fail "expo prebuild did not create an Xcode project in $IOS_DIR"
-  # Tells scripts/local-dev/06_staging_mobile.sh to regenerate this project before its next
-  # simulator (Debug) build: building Debug on top of a Release one can fail to link.
-  touch "$IOS_DIR/.release-build"
-  # Xcode's JS bundling phase needs node, which may live outside Xcode's default PATH (e.g. nvm).
-  echo "export NODE_BINARY=$(command -v node)" > "$IOS_DIR/.xcode.env.local"
-  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $build_number" "$IOS_DIR/$project/Info.plist"
-  ok "Version $version, build $build_number"
 
   local signing_options="  <key>signingStyle</key>
   <string>automatic</string>"
@@ -344,6 +422,8 @@ if [ "$PROFILE" = "debug" ]; then
     cd "$MOBILE_DIR"
     npx expo run:ios --configuration Debug
   )
+elif [ "$PROFILE" = "xcode" ]; then
+  prepare_xcode_build
 else
   build_testflight
 fi

@@ -185,6 +185,11 @@ ok "EXPO_PUBLIC_APP_ENV=$EXPO_PUBLIC_APP_ENV"
 [ "$PROFILE" != "debug" ] && ok "EXPO_PUBLIC_API_URL=$EXPO_PUBLIC_API_URL"
 ok "RevenueCat config loaded from rc_${RC_ENV}.properties"
 
+# An iOS build waiting in Xcode (build-ios.sh xcode) still holds .env and buildEnv.ts; backing
+# them up here would later "restore" its values.
+[ -f "$MOBILE_DIR/.xcode-build-pending" ] && fail "An iOS Xcode build is still waiting (it holds .env and src/config/buildEnv.ts).
+   Finish it first: bash scripts/build-ios.sh xcode-done   (or xcode-done --not-uploaded)"
+
 # Write .env so Metro/Expo inlines EXPO_PUBLIC_* at bundle time
 ENV_FILE="$MOBILE_DIR/.env"
 ENV_FILE_EXISTED=false

@@ -221,42 +221,31 @@ double-click it on the other Mac. The script checks both before building.
 Then, in App Store Connect → TestFlight: the build appears after processing (~10–30 min).
 Add internal testers (no review), or external testers (needs Beta App Review).
 
-### Manual alternative (Xcode)
+### Archive and upload in Xcode instead
 
 ```bash
-# 1. Write apps/mobile/.env with the production values from scripts/build-ios.sh
-#    (EXPO_PUBLIC_APP_ENV=production, the Google client IDs, the RevenueCat key).
-#    Release builds read it when bundling. EXPO_PUBLIC_APP_ENV also tags RevenueCat
-#    users, so a build headed for the App Store must say "production".
 cd apps/mobile
-cp GoogleService-Info.staging.plist GoogleService-Info.plist
-
-# 2. Generate the native iOS project (also installs pods)
-npx expo prebuild --platform ios --clean
-
-# 3. Open in Xcode (the project is named after app.json "name")
-open ios/TraxettleappbyKarkhanisLabs.xcworkspace
-
-# 4. In Xcode:
-#    - Select the "TraxettleappbyKarkhanisLabs" target
-#    - Set Bundle Identifier: com.traxettle.app
-#    - Select your Team (Apple Developer account)
-#    - Set version and build number
-#    - Select "Any iOS Device (arm64)" as destination
-#    - Product → Archive
-#
-# 5. In Organizer (Window → Organizer):
-#    - Select the archive
-#    - Click "Distribute App"
-#    - Choose "App Store Connect"
-#    - Upload
-#
-# 6. In App Store Connect:
-#    - Go to TestFlight tab
-#    - The build appears after processing (~15 min)
-#    - Add internal/external testers
-#    - Submit for Beta App Review (external testers only)
+IOS_PROVISIONING_PROFILE="<profile name>" APPLE_TEAM_ID=ABCDE12345 bash scripts/build-ios.sh xcode
 ```
+
+`xcode` does everything `testflight` does before archiving (production settings, Firebase
+plist, version, build number, signing, `expo prebuild --clean`) and opens the workspace in
+Xcode. Then in Xcode: destination **Any iOS Device (arm64)** → **Product → Archive** →
+Organizer → **Distribute App** → **App Store Connect** → **Upload**.
+
+It leaves `apps/mobile/.env` and `src/config/buildEnv.ts` in place, because Xcode bundles the
+JavaScript during the archive and takes the RevenueCat key from them. (Archiving after
+`testflight` has finished would ship without the key: that script restores both files when
+it exits.) When you're done:
+
+```bash
+bash scripts/build-ios.sh xcode-done                 # uploaded: records the version, restores the files
+bash scripts/build-ios.sh xcode-done --not-uploaded  # gave up: restores the files only
+```
+
+Until then the other build commands refuse to run, and `buildEnv.ts` shows as modified: don't
+commit it. If only the upload of a `testflight` run failed, don't use `xcode`: distribute that
+run's archive from Organizer, then run `bash scripts/version.sh record ios <build number>`.
 
 ### Why not EAS Build
 EAS cloud builds don't work for this monorepo: EAS installs dependencies with npm, which

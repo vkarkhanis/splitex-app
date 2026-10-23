@@ -23,6 +23,8 @@
     "build:android:production": "bash scripts/build-android.sh production",
     "build:ios:debug": "bash scripts/build-ios.sh debug",
     "build:ios:testflight": "bash scripts/build-ios.sh testflight",
+    "build:ios:xcode": "bash scripts/build-ios.sh xcode",
+    "build:ios:xcode-done": "bash scripts/build-ios.sh xcode-done",
     "version:show": "bash scripts/version.sh status",
     "version:bump": "bash scripts/version.sh bump",
     "test": "jest",
