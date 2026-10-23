@@ -29,6 +29,7 @@ const config: Config = {
   },
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    '\\.(png|jpe?g|gif|webp|ttf|otf)$': '<rootDir>/jest.fileStub.js',
   },
   transform: {
     '^.+\\.(ts|tsx)$': [

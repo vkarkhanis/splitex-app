@@ -122,6 +122,7 @@ jest.mock('../screens/ClosedEventsScreen', () => 'ClosedEventsScreen');
 jest.mock('../screens/HelpScreen', () => 'HelpScreen');
 jest.mock('../screens/AnalyticsScreen', () => 'AnalyticsScreen');
 jest.mock('../screens/UnsettledPaymentsScreen', () => 'UnsettledPaymentsScreen');
+jest.mock('../screens/PoolScreen', () => 'PoolScreen');
 jest.mock('../screens/SetupPinScreen', () => 'SetupPinScreen');
 jest.mock('../screens/UnlockScreen', () => 'UnlockScreen');
 

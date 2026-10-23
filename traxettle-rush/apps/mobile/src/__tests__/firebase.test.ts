@@ -33,15 +33,18 @@ jest.mock('firebase/app', () => ({
 }));
 
 jest.mock('firebase/auth', () => ({
-  getAuth: jest.fn()
+  getAuth: jest.fn(),
+  connectAuthEmulator: jest.fn()
 }));
 
 jest.mock('firebase/firestore', () => ({
-  getFirestore: jest.fn()
+  getFirestore: jest.fn(),
+  connectFirestoreEmulator: jest.fn()
 }));
 
 jest.mock('firebase/storage', () => ({
-  getStorage: jest.fn()
+  getStorage: jest.fn(),
+  connectStorageEmulator: jest.fn()
 }));
 
 describe('Firebase Service', () => {
@@ -88,6 +91,7 @@ describe('Firebase Service', () => {
       expect(getStorage).toHaveBeenCalled();
       const { setRuntimeApiBaseUrl } = require('../api');
       expect(setRuntimeApiBaseUrl).toHaveBeenCalledWith('https://prod-api.traxettle.app');
+      expect(require('firebase/auth').connectAuthEmulator).not.toHaveBeenCalled();
     });
 
     it('should throw error if initialization fails', async () => {
@@ -99,19 +103,27 @@ describe('Firebase Service', () => {
 
     it('should initialize Firebase with emulator-safe config when emulator mode is enabled', async () => {
       const { initializeApp } = require('firebase/app');
+      const { connectAuthEmulator } = require('firebase/auth');
+      const { connectFirestoreEmulator } = require('firebase/firestore');
+      const { connectStorageEmulator } = require('firebase/storage');
       const { isFirebaseEmulatorEnabled } = require('../api');
       isFirebaseEmulatorEnabled.mockResolvedValue(true);
 
       await initializeFirebase();
 
+      // Same project as the emulators and the local API (FIREBASE_PROJECT_ID=traxettle-local).
       expect(initializeApp).toHaveBeenCalledWith(
         expect.objectContaining({
-          projectId: 'traxettle-emulator',
+          projectId: 'traxettle-local',
           apiKey: 'demo-emulator-api-key',
-          authDomain: 'traxettle-emulator.firebaseapp.com',
+          authDomain: 'traxettle-local.firebaseapp.com',
+          storageBucket: 'traxettle-local.appspot.com',
           appId: '1:000000000000:web:emulator',
         }),
       );
+      expect(connectAuthEmulator).toHaveBeenCalledWith(undefined, 'http://localhost:9099');
+      expect(connectFirestoreEmulator).toHaveBeenCalledWith(undefined, 'localhost', 8080);
+      expect(connectStorageEmulator).toHaveBeenCalledWith(undefined, 'localhost', 9199);
     });
   });
 
