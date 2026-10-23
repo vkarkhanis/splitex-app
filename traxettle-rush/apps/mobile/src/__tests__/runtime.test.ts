@@ -140,4 +140,63 @@ describe('RuntimeConfigManager', () => {
       expect.stringContaining('"https://prod.example.com"'),
     );
   });
+
+  describe('stored production config', () => {
+    const prodConfig = (appleApiKey: string) => ({
+      env: 'production',
+      apiUrl: 'https://prod.example.com',
+      firebaseConfig: {
+        projectId: 'traxettle-prod',
+        apiKey: 'prod-key',
+        authDomain: 'traxettle-prod.firebaseapp.com',
+        appId: 'prod-app-id',
+      },
+      revenueCatConfig: { googleApiKey: '', appleApiKey, proEntitlement: 'traxettle-pro', offering: 'default' },
+    });
+    const apiServes = (config: object) => mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ data: config }) });
+
+    beforeEach(() => {
+      require('../config/env').isLocalLikeEnv.mockReturnValue(false);
+      const stored = JSON.stringify(prodConfig('appl_old'));
+      (AsyncStorage.getItem as jest.Mock).mockImplementation(async (key: string) =>
+        key === '@traxettle_runtime_config' ? stored : null,
+      );
+    });
+
+    it('is used at once, then refreshed from the API in the background', async () => {
+      apiServes(prodConfig('appl_new'));
+      const manager = new RuntimeConfigManager();
+
+      const config = await manager.getConfig();
+      expect(config.revenueCatConfig.appleApiKey).toBe('appl_old'); // no wait for the network
+
+      const latest = await manager.getLatestConfig();
+      expect(latest.revenueCatConfig.appleApiKey).toBe('appl_new');
+      expect(mockFetch).toHaveBeenCalledWith('https://prod.example.com/api/config', expect.anything());
+      expect(AsyncStorage.setItem).toHaveBeenCalledWith('@traxettle_runtime_config', expect.stringContaining('"appl_new"'));
+      expect((await manager.getConfig()).revenueCatConfig.appleApiKey).toBe('appl_new');
+    });
+
+    it('keeps the stored config when the API is unreachable', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('offline'));
+      const manager = new RuntimeConfigManager();
+
+      const latest = await manager.getLatestConfig();
+      expect(latest.revenueCatConfig.appleApiKey).toBe('appl_old');
+      expect(AsyncStorage.setItem).not.toHaveBeenCalled();
+    });
+
+    it('discards a refresh that finishes after an environment switch', async () => {
+      let respond: (value: unknown) => void = () => {};
+      mockFetch.mockReturnValueOnce(new Promise((resolve) => { respond = resolve; }));
+      const manager = new RuntimeConfigManager();
+
+      await manager.getConfig(); // starts the refresh
+      await manager.clearCache(); // e.g. the 7-tap switch
+      respond({ ok: true, json: async () => ({ data: prodConfig('appl_new') }) });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(AsyncStorage.setItem).not.toHaveBeenCalled();
+    });
+  });
 });

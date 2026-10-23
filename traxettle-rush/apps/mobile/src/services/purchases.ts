@@ -6,7 +6,7 @@ import Purchases, {
   LOG_LEVEL,
 } from 'react-native-purchases';
 import { ENV } from '../config/env';
-import { getRuntimeConfig } from '../config/runtime';
+import { getLatestRuntimeConfig } from '../config/runtime';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 let PRO_ENTITLEMENT = ENV.REVENUECAT_PRO_ENTITLEMENT_ID;
@@ -41,7 +41,7 @@ export async function reconfigurePurchasesWithRuntimeConfig(): Promise<void> {
   }
 
   try {
-    const runtimeConfig = await getRuntimeConfig();
+    const runtimeConfig = await getLatestRuntimeConfig();
     const { revenueCatConfig } = runtimeConfig;
     
     // Update local constants
@@ -90,7 +90,7 @@ export async function initPurchases(appUserId?: string): Promise<void> {
   let offering: string;
 
   try {
-    const runtimeConfig = await getRuntimeConfig();
+    const runtimeConfig = await getLatestRuntimeConfig();
     const { revenueCatConfig } = runtimeConfig;
     
     apiKey = Platform.OS === 'ios' 
