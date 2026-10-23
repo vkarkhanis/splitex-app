@@ -18,6 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.traxettle.app",
+      "usesAppleSignIn": true,
       "icon": "./assets/icon.png",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Traxettle uses your photo library so you can upload payment proof images for settlements.",
@@ -62,7 +63,8 @@
     },
     "plugins": [
       "./plugins/copy-google-service-plist",
-      "./plugins/ios-release-signing"
+      "./plugins/ios-release-signing",
+      "expo-apple-authentication"
     ],
     "owner": "vkarkhanis",
     "extra": {

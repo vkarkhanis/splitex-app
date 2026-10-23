@@ -21,6 +21,7 @@ import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-si
 import { toUserFriendlyError } from '../utils/errorMessages';
 import PasswordInput from '../components/PasswordInput';
 import { switchEnvironmentAndRebootstrap } from '../services/environment-switch';
+import AppleSignInButton, { useAppleSignInAvailable } from '../components/AppleSignInButton';
 
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
 
@@ -36,6 +37,7 @@ export default function LoginScreen({ navigation }: any) {
   const [emailLinkLoading, setEmailLinkLoading] = useState(false);
   const [useStaging, setUseStaging] = useState(false);
   const [envTapCount, setEnvTapCount] = useState(0);
+  const appleAvailable = useAppleSignInAvailable();
 
   useEffect(() => {
     // Load current environment setting
@@ -206,14 +208,18 @@ export default function LoginScreen({ navigation }: any) {
           <Text style={[styles.forgotLink, { color: c.muted }]}>Forgot Password?</Text>
         </Pressable>
 
+        {(appleAvailable || GOOGLE_ENABLED) && (
+          <View style={styles.divider}>
+            <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
+            <Text style={[styles.dividerText, { color: c.muted }]}>or</Text>
+            <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
+          </View>
+        )}
+
+        {appleAvailable && <AppleSignInButton mode="signIn" />}
+
         {GOOGLE_ENABLED && (
           <>
-            <View style={styles.divider}>
-              <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
-              <Text style={[styles.dividerText, { color: c.muted }]}>or</Text>
-              <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
-            </View>
-
             <Pressable
               style={({pressed}) => [styles.googleButton, { backgroundColor: c.surface, borderColor: c.border }, googleLoading && styles.buttonDisabled, pressed && styles.buttonPressed]}
               onPress={handleGoogleSignIn}

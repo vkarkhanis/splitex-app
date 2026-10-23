@@ -5,11 +5,13 @@ import { auth, db } from '../config/firebase';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { EntitlementService } from '../services/entitlement.service';
 import { AccountDeletionService } from '../services/account-deletion.service';
+import { AppleAuthService } from '../services/apple-auth.service';
 import { SettlementService } from '../services/settlement.service';
 
 const router: Router = Router();
 const entitlementService = new EntitlementService();
 const accountDeletionService = new AccountDeletionService();
+const appleAuthService = new AppleAuthService();
 const settlementService = new SettlementService();
 const PAYMENT_METHOD_TYPES = new Set(['upi', 'bank', 'paypal', 'wise', 'swift', 'other']);
 interface UserPaymentMethod {
@@ -24,7 +26,7 @@ interface UserPaymentMethod {
 }
 
 type ExtendedUserProfile = UserProfile & {
-  authProviders?: ('email' | 'google' | 'microsoft' | 'phone')[];
+  authProviders?: ('email' | 'google' | 'apple' | 'microsoft' | 'phone')[];
   hasPassword?: boolean;
 };
 
@@ -57,12 +59,12 @@ function sortPaymentMethods(methods: UserPaymentMethod[]): UserPaymentMethod[] {
   });
 }
 
-type AuthProviderId = 'email' | 'google' | 'microsoft' | 'phone';
+type AuthProviderId = 'email' | 'google' | 'apple' | 'microsoft' | 'phone';
 
 async function getAuthProviderSummary(uid: string, existing: any): Promise<{ authProviders: AuthProviderId[]; hasPassword: boolean }> {
   const storedProviders = Array.isArray(existing?.authProviders)
     ? existing.authProviders.filter((provider: unknown): provider is AuthProviderId =>
-        provider === 'email' || provider === 'google' || provider === 'microsoft' || provider === 'phone'
+        provider === 'email' || provider === 'google' || provider === 'apple' || provider === 'microsoft' || provider === 'phone'
       )
     : [];
   const storedHasPassword = Boolean(existing?.passwordHash) || storedProviders.includes('email');
@@ -85,7 +87,13 @@ async function getAuthProviderSummary(uid: string, existing: any): Promise<{ aut
       if (provider.providerId === 'google.com') providerMap.add('google');
       if (provider.providerId === 'phone') providerMap.add('phone');
       if (provider.providerId === 'microsoft.com') providerMap.add('microsoft');
+      if (provider.providerId === 'apple.com') providerMap.add('apple');
     });
+    // Google and Apple sign-ins are verified by our API, which signs the app into Firebase with a
+    // custom token, so Firebase Auth has no record of them: take them from the stored profile.
+    storedProviders
+      .filter((provider: AuthProviderId) => provider === 'google' || provider === 'apple')
+      .forEach((provider: AuthProviderId) => providerMap.add(provider));
 
     return {
       authProviders: Array.from(providerMap),
@@ -394,8 +402,21 @@ router.get('/account/outstanding', requireAuth, async (req: AuthenticatedRequest
 // with others are kept for them with this user shown as "Deleted user" (AccountDeletionService).
 router.delete('/account', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
+    // Sign in with Apple accounts: Apple requires revoking the authorization on deletion. The app
+    // sends a fresh authorization code; a failure is logged but never blocks the deletion itself.
+    let appleRevoked: boolean | null = null;
+    const appleCode = req.body?.appleAuthorizationCode;
+    if (typeof appleCode === 'string' && appleCode) {
+      try {
+        await appleAuthService.revokeWithAuthorizationCode(appleCode);
+        appleRevoked = true;
+      } catch (err: any) {
+        appleRevoked = false;
+        console.error('DELETE /account: Apple revocation failed', { uid: req.user!.uid, detail: err?.message });
+      }
+    }
     await accountDeletionService.deleteAccount(req.user!.uid);
-    return res.json({ success: true, data: { deleted: true } } as ApiResponse<{ deleted: boolean }>);
+    return res.json({ success: true, data: { deleted: true, appleRevoked } } as ApiResponse<{ deleted: boolean; appleRevoked: boolean | null }>);
   } catch (err) {
     console.error('DELETE /account error:', err);
     return res.status(500).json({ success: false, error: 'Failed to delete account' } as ApiResponse);

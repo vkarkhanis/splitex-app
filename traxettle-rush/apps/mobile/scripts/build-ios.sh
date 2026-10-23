@@ -113,6 +113,10 @@ check_manual_signing() {
     || fail "Profile \"$IOS_PROVISIONING_PROFILE\" is for \"$app_id\", not $APPLE_TEAM_ID.$IOS_BUNDLE_ID."
   plutil -extract ProvisionedDevices xml1 -o /dev/null - <<<"$profile_plist" 2>/dev/null \
     && fail "Profile \"$IOS_PROVISIONING_PROFILE\" lists devices (development or ad hoc). Use an App Store profile."
+  plutil -extract 'Entitlements.com\.apple\.developer\.applesignin' xml1 -o /dev/null - <<<"$profile_plist" 2>/dev/null \
+    || fail "Profile \"$IOS_PROVISIONING_PROFILE\" doesn't include Sign in with Apple, which the app uses.
+   developer.apple.com → Identifiers → $IOS_BUNDLE_ID → tick \"Sign In with Apple\" → Save. Then Profiles →
+   \"$IOS_PROVISIONING_PROFILE\" → Edit → Save, download it and double-click it (see SIGN_IN_WITH_APPLE_SETUP.md)."
   security find-identity -v -p codesigning | grep -q "\"$IOS_SIGNING_IDENTITY" \
     || fail "No \"$IOS_SIGNING_IDENTITY\" certificate with its private key in this Mac's keychain.
    On the Mac that created it: Keychain Access → My Certificates → right-click it → Export (.p12).

@@ -18,7 +18,7 @@ export interface User {
   phoneNumber: string;
   displayName: string;
   photoURL?: string;
-  authProviders: ('email' | 'google' | 'microsoft' | 'phone')[];
+  authProviders: ('email' | 'google' | 'apple' | 'microsoft' | 'phone')[];
   preferences: UserPreferences;
   createdAt: Date;
   updatedAt: Date;
@@ -71,7 +71,7 @@ export interface UserProfile {
   email: string;
   phoneNumber?: string;
   photoURL?: string;
-  authProviders?: ('email' | 'google' | 'microsoft' | 'phone')[];
+  authProviders?: ('email' | 'google' | 'apple' | 'microsoft' | 'phone')[];
   hasPassword?: boolean;
   tier: PlanTier;
   entitlementStatus: EntitlementStatus;
@@ -680,7 +680,7 @@ export interface LoginRequest {
   identifier: string; // email or phone
   password?: string;
   otp?: string;
-  provider?: 'google' | 'microsoft' | 'phone';
+  provider?: 'google' | 'apple' | 'microsoft' | 'phone';
 }
 
 export interface RegisterRequest {
@@ -688,5 +688,5 @@ export interface RegisterRequest {
   phoneNumber: string;
   displayName: string;
   password?: string;
-  provider?: 'google' | 'microsoft' | 'phone';
+  provider?: 'google' | 'apple' | 'microsoft' | 'phone';
 }

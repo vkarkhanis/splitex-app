@@ -38,6 +38,7 @@ import {
 } from '../api';
 import { ENV, isLocalLikeEnv } from '../config/env';
 import { toUserFriendlyError } from '../utils/errorMessages';
+import { isAppleSignInAvailable, requestAppleAuthorizationCode } from '../services/appleSignIn';
 import { accountDeletionWarning } from '@traxettle/shared';
 import type { OutstandingBalance } from '@traxettle/shared';
 import PasswordInput from '../components/PasswordInput';
@@ -63,7 +64,7 @@ interface UserProfile {
   email: string;
   phoneNumber?: string;
   photoURL?: string;
-  authProviders?: ('email' | 'google' | 'microsoft' | 'phone')[];
+  authProviders?: ('email' | 'google' | 'apple' | 'microsoft' | 'phone')[];
   hasPassword?: boolean;
   tier: 'free' | 'pro';
   internalTester?: boolean;
@@ -327,9 +328,11 @@ export default function ProfileScreen({ navigation }: any) {
     } catch {
       warning = null;
     }
+    // Apple asks apps to revoke Sign in with Apple when the account goes, which needs a fresh code.
+    const usesApple = Boolean(profile?.authProviders?.includes('apple')) && (await isAppleSignInAvailable());
     Alert.alert(
       'Delete Account',
-      `${warning ? `${warning}\n\n` : ''}This will permanently delete:\n\n• Your sign-in and profile\n• Payment methods and settings\n• Events only you are part of\n\nIn events shared with others, your expenses and payments stay so their balances remain correct, shown as "Deleted user".\n\nDeleting your account doesn't cancel a subscription; cancel it in your App Store or Google Play account.\n\nThis cannot be undone. Are you sure?`,
+      `${warning ? `${warning}\n\n` : ''}This will permanently delete:\n\n• Your sign-in and profile\n• Payment methods and settings\n• Events only you are part of\n\nIn events shared with others, your expenses and payments stay so their balances remain correct, shown as "Deleted user".\n\nDeleting your account doesn't cancel a subscription; cancel it in your App Store or Google Play account.\n\n${usesApple ? "You'll be asked to confirm with Apple, so Traxettle stops using your Apple ID.\n\n" : ''}This cannot be undone. Are you sure?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -337,7 +340,17 @@ export default function ProfileScreen({ navigation }: any) {
           style: 'destructive',
           onPress: async () => {
             try {
-              await api.delete('/api/users/account');
+              let appleAuthorizationCode: string | null = null;
+              if (usesApple) {
+                try {
+                  appleAuthorizationCode = await requestAppleAuthorizationCode();
+                  if (!appleAuthorizationCode) return; // cancelled at Apple's sheet: keep the account
+                } catch (appleErr) {
+                  // Don't hold up deletion; the account still goes, just without revoking at Apple.
+                  console.warn('[ProfileScreen] Apple authorization for revocation failed', appleErr);
+                }
+              }
+              await api.delete('/api/users/account', appleAuthorizationCode ? { appleAuthorizationCode } : undefined);
               await logout();
               Alert.alert('Account Deleted', 'Your account has been permanently deleted.');
             } catch (err: any) {
@@ -391,6 +404,7 @@ export default function ProfileScreen({ navigation }: any) {
   const providerLabels = (profile?.authProviders || []).map((provider) => {
     if (provider === 'email') return 'Email/password';
     if (provider === 'google') return 'Google';
+    if (provider === 'apple') return 'Apple';
     if (provider === 'phone') return 'Phone';
     return 'Microsoft';
   });

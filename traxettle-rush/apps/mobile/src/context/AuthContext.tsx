@@ -30,6 +30,7 @@ import {
   tryBiometricUnlock,
   verifyPin,
 } from '../services/local-session';
+import type { AppleSignInResult } from '../services/appleSignIn';
 
 interface AuthUser {
   userId: string;
@@ -58,6 +59,7 @@ interface AuthContextType {
   sendEmailLinkSignIn: (email: string) => Promise<void>;
   completeEmailLinkSignIn: (url: string, email?: string) => Promise<void>;
   loginWithGoogle: (idToken: string) => Promise<void>;
+  loginWithApple: (apple: AppleSignInResult) => Promise<void>;
   register: (email: string, password: string, displayName: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -85,6 +87,7 @@ const AuthContext = createContext<AuthContextType>({
   sendEmailLinkSignIn: async () => {},
   completeEmailLinkSignIn: async () => {},
   loginWithGoogle: async () => {},
+  loginWithApple: async () => {},
   register: async () => {},
   logout: async () => {},
   refreshProfile: async () => {},
@@ -312,6 +315,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Same exchange as Google: the API checks Apple's identity token and returns a Firebase custom
+  // token for the account, so Firebase needs no Apple provider set up.
+  const loginWithApple = async ({ identityToken, rawNonce, fullName }: AppleSignInResult) => {
+    try {
+      const { data } = await api.post('/api/auth/apple', { identityToken, rawNonce, fullName });
+      const firebaseCustomToken = data.firebaseCustomToken as string | undefined;
+      if (!firebaseCustomToken) {
+        throw new Error('No Firebase session received from server');
+      }
+      const credential = await signInWithCustomToken(getAuth(), firebaseCustomToken);
+      const token = await credential.user.getIdToken();
+      await setTokens(token, null);
+      await loadUser();
+    } catch (error) {
+      console.error('[AuthContext] Apple login failed', {
+        status: (error as any)?.status,
+        code: (error as any)?.code,
+        message: (error as any)?.message,
+      });
+      throw error;
+    }
+  };
+
   const register = async (email: string, password: string, displayName: string) => {
     const normalizedEmail = email.trim().toLowerCase();
     const auth = getAuth();
@@ -482,6 +508,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sendEmailLinkSignIn,
         completeEmailLinkSignIn,
         loginWithGoogle,
+        loginWithApple,
         register,
         logout,
         refreshProfile,

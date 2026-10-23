@@ -40,7 +40,7 @@ type UserProfile = {
   email: string;
   phoneNumber?: string;
   photoURL?: string;
-  authProviders?: ('email' | 'google' | 'microsoft' | 'phone')[];
+  authProviders?: ('email' | 'google' | 'apple' | 'microsoft' | 'phone')[];
   hasPassword?: boolean;
   tier: 'free' | 'pro';
   internalTester?: boolean;
@@ -495,6 +495,7 @@ export default function ProfilePage() {
   const providerLabels = (profile?.authProviders || []).map((provider) => {
     if (provider === 'email') return 'Email/password';
     if (provider === 'google') return 'Google';
+    if (provider === 'apple') return 'Apple';
     if (provider === 'phone') return 'Phone';
     return 'Microsoft';
   });

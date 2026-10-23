@@ -2,6 +2,7 @@ import { User, TokenPair } from '@traxettle/shared';
 import { auth, db } from '../config/firebase';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
+import { AppleAuthError, AppleAuthService } from './apple-auth.service';
 
 type TokenPayload = {
   userId: string;
@@ -28,6 +29,7 @@ function getJwtRefreshSecret(): string {
 
 export class AuthService {
   private auth = auth;
+  private appleAuth = new AppleAuthService();
   private getSessionRef(userId: string, sessionId: string) {
     return db.collection('users').doc(userId).collection('sessions').doc(sessionId);
   }
@@ -125,6 +127,53 @@ export class AuthService {
       const reason = error?.message || 'Unknown reason';
       throw new Error(`Google sign-in failed: ${reason}`);
     }
+  }
+
+  /**
+   * Sign in with Apple: verify Apple's identity token, then find the account by its Apple id, or by
+   * a verified email it shares with an existing account (linking Apple to it), or create one.
+   * Apple sends the person's name only on their first authorization, so it's passed in then.
+   */
+  async signInWithApple(params: { identityToken: string; rawNonce: string; fullName?: string | null }): Promise<User> {
+    const identity = await this.appleAuth.verifyIdentityToken(params.identityToken, params.rawNonce);
+    const appUid = `apple-${identity.sub}`;
+    const name = params.fullName?.trim() || '';
+
+    let user = (await this.findUserByAppleSub(identity.sub)) || (await this.findUserById(appUid));
+    if (!user && identity.email && identity.emailVerified) {
+      user = await this.findUserByEmail(identity.email);
+    }
+
+    if (!user) {
+      if (!identity.email) {
+        throw new AppleAuthError("Apple didn't share an email address for this account. Please try again.", 400);
+      }
+      user = await this.createUser({
+        uid: appUid,
+        email: identity.email,
+        // A private relay address makes a poor name; ask Apple users to set one on their profile.
+        displayName: name || (identity.isPrivateEmail ? 'Traxettle user' : identity.email.split('@')[0]),
+        photoURL: '',
+        provider: 'apple',
+      });
+    } else if (!user.authProviders.includes('apple')) {
+      user = await this.updateUser(user.id, {
+        authProviders: Array.from(new Set([...(user.authProviders || []), 'apple'])) as any,
+      });
+    }
+    await db.collection('users').doc(user.id).set({ appleSub: identity.sub }, { merge: true });
+    return user;
+  }
+
+  /** Revokes the user's Sign in with Apple authorization (required when an account is deleted). */
+  async revokeAppleAuthorization(authorizationCode: string): Promise<void> {
+    await this.appleAuth.revokeWithAuthorizationCode(authorizationCode);
+  }
+
+  private async findUserByAppleSub(sub: string): Promise<User | null> {
+    const snap = await db.collection('users').where('appleSub', '==', sub).limit(1).get();
+    if (snap.empty) return null;
+    return this.findUserById(snap.docs[0].id);
   }
 
   async signInWithMicrosoft(token: string): Promise<User> {
