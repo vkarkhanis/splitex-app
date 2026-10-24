@@ -53,6 +53,7 @@
   "dependencies": {
     "@babel/runtime": "^7.24.0",
     "@react-native-async-storage/async-storage": "~2.2.0",
+    "@react-native-community/datetimepicker": "~9.1.0",
     "@react-native-google-signin/google-signin": "^12.2.0",
     "@react-native/community-cli-plugin": "0.81.5",
     "@react-native/gradle-plugin": "0.81.5",

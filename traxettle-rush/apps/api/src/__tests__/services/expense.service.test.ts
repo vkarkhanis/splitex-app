@@ -147,6 +147,36 @@ describe('ExpenseService - calculateRatioSplits', () => {
   });
 });
 
+describe('ExpenseService - createExpense date', () => {
+  const service = new ExpenseService();
+
+  const baseDto = {
+    eventId: 'e1',
+    title: 'Dinner',
+    amount: 100,
+    currency: 'USD',
+    splitType: 'equal' as const,
+    splits: [{ entityType: 'user' as const, entityId: 'u1', amount: 100 }],
+  };
+
+  it('defaults date to today (YYYY-MM-DD) when omitted', async () => {
+    const { db } = require('../../config/firebase');
+    db.collection.mockReturnValue({ add: jest.fn().mockResolvedValue({ id: 'mock-id' }) });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const expense = await service.createExpense('u1', { ...baseDto } as any);
+    expect(expense.date).toBe(today);
+  });
+
+  it('persists an explicitly provided date', async () => {
+    const { db } = require('../../config/firebase');
+    db.collection.mockReturnValue({ add: jest.fn().mockResolvedValue({ id: 'mock-id' }) });
+
+    const expense = await service.createExpense('u1', { ...baseDto, date: '2026-08-27' } as any);
+    expect(expense.date).toBe('2026-08-27');
+  });
+});
+
 describe('ExpenseService - updateExpense authorization', () => {
   const service = new ExpenseService();
 

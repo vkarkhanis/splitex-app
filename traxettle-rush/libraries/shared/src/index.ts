@@ -247,6 +247,8 @@ export interface Expense {
   poolDraw?: PoolDrawState;
   /** Limits this expense breached when it was recorded after the fact. */
   poolFlags?: PoolExpenseFlag[];
+  /** Date the expense occurred, as a date-only string (YYYY-MM-DD). Falls back to createdAt for legacy records. */
+  date?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -283,6 +285,8 @@ export interface CreateExpenseDto {
    * always recorded (and flagged) even past the overdraft limit.
    */
   alreadyIncurred?: boolean;
+  /** Date the expense occurred (YYYY-MM-DD). Defaults to the current date if omitted. */
+  date?: string;
 }
 
 // Settlement Types
@@ -555,6 +559,8 @@ export interface UpdateExpenseDto {
   paidOnBehalfOf?: OnBehalfOfEntry[] | null;
   /** Pool draws: see CreateExpenseDto.alreadyIncurred. */
   alreadyIncurred?: boolean;
+  /** Date the expense occurred (YYYY-MM-DD). */
+  date?: string;
 }
 
 export enum InvitationStatus {

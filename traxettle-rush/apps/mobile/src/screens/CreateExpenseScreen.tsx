@@ -19,6 +19,8 @@ import type { EventFundingModel, EventParticipant, ExpenseFundingSource, Group, 
 import { canRecordAnyway, isReceiptRequired, poolErrorText, poolNoun, resolveFundingModel, toMinor, toPoolError } from '@traxettle/shared';
 import { PaidWithSelector, ReceiptPicker } from '../components/pool/PoolViews';
 import { poolService } from '../services/pool';
+import DateField from '../components/DateField';
+import { todayLocalISODate } from '../utils/date';
 
 interface SplitEntry {
   entityId: string;
@@ -66,6 +68,7 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(todayLocalISODate());
   const [expCurrency, setExpCurrency] = useState(currency || 'USD');
   const [splitType, setSplitType] = useState<'equal' | 'ratio' | 'custom'>('equal');
   const [isPrivate, setIsPrivate] = useState(false);
@@ -269,6 +272,7 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
         description: description.trim() || undefined,
         amount: amt,
         currency: expCurrency,
+        date,
         splitType,
         isPrivate,
         splits,
@@ -331,6 +335,9 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
           <TextInput testID="create-expense-amount-input" style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} />
         </View>
       </View>
+
+      <Text style={[styles.label, { color: c.textSecondary }]}>Date</Text>
+      <DateField testID="create-expense-date-input" value={date} onChange={setDate} />
 
       <ReceiptPicker eventId={eventId} value={receipts} onChange={setReceipts}
         required={isReceiptRequired(poolConfig, paidWith, (() => { const n = parseFloat(amount); return Number.isFinite(n) && n > 0 ? toMinor(n, expCurrency) : 0; })())} />

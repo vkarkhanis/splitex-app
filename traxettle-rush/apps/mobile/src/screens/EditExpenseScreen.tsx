@@ -18,6 +18,8 @@ import { api } from '../api';
 import type { EventParticipant, Group, OnBehalfOfEntry, Expense, ExpenseFundingSource } from '@traxettle/shared';
 import { canRecordAnyway, isPoolFundedExpense, poolErrorText, toPoolError } from '@traxettle/shared';
 import { ReceiptPicker } from '../components/pool/PoolViews';
+import DateField from '../components/DateField';
+import { todayLocalISODate, toLocalISODate, parseLocalDate } from '../utils/date';
 
 interface SplitEntry {
   entityId: string;
@@ -65,6 +67,7 @@ export default function EditExpenseScreen({ route, navigation }: any) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(todayLocalISODate());
   const [expCurrency, setExpCurrency] = useState(currency || 'USD');
   const [splitType, setSplitType] = useState<'equal' | 'ratio' | 'custom'>('equal');
   const [isPrivate, setIsPrivate] = useState(false);
@@ -108,6 +111,9 @@ export default function EditExpenseScreen({ route, navigation }: any) {
       setExpCurrency(expense.currency);
       setSplitType(expense.splitType);
       setIsPrivate(expense.isPrivate);
+      // Prefer the stored date; fall back to createdAt for legacy expenses.
+      const createdLocal = parseLocalDate(expense.createdAt as any);
+      setDate(expense.date || (createdLocal ? toLocalISODate(createdLocal) : todayLocalISODate()));
 
       // On behalf of
       if (expense.paidOnBehalfOf && Array.isArray(expense.paidOnBehalfOf) && expense.paidOnBehalfOf.length > 0) {
@@ -286,6 +292,7 @@ export default function EditExpenseScreen({ route, navigation }: any) {
         description: description.trim() || undefined,
         amount: amt,
         currency: expCurrency,
+        date,
         splitType,
         isPrivate,
         splits,
@@ -348,6 +355,9 @@ export default function EditExpenseScreen({ route, navigation }: any) {
           <TextInput style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} />
         </View>
       </View>
+
+      <Text style={[styles.label, { color: c.textSecondary }]}>Date</Text>
+      <DateField testID="edit-expense-date-input" value={date} onChange={setDate} />
 
       <ReceiptPicker eventId={eventId} value={receipts} onChange={setReceipts} required={fundingSource === 'pool_reimbursement'} />
 

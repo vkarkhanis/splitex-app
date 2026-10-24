@@ -52,6 +52,7 @@ import type { PoolCycleSummary } from '@traxettle/shared';
 import { poolService } from '../services/pool';
 import { PoolMeterView } from '../components/pool/PoolViews';
 import { FxRatesAttribution } from '../components/FxRatesAttribution';
+import { formatExpenseDate } from '../utils/date';
 
 // ── Helpers ──
 
@@ -274,6 +275,14 @@ export default function EventDetailScreen({ route, navigation }: any) {
     }, 0);
   }, [visibleExpenses, currentUserId, myEntityId]);
   const myPrivateExpense = useMemo(() => visibleExpenses.filter(e => e.isPrivate).reduce((s, e) => s + e.amount, 0), [visibleExpenses]);
+
+  // ── Expenses list filter: optionally hide private expenses ──
+  const [excludePrivate, setExcludePrivate] = useState(false);
+  const hasPrivateExpenses = useMemo(() => visibleExpenses.some(e => e.isPrivate), [visibleExpenses]);
+  const displayedExpenses = useMemo(
+    () => (excludePrivate ? visibleExpenses.filter(e => !e.isPrivate) : visibleExpenses),
+    [excludePrivate, visibleExpenses],
+  );
 
   // ── Event Actions ──
   const handleEditEvent = async () => {
@@ -1022,7 +1031,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                 onPress={() => setActiveTab(tab)}
               >
                 <Text style={[styles.tabText, { color: colors.muted }, activeTab === tab && [styles.tabTextActive, { color: colors.primary }]]}>
-                  {tab === 'expenses' ? `Expenses (${visibleExpenses.length})`
+                  {tab === 'expenses' ? `Expenses (${displayedExpenses.length})`
                     : tab === 'participants' ? `Members (${participants.length})`
                     : tab === 'groups' ? `Groups (${groups.length})`
                     : `Invites (${invitations.length})`}
@@ -1060,10 +1069,25 @@ export default function EventDetailScreen({ route, navigation }: any) {
                   </TouchableOpacity>
                 </View>
               )}
-              {visibleExpenses.length === 0 ? (
-                <Text style={[styles.emptyText, { color: colors.muted }]}>No expenses yet.</Text>
+              {hasPrivateExpenses && (
+                <TouchableOpacity
+                  testID="event-detail-exclude-private-toggle"
+                  style={styles.filterRow}
+                  activeOpacity={0.7}
+                  onPress={() => setExcludePrivate(v => !v)}
+                >
+                  <View style={[styles.filterCheckbox, { borderColor: colors.border }, excludePrivate && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
+                    {excludePrivate && <Text style={[styles.filterCheckmark, { color: colors.white }]}>✓</Text>}
+                  </View>
+                  <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>Exclude private</Text>
+                </TouchableOpacity>
+              )}
+              {displayedExpenses.length === 0 ? (
+                <Text style={[styles.emptyText, { color: colors.muted }]}>
+                  {excludePrivate && visibleExpenses.length > 0 ? 'No shared expenses.' : 'No expenses yet.'}
+                </Text>
               ) : (
-                visibleExpenses.map(exp => (
+                displayedExpenses.map(exp => (
                   <TouchableOpacity
                     key={exp.id}
                     style={[styles.listCard, { backgroundColor: colors.surface }]}
@@ -1082,7 +1106,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                         {renderPayBackBadge(exp)}
                       </View>
                       <Text style={[styles.listCardSub, { color: colors.muted }]}>
-                        {isPoolFundedExpense(exp)
+                        {formatExpenseDate(exp.date, exp.createdAt as any)} · {isPoolFundedExpense(exp)
                           ? `${exp.fundingSource === 'pool' ? 'Paid from the pool' : 'Claimed from the pool'} by ${getUserName(exp.paidBy)}`
                           : `Paid by ${getUserName(exp.paidBy)} · ${exp.paidOnBehalfOf && Array.isArray(exp.paidOnBehalfOf) && exp.paidOnBehalfOf.length > 0 ? 'On Behalf' : exp.splitType.charAt(0).toUpperCase() + exp.splitType.slice(1)}`}
                         {exp.attachments?.length ? ` · ${exp.attachments.length} receipt(s)` : ''}
@@ -1649,6 +1673,10 @@ export default function EventDetailScreen({ route, navigation }: any) {
                     </Text>
                   </View>
                   <View style={styles.expDetailMetaRow}>
+                    <Text style={[styles.expDetailLabel, { color: colors.muted }]}>Date</Text>
+                    <Text style={[styles.expDetailValue, { color: colors.text }]}>{formatExpenseDate(selectedExpense.date, selectedExpense.createdAt as any)}</Text>
+                  </View>
+                  <View style={styles.expDetailMetaRow}>
                     <Text style={[styles.expDetailLabel, { color: colors.muted }]}>Paid by</Text>
                     <Text style={[styles.expDetailValue, { color: colors.text }]}>{getUserName(selectedExpense.paidBy)}</Text>
                   </View>
@@ -1839,10 +1867,20 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
   },
   highlightCard: { borderWidth: 1 },
+  filterRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+  filterCheckbox: {
+    width: 20, height: 20, borderRadius: 4, borderWidth: 2,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  filterCheckmark: { fontSize: 12, fontWeight: '700' },
+  filterLabel: { fontSize: fontSizes.sm, fontWeight: '600' },
   listCardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  listCardTitle: { fontSize: fontSizes.md, fontWeight: '600' },
+  // flexShrink lets a long title ellipsize (with numberOfLines) responsively on
+  // any screen width instead of overflowing and overlapping the amount.
+  listCardTitle: { fontSize: fontSizes.md, fontWeight: '600', flexShrink: 1 },
   listCardSub: { fontSize: fontSizes.xs, marginTop: 2 },
-  amountText: { fontSize: fontSizes.md, fontWeight: '700' },
+  // amount keeps its intrinsic width so it is never shrunk or overlapped.
+  amountText: { fontSize: fontSizes.md, fontWeight: '700', flexShrink: 0 },
   inlineActions: { flexDirection: 'row', gap: spacing.xs, alignItems: 'center', marginLeft: spacing.xs },
   tinyBtn: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radii.sm, borderWidth: 1 },
   tinyBtnText: { fontSize: fontSizes.xs, fontWeight: '600' },

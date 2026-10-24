@@ -45,6 +45,8 @@ export class ExpenseService {
       splitType: dto.splitType,
       splits: dto.isPrivate ? [] : (dto.splits || []),
       attachments: dto.attachments || [],
+      // Date the expense occurred (date-only, YYYY-MM-DD). Defaults to today (server date) when omitted.
+      date: dto.date || now.slice(0, 10),
       createdAt: now,
       updatedAt: now,
     };
@@ -95,6 +97,7 @@ export class ExpenseService {
       splits: data.splits || [],
       attachments: data.attachments || [],
       ...poolFields(data),
+      date: data.date,
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
     } as Expense;
@@ -123,6 +126,7 @@ export class ExpenseService {
         splits: data.splits || [],
         attachments: data.attachments || [],
         ...poolFields(data),
+        date: data.date,
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
       } as Expense;
@@ -165,6 +169,7 @@ export class ExpenseService {
     if (dto.splits !== undefined) updates.splits = dto.splits;
     if (dto.attachments !== undefined) updates.attachments = dto.attachments;
     if (dto.isPrivate !== undefined) updates.isPrivate = dto.isPrivate;
+    if (dto.date !== undefined) updates.date = dto.date;
     if (dto.paidOnBehalfOf !== undefined) {
       // null clears the field, array sets it
       updates.paidOnBehalfOf = dto.paidOnBehalfOf || [];
