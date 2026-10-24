@@ -189,7 +189,7 @@ Use `.env.example` as base. This table summarizes **why** each key exists.
 | Variable | Purpose |
 |---|---|
 | `REVENUECAT_WEBHOOK_SECRET` | Webhook signature validation |
-| `REVENUECAT_PRO_ENTITLEMENT_KEY` | Entitlement mapping key (`pro`) |
+| `REVENUECAT_PRO_ENTITLEMENT_KEY` | Entitlement mapping key (`traxettle-pro`) |
 
 Full RevenueCat runbook:
 - `../traxettle-app/docs/utility/REVENUECAT_INTEGRATION_RUNBOOK.md`

@@ -1,4 +1,15 @@
 export { isStrongPassword, PASSWORD_RULE_MESSAGE } from './passwordRules';
+export * from './pool';
+export * from './pool-math';
+export * from './pool-ui';
+import type {
+  CreatePoolConfigDto,
+  EventFundingModel,
+  ExpenseFundingSource,
+  PoolConfig,
+  PoolDrawState,
+  PoolExpenseFlag,
+} from './pool';
 
 // User Types
 export interface User {
@@ -7,7 +18,7 @@ export interface User {
   phoneNumber: string;
   displayName: string;
   photoURL?: string;
-  authProviders: ('email' | 'google' | 'microsoft' | 'phone')[];
+  authProviders: ('email' | 'google' | 'apple' | 'microsoft' | 'phone')[];
   preferences: UserPreferences;
   createdAt: Date;
   updatedAt: Date;
@@ -25,6 +36,20 @@ export type EntitlementSource = 'revenuecat' | 'manual_override' | 'system';
 
 export interface UserCapabilities {
   multiCurrencySettlement: boolean;
+}
+
+/**
+ * Pro that is paid up (or inside the store's grace period). The API applies this one rule to
+ * every Pro limit; apps use it on profile data so they never offer what the API will refuse.
+ * A lapsed subscription can still read `tier: 'pro'` with status `expired`.
+ */
+export function hasActivePro(entitlement: {
+  tier?: string | null;
+  entitlementStatus?: string | null;
+}): boolean {
+  if (entitlement.tier !== 'pro') return false;
+  const status = entitlement.entitlementStatus || 'active';
+  return status === 'active' || status === 'grace_period';
 }
 
 export type PaymentMethodType = 'upi' | 'bank' | 'paypal' | 'wise' | 'swift' | 'other';
@@ -46,7 +71,7 @@ export interface UserProfile {
   email: string;
   phoneNumber?: string;
   photoURL?: string;
-  authProviders?: ('email' | 'google' | 'microsoft' | 'phone')[];
+  authProviders?: ('email' | 'google' | 'apple' | 'microsoft' | 'phone')[];
   hasPassword?: boolean;
   tier: PlanTier;
   entitlementStatus: EntitlementStatus;
@@ -78,6 +103,10 @@ export interface Event {
   settlementApprovals?: Record<string, SettlementApproval>;
   /** True when expenses have been modified after settlement generation but before all approvals */
   settlementStale?: boolean;
+  /** Absent ⇒ 'peer_to_peer'. Never written on peer-to-peer events. */
+  fundingModel?: EventFundingModel;
+  /** Present only when fundingModel is 'pool' or 'hybrid'. */
+  poolConfig?: PoolConfig;
   createdBy: string;
   admins: string[];
   createdAt: Date;
@@ -93,6 +122,49 @@ export interface EventParticipant {
   joinedAt: Date;
   invitedBy: string;
   status: 'pending' | 'accepted' | 'declined';
+  /** The account was deleted; the record stays (anonymised) because expenses and payments refer to it. */
+  deleted?: boolean;
+}
+
+/** Shown to other participants in place of a deleted account's name. */
+export const DELETED_USER_NAME = 'Deleted user';
+
+/** What is still unsettled for one user in one event (amounts in the event's currency, ≥ 0). */
+export interface OutstandingBalance {
+  eventId: string;
+  eventName: string;
+  currency: string;
+  /** What the user still owes. */
+  owes: number;
+  /** What others still owe the user. */
+  owed: number;
+}
+
+const MONEY_SYMBOLS: Record<string, string> = { USD: '$', EUR: '€', GBP: '£', INR: '₹', JPY: '¥', AUD: 'A$', CAD: 'C$' };
+
+/** "₹1,200.00" (no decimals for JPY); unknown currencies get their code, e.g. "CHF 5.00". */
+export function formatMoney(amount: number, currency: string): string {
+  const [whole, decimals] = Math.abs(amount).toFixed(currency === 'JPY' ? 0 : 2).split('.');
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const symbol = MONEY_SYMBOLS[currency] ?? `${currency} `;
+  return `${amount < 0 ? '-' : ''}${symbol}${grouped}${decimals ? `.${decimals}` : ''}`;
+}
+
+/**
+ * The warning shown before deleting an account when amounts are still unsettled, or null.
+ * Deleting stays possible: it's a reminder, not a block (the app tracks money, it doesn't collect it).
+ */
+export function accountDeletionWarning(items: OutstandingBalance[]): string | null {
+  const lines = items.flatMap((item) => [
+    ...(item.owes > 0 ? [`${item.eventName}: you owe ${formatMoney(item.owes, item.currency)}`] : []),
+    ...(item.owed > 0 ? [`${item.eventName}: you're owed ${formatMoney(item.owed, item.currency)}`] : []),
+  ]);
+  if (lines.length === 0) return null;
+  return (
+    `You still have unsettled amounts:\n${lines.map((line) => `• ${line}`).join('\n')}\n\n` +
+    `Deleting your account won't settle them. Others will see you as "${DELETED_USER_NAME}", ` +
+    'and an event admin can close these payments as paid or written off.'
+  );
 }
 
 export interface SettlementApproval {
@@ -112,6 +184,9 @@ export interface CreateEventDto {
   settlementCurrency?: string;
   fxRateMode?: 'predefined' | 'eod';
   predefinedFxRates?: Record<string, number>;
+  /** Omit for today's split-expenses behaviour. */
+  fundingModel?: EventFundingModel;
+  pool?: CreatePoolConfigDto;
 }
 
 export interface ParticipantDto {
@@ -165,6 +240,13 @@ export interface Expense {
   splits: ExpenseSplit[];
   selectedEntities?: SplitEntity[];
   attachments: string[];
+  /** Absent ⇒ 'self' (today's behaviour). */
+  fundingSource?: ExpenseFundingSource;
+  poolCycleId?: string;
+  /** Approval state for pool-funded expenses. Only approved draws deduct. */
+  poolDraw?: PoolDrawState;
+  /** Limits this expense breached when it was recorded after the fact. */
+  poolFlags?: PoolExpenseFlag[];
   /** Date the expense occurred, as a date-only string (YYYY-MM-DD). Falls back to createdAt for legacy records. */
   date?: string;
   createdAt: Date;
@@ -196,6 +278,13 @@ export interface CreateExpenseDto {
   attachments?: string[];
   isPrivate?: boolean;
   paidOnBehalfOf?: OnBehalfOfEntry[];
+  /** Omit for 'self'. Pool events require 'pool' or 'pool_reimbursement'. */
+  fundingSource?: ExpenseFundingSource;
+  /**
+   * Pool draws: true when the money has already been spent. Such draws are
+   * always recorded (and flagged) even past the overdraft limit.
+   */
+  alreadyIncurred?: boolean;
   /** Date the expense occurred (YYYY-MM-DD). Defaults to the current date if omitted. */
   date?: string;
 }
@@ -242,15 +331,89 @@ export interface Settlement {
   rejectedAt?: Date;
   payeePaymentMethods?: UserPaymentMethod[];
   auditTrail?: SettlementAuditEntry[];
+  /**
+   * Absent ⇒ 'standard' (part of the event's settlement plan). Pool legs live
+   * alongside the plan without driving the event lifecycle.
+   */
+  kind?: SettlementKind;
+  poolCycleId?: string;
+  /** pool_reimbursement: the expense being reimbursed. */
+  expenseId?: string;
   initiatedAt?: Date;
   createdAt: Date;
   failedAt?: Date;
   completedAt?: Date;
+  /**
+   * Closed by an event admin because one side deleted their account: 'paid' records the money
+   * changed hands; 'written_off' records it didn't. Either way the payment counts as done.
+   */
+  closedForDeletedUser?: { outcome: 'paid' | 'written_off'; by: string; at: string };
+}
+
+/**
+ * The participant who deleted their account on one side of this payment, if any. Such a
+ * payment can't finish the usual way (they can't pay or confirm), so an admin may close it.
+ */
+export function deletedPaymentParty<P extends { userId: string; deleted?: boolean }>(
+  leg: Pick<Settlement, 'fromUserId' | 'toUserId'>,
+  participants: P[],
+): P | null {
+  return participants.find((p) => p.deleted && (p.userId === leg.fromUserId || p.userId === leg.toUserId)) ?? null;
+}
+
+export type SettlementKind = 'standard' | 'pool_reimbursement' | 'pool_cycle' | 'pool_member_exit';
+
+/** Legs that belong to an active pool rather than the event's final settlement. */
+export function isPoolSideLeg(settlement: { kind?: SettlementKind | null } | null | undefined): boolean {
+  const kind = settlement?.kind ?? 'standard';
+  return kind === 'pool_reimbursement' || kind === 'pool_cycle' || kind === 'pool_member_exit';
+}
+
+type PoolLegLike = Pick<Settlement, 'kind' | 'status' | 'fromUserId' | 'toUserId'>;
+
+/** Pool payments waiting on a user: ones they must pay, and ones paid to them awaiting their confirmation. */
+export function poolPaymentActions<T extends PoolLegLike>(
+  settlements: T[],
+  userId: string | null | undefined,
+): { toPay: T[]; toConfirm: T[] } {
+  const legs = userId ? settlements.filter((s) => isPoolSideLeg(s)) : [];
+  return {
+    toPay: legs.filter((s) => s.fromUserId === userId && (s.status === 'pending' || s.status === 'failed')),
+    toConfirm: legs.filter((s) => s.toUserId === userId && s.status === 'initiated'),
+  };
+}
+
+/**
+ * Credit that ExchangeRate-API's free service (open.er-api.com, the API's end-of-day
+ * rates) requires on every page that shows its rates.
+ */
+export const FX_RATES_ATTRIBUTION = {
+  text: 'Rates By Exchange Rate API',
+  url: 'https://www.exchangerate-api.com',
+} as const;
+
+/**
+ * Whether any of these settlement legs shows a rate from the end-of-day provider, so the
+ * page needs FX_RATES_ATTRIBUTION. Mirrors the API: a predefined event uses the group's own
+ * rate for a pair it set (either direction) and the provider for any other pair.
+ */
+export function showsProviderFxRates(
+  event: { fxRateMode?: 'predefined' | 'eod'; predefinedFxRates?: Record<string, number> } | null | undefined,
+  legs: Array<Pick<Settlement, 'currency' | 'settlementCurrency' | 'fxRate'>>,
+): boolean {
+  return legs.some((leg) => {
+    if (typeof leg.fxRate !== 'number' || !leg.settlementCurrency || leg.settlementCurrency === leg.currency) {
+      return false;
+    }
+    if (event?.fxRateMode !== 'predefined') return true;
+    const rates = event.predefinedFxRates ?? {};
+    return !rates[`${leg.currency}_${leg.settlementCurrency}`] && !rates[`${leg.settlementCurrency}_${leg.currency}`];
+  });
 }
 
 export interface SettlementAuditEntry {
   id: string;
-  action: 'created' | 'marked_paid' | 'confirmed' | 'rejected' | 'retry_requested';
+  action: 'created' | 'marked_paid' | 'confirmed' | 'rejected' | 'retry_requested' | 'closed_by_admin';
   actorUserId: string;
   note?: string;
   referenceId?: string;
@@ -394,6 +557,8 @@ export interface UpdateExpenseDto {
   attachments?: string[];
   isPrivate?: boolean;
   paidOnBehalfOf?: OnBehalfOfEntry[] | null;
+  /** Pool draws: see CreateExpenseDto.alreadyIncurred. */
+  alreadyIncurred?: boolean;
   /** Date the expense occurred (YYYY-MM-DD). */
   date?: string;
 }
@@ -521,7 +686,7 @@ export interface LoginRequest {
   identifier: string; // email or phone
   password?: string;
   otp?: string;
-  provider?: 'google' | 'microsoft' | 'phone';
+  provider?: 'google' | 'apple' | 'microsoft' | 'phone';
 }
 
 export interface RegisterRequest {
@@ -529,5 +694,5 @@ export interface RegisterRequest {
   phoneNumber: string;
   displayName: string;
   password?: string;
-  provider?: 'google' | 'microsoft' | 'phone';
+  provider?: 'google' | 'apple' | 'microsoft' | 'phone';
 }

@@ -116,15 +116,17 @@ gcloud run deploy traxettle-web-production \
 ### Steps
 
 ```bash
-# 1. Bump version (if needed)
-#    Edit apps/mobile/app.json: increment "version"
-#    Edit apps/mobile/android/app/build.gradle: increment versionCode
+# 1. Version: nothing to edit. The build sets the version it shares with iOS and a new
+#    versionCode (see "Versions" below). For a feature release, first run:
+#    npm run version:bump -- minor
 
-# 2. Build the signed .aab
+# 2. Build the signed .aab. It's the production build: you upload it to internal
+#    testing, then promote the same release to production. Testers switch to
+#    staging by tapping "Traxettle" 7 times on the sign-in screen.
 cd apps/mobile
-rushx build:android:staging
+rushx build:android:production
 # Or directly:
-# bash scripts/build-android.sh staging
+# bash scripts/build-android.sh production
 
 # 3. Output location
 #    apps/mobile/android/app/build/outputs/bundle/release/app-release.aab
@@ -148,7 +150,7 @@ rushx build:android:debug:staging
 ## 4. Android — Production (Play Store)
 
 ```bash
-# 1. Bump versionCode and version in app.json + build.gradle
+# 1. Version: set by the build (see "Versions" below)
 
 # 2. Build production .aab
 cd apps/mobile
@@ -170,68 +172,97 @@ rushx build:android:production
 
 ## 5. iOS — TestFlight (Internal Testing)
 
-### Prerequisites
-- macOS with Xcode installed
-- Apple Developer account enrolled
-- `GoogleService-Info.staging.plist` in `apps/mobile/`
-- CocoaPods (`gem install cocoapods`)
+There is **one iOS build for every environment**. Release builds choose the API at runtime:
 
-### Steps
+- **Production by default.** The TestFlight build is the exact binary you later promote to the App Store (section 6), so it is built with production settings.
+- **Staging on request.** Testers tap **"Traxettle" 7 times on the sign-in screen** (also on Register and Forgot password) to switch between Staging and Production; the app reloads. Signed in, the same switch is under Profile → tap **"Traxettle v…" 7 times** → Developer (Hidden) → *Switch to Staging API*.
+
+The `EXPO_PUBLIC_API_URL` baked into a build only affects development builds. Deploy the API the testers will use (staging and/or production) before they test new features.
+
+### Prerequisites (one-time)
+- macOS with Xcode and CocoaPods (`gem install cocoapods`)
+- Apple Developer account enrolled, and its Apple ID added in Xcode → Settings → Accounts
+- App ID `com.traxettle.app` registered (developer.apple.com → Identifiers) and the app created in App Store Connect
+- Your 10-character Apple Team ID (developer.apple.com → Membership, or `tools/doctor-tool/scripts/doctor-apple-team.sh`)
+- `GoogleService-Info.staging.plist` in `apps/mobile/` (the production profile still uses it; see the Google sign-in note below) and `rc_prod.properties` (or `rc_production.properties`) in the repo root. Its Apple key is optional; without it Pro purchases don't work in the build.
+
+> Google sign-in: the Google client IDs are fixed at build time, and the production settings in `scripts/build-ios.sh` still use the staging IDs (marked TODO). Check Google sign-in against production before releasing; email/password sign-in is unaffected.
+
+### Build and upload (one command)
 
 ```bash
-# 1. Generate native iOS project
 cd apps/mobile
-rushx prebuild:ios
-# Or: expo prebuild --platform ios --clean
-
-# 2. Install pods
-cd ios
-pod install
-cd ..
-
-# 3. Open in Xcode
-open ios/Traxettle.xcworkspace
-
-# 4. In Xcode:
-#    - Select "Traxettle" target
-#    - Set Bundle Identifier: com.traxettle.app
-#    - Select your Team (Apple Developer account)
-#    - Set version and build number
-#    - Select "Any iOS Device (arm64)" as destination
-#    - Product → Archive
-#
-# 5. In Organizer (Window → Organizer):
-#    - Select the archive
-#    - Click "Distribute App"
-#    - Choose "App Store Connect"
-#    - Upload
-#
-# 6. In App Store Connect:
-#    - Go to TestFlight tab
-#    - The build appears after processing (~15 min)
-#    - Add internal/external testers
-#    - Submit for Beta App Review (external testers only)
+APPLE_TEAM_ID=ABCDE12345 bash scripts/build-ios.sh testflight
+# or: APPLE_TEAM_ID=ABCDE12345 npm run build:ios:testflight
 ```
 
-### EAS Build Alternative
+The script writes the production settings (`.env`, restored afterwards), copies the
+Firebase plist, runs `expo prebuild --clean`, archives a Release build with `xcodebuild`
+and uploads it to App Store Connect. The version is shared with Android (see "Versions"
+below), and each run gets a new build number (`yymmddHHMM`; override with `IOS_BUILD_NUMBER`). The archive is kept in Xcode's Organizer, so a failed
+upload can be retried from there. To sign without an Xcode account (e.g. on CI), set
+`ASC_KEY_PATH`, `ASC_KEY_ID` and `ASC_KEY_ISSUER_ID` for an App Store Connect API key.
+
+Automatic signing archives with a development profile, which needs a registered iPhone or
+iPad on the team ("Your team has no devices from which to generate a provisioning profile").
+Without a device, sign with your App Store profile instead:
+
 ```bash
-# Using Expo Application Services (cloud build)
-cd apps/mobile
-eas build --platform ios --profile staging
-# Follow prompts for Apple credentials
-# Download .ipa from EAS dashboard and upload to App Store Connect
+IOS_PROVISIONING_PROFILE="<profile name>" APPLE_TEAM_ID=ABCDE12345 npm run build:ios:testflight
 ```
+
+The Mac needs the profile installed (download it from Certificates, Identifiers & Profiles →
+Profiles and double-click it) and the **Apple Distribution** certificate with its private key
+in the keychain. A downloaded profile doesn't include the key: export the certificate as a
+`.p12` from the Mac that created it (Keychain Access → My Certificates → Export) and
+double-click it on the other Mac. The script checks both before building.
+`plugins/ios-release-signing.js` applies the profile to the app's Release build only.
+
+Then, in App Store Connect → TestFlight: the build appears after processing (~10–30 min).
+Add internal testers (no review), or external testers (needs Beta App Review).
+
+### Archive and upload in Xcode instead
+
+```bash
+cd apps/mobile
+IOS_PROVISIONING_PROFILE="<profile name>" APPLE_TEAM_ID=ABCDE12345 bash scripts/build-ios.sh xcode
+```
+
+`xcode` does everything `testflight` does before archiving (production settings, Firebase
+plist, version, build number, signing, `expo prebuild --clean`) and opens the workspace in
+Xcode. Then in Xcode: destination **Any iOS Device (arm64)** → **Product → Archive** →
+Organizer → **Distribute App** → **App Store Connect** → **Upload**.
+
+It leaves `apps/mobile/.env` and `src/config/buildEnv.ts` in place, because Xcode bundles the
+JavaScript during the archive and takes the RevenueCat key from them. (Archiving after
+`testflight` has finished would ship without the key: that script restores both files when
+it exits.) When you're done:
+
+```bash
+bash scripts/build-ios.sh xcode-done                 # uploaded: records the version, restores the files
+bash scripts/build-ios.sh xcode-done --not-uploaded  # gave up: restores the files only
+```
+
+Until then the other build commands refuse to run, and `buildEnv.ts` shows as modified: don't
+commit it. If only the upload of a `testflight` run failed, don't use `xcode`: distribute that
+run's archive from Organizer, then run `bash scripts/version.sh record ios <build number>`.
+
+### Why not EAS Build
+EAS cloud builds don't work for this monorepo: EAS installs dependencies with npm, which
+can't resolve Rush's `workspace:` packages (`@traxettle/shared`), and the `.env` the build
+scripts write is gitignored, so it never reaches EAS. The `staging` EAS profile is also an
+ad-hoc ("internal") build, not a TestFlight one.
 
 ---
 
 ## 6. iOS — App Store (Production)
 
-Same as TestFlight but select "App Store" distribution:
+Promote the build you tested in TestFlight; no rebuild is needed. It already uses the
+production API by default (section 5), and the same binary goes to App Store users.
 
 ```bash
-# 1. Prebuild, archive in Xcode (same as above)
-# 2. In Organizer → Distribute App → App Store Connect → Upload
-# 3. In App Store Connect:
+# 1. Upload a build with section 5 (or reuse one already in TestFlight)
+# 2. In App Store Connect:
 #    - Go to App Store tab (not TestFlight)
 #    - Create new version
 #    - Select the uploaded build
@@ -241,18 +272,32 @@ Same as TestFlight but select "App Store" distribution:
 
 ---
 
-## Version Management Checklist
+## Versions
 
-Before any release, update these files:
+iOS and Android ship the same version, and the store builds set it for you:
+`build-ios.sh testflight` and `build-android.sh production` run `scripts/version.sh`
+before building. You don't edit version numbers by hand.
 
-| File | Field | Example |
-|------|-------|---------|
-| `apps/mobile/app.json` | `expo.version` | `1.0.6` |
-| `apps/mobile/android/app/build.gradle` | `versionCode` | `7` |
-| `apps/mobile/android/app/build.gradle` | `versionName` | `1.0.6` |
-| `apps/mobile/package.json` | `version` | `1.0.6` |
+- **The version** (`1.0.34`) lives in `apps/mobile/app.json` (`expo.version`), mirrored in
+  `package.json` and `android/app/build.gradle` (`versionName`).
+- **`release-versions.json`** records what each platform last shipped. A build bumps the
+  patch number only if its platform already shipped the current version. So the first
+  platform of a release moves to `1.0.34`, and the second one ships `1.0.34` too.
+- **Build numbers:** iOS uses `yymmddHHMM`. Android's `versionCode` goes up by one for each
+  `.aab`; Play rejects a `versionCode` it has seen before.
+- **A failed build** isn't recorded, so the next try reuses its version and `versionCode`.
+- **After a successful build**, commit `app.json`, `package.json`, `android/app/build.gradle`
+  and `release-versions.json`, then pull on your other Mac before building there. Otherwise
+  that Mac reuses a version (and Play rejects the repeated `versionCode`).
 
-> **Critical:** `versionCode` must be strictly incremented for every Play Console upload. You cannot re-upload the same `versionCode`.
+Run these in `apps/mobile`:
+
+| Command | What it does |
+|---|---|
+| `npm run version:show` | Current version, what each platform last shipped, what the next builds get |
+| `npm run version:bump -- minor` | Start a feature release (`1.0.34` → `1.1.0`); also `patch`, `major`, or an exact `1.2.0` |
+
+The Profile screen shows the version (`Traxettle v1.0.34`).
 
 ---
 

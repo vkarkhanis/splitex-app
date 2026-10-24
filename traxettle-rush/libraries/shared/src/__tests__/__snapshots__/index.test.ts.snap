@@ -39,6 +39,7 @@ exports[`Shared types - Enums enum/currency public contract snapshot 1`] = `
     "SETTLEMENT_REQUESTED": "settlement_requested",
   },
   "PaymentProvider": {
+    "BILLDESK": "billdesk",
     "RAZORPAY": "razorpay",
     "STRIPE": "stripe",
   },

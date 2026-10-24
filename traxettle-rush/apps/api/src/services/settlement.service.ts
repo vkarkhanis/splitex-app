@@ -1,10 +1,25 @@
-import { Balance, Settlement, SettlementPlan, ExpenseSplit, Group, SettlementApproval } from '@traxettle/shared';
+import { Balance, Settlement, SettlementPlan, ExpenseSplit, Group, SettlementApproval, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg } from '@traxettle/shared';
+import type { OutstandingBalance, SettlementAuditEntry } from '@traxettle/shared';
 import { db } from '../config/firebase';
 import { ExpenseService } from './expense.service';
 import { GroupService } from './group.service';
 import { FxRateService } from './fx-rate.service';
 import { PaymentService } from './payment.service';
 import { EventService } from './event.service';
+import { PoolService } from './pool.service';
+
+/** Sum two balance sets per entity (e.g. peer-to-peer debts + pool positions). */
+export function mergeBalances(a: Balance[], b: Balance[]): Balance[] {
+  const map = new Map<string, Balance>();
+  for (const bal of [...a, ...b]) {
+    const key = `${bal.entityType}:${bal.entityId}`;
+    const prev = map.get(key);
+    map.set(key, { entityId: bal.entityId, entityType: bal.entityType, amount: (prev?.amount || 0) + bal.amount });
+  }
+  return [...map.values()]
+    .map((bal) => ({ ...bal, amount: Math.round(bal.amount * 100) / 100 }))
+    .filter((bal) => Math.abs(bal.amount) > 0.01);
+}
 
 export class SettlementService {
   private collection = 'settlements';
@@ -13,6 +28,7 @@ export class SettlementService {
   private fxRateService = new FxRateService();
   private paymentService = new PaymentService();
   private eventService = new EventService();
+  private poolService = new PoolService();
 
   private async resolveUserLabel(userId: string): Promise<string> {
     try {
@@ -188,7 +204,7 @@ export class SettlementService {
   }
 
   private buildAuditEntry(params: {
-    action: 'created' | 'marked_paid' | 'confirmed' | 'rejected' | 'retry_requested';
+    action: SettlementAuditEntry['action'];
     actorUserId: string;
     note?: string | null;
     referenceId?: string | null;
@@ -253,6 +269,8 @@ export class SettlementService {
     for (const expense of expenses) {
       // Skip private expenses — they are personal records only
       if (expense.isPrivate) continue;
+      // Pool-funded expenses draw down the pool; the pool is reconciled separately.
+      if (isPoolFundedExpense(expense)) continue;
 
       // Determine who paid: resolve to entity level
       // Credit always goes to the actual payer (they spent the money)
@@ -409,15 +427,10 @@ export class SettlementService {
       throw new Error('Forbidden: Only admins can generate settlements');
     }
 
-    // Clear any existing settlements for this event
-    const existingSnap = await db.collection(this.collection).where('eventId', '==', eventId).get();
-    if (!existingSnap.empty) {
-      const batch = db.batch();
-      existingSnap.docs.forEach(doc => batch.delete(doc.ref));
-      await batch.commit();
-    }
+    // Clear any existing plan for this event (pool reimbursement/exit legs are kept)
+    await this.clearStandardSettlements(eventId);
 
-    const balances = await this.calculateEntityBalances(eventId);
+    const balances = await this.calculateBalancesForPlan(eventId, eventData);
     const groups = await this.groupService.getEventGroups(eventId);
     const plan = this.calculateSettlementPlan(balances, eventId, eventData.currency, groups);
 
@@ -482,9 +495,16 @@ export class SettlementService {
 
     // If no payments needed (everyone is even), go directly to 'settled'
     // Otherwise, enter 'review' mode with approvals
-    if (plan.settlements.length === 0) {
+    if (plan.settlements.length === 0 && !(await this.hasOpenPoolSideLegs(eventId, eventData))) {
       await db.collection('events').doc(eventId).set(
         { status: 'settled', updatedAt: now, lastSettlementGeneratedAt: now, settlementApprovals: {}, settlementStale: false },
+        { merge: true }
+      );
+      await this.finalizePoolIfAny(eventId, eventData);
+    } else if (plan.settlements.length === 0) {
+      // Nothing to approve, but pool reimbursements are still being paid.
+      await db.collection('events').doc(eventId).set(
+        { status: 'payment', updatedAt: now, lastSettlementGeneratedAt: now, settlementApprovals: {}, settlementStale: false },
         { merge: true }
       );
     } else {
@@ -666,16 +686,11 @@ export class SettlementService {
     }
     const oldEntityIds = new Set([...oldSettlementMap.keys()]);
 
-    // Clear existing settlements
-    const existingSnap = await db.collection(this.collection).where('eventId', '==', eventId).get();
-    if (!existingSnap.empty) {
-      const batch = db.batch();
-      existingSnap.docs.forEach(doc => batch.delete(doc.ref));
-      await batch.commit();
-    }
+    // Clear the existing plan (pool reimbursement/exit legs are kept)
+    await this.clearStandardSettlements(eventId);
 
     // Recalculate
-    const balances = await this.calculateEntityBalances(eventId);
+    const balances = await this.calculateBalancesForPlan(eventId, eventData);
     const plan = this.calculateSettlementPlan(balances, eventId, eventData.currency, groups);
 
     // FX conversion
@@ -763,9 +778,15 @@ export class SettlementService {
       }
     }
 
-    if (plan.settlements.length === 0) {
+    if (plan.settlements.length === 0 && !(await this.hasOpenPoolSideLegs(eventId, eventData))) {
       await db.collection('events').doc(eventId).set(
         { status: 'settled', updatedAt: now, lastSettlementGeneratedAt: now, settlementApprovals: {}, settlementStale: false },
+        { merge: true }
+      );
+      await this.finalizePoolIfAny(eventId, eventData);
+    } else if (plan.settlements.length === 0) {
+      await db.collection('events').doc(eventId).set(
+        { status: 'payment', updatedAt: now, lastSettlementGeneratedAt: now, settlementApprovals: {}, settlementStale: false },
         { merge: true }
       );
     } else {
@@ -889,8 +910,9 @@ export class SettlementService {
       { merge: true }
     );
 
-    // Lock the event: ensure it's in 'payment' mode (should already be)
-    if (data.eventId) {
+    // Lock the event: ensure it's in 'payment' mode (should already be).
+    // Pool-side legs (reimbursements, exits) are paid while the pool stays active.
+    if (data.eventId && !isPoolSideLeg(data)) {
       const eventDoc = await db.collection('events').doc(data.eventId).get();
       if (eventDoc.exists && eventDoc.data()?.status === 'active') {
         await db.collection('events').doc(data.eventId).set(
@@ -1030,19 +1052,8 @@ export class SettlementService {
       { merge: true }
     );
 
-    // Check if all settlements for this event are now completed
-    const allSettlements = await this.getEventSettlements(data.eventId);
-    const allComplete = allSettlements.every(s =>
-      s.id === settlementId ? true : s.status === 'completed'
-    );
-
-    // If all complete, mark event as 'settled'
-    if (allComplete) {
-      await db.collection('events').doc(data.eventId).set(
-        { status: 'settled', updatedAt: now },
-        { merge: true }
-      );
-    }
+    // If all settlements for this event are now completed, mark it 'settled'
+    const allComplete = await this.settleEventIfComplete(data.eventId, settlementId, now);
 
     return {
       settlement: {
@@ -1151,16 +1162,7 @@ export class SettlementService {
       { merge: true }
     );
 
-    const allSettlements = await this.getEventSettlements(data.eventId);
-    const allComplete = allSettlements.every(s =>
-      s.id === settlementId ? true : s.status === 'completed'
-    );
-    if (allComplete) {
-      await db.collection('events').doc(data.eventId).set(
-        { status: 'settled', updatedAt: now },
-        { merge: true }
-      );
-    }
+    const allComplete = await this.settleEventIfComplete(data.eventId, settlementId, now);
 
     return {
       settlement: {
@@ -1173,6 +1175,120 @@ export class SettlementService {
       } as unknown as Settlement,
       allComplete,
     };
+  }
+
+  /**
+   * An event admin closes a payment that can't finish the usual way because one side deleted
+   * their account (they can't pay, mark paid or confirm). 'paid' records that the money changed
+   * hands; 'written_off' records that it didn't. Either way it counts as done, so the event can
+   * settle, and the audit trail says who closed it and how.
+   */
+  async closeForDeletedUser(
+    settlementId: string,
+    userId: string,
+    outcome: 'paid' | 'written_off',
+    note?: string,
+  ): Promise<{ settlement: Settlement; allComplete: boolean }> {
+    if (outcome !== 'paid' && outcome !== 'written_off') {
+      throw new Error("Outcome must be 'paid' or 'written_off'");
+    }
+    const doc = await db.collection(this.collection).doc(settlementId).get();
+    if (!doc.exists) throw new Error('Settlement not found');
+    const data = doc.data()!;
+
+    const eventDoc = await db.collection('events').doc(data.eventId).get();
+    const event = eventDoc.exists ? (eventDoc.data() || {}) : {};
+    if (event.createdBy !== userId && !(event.admins || []).includes(userId)) {
+      throw new Error('Forbidden: Only an event admin can close this payment');
+    }
+    if (data.status === 'completed') throw new Error('Settlement is already completed');
+
+    const parties = [...new Set([data.fromUserId, data.toUserId].filter(Boolean).map(String))];
+    const participantSnaps = await Promise.all(
+      parties.map((id) => db.collection('events').doc(data.eventId).collection('participants').doc(id).get()),
+    );
+    if (!participantSnaps.some((snap: any) => snap.exists && snap.data()?.deleted)) {
+      throw new Error('Only a payment with someone who deleted their account can be closed this way');
+    }
+
+    const now = new Date().toISOString();
+    const closure = { outcome, by: userId, at: now };
+    const audit = this.buildAuditEntry({
+      action: 'closed_by_admin',
+      actorUserId: userId,
+      note: note?.trim() || (outcome === 'paid'
+        ? 'Closed by an admin as paid: the other person deleted their account'
+        : 'Closed by an admin as not paid (written off): the other person deleted their account'),
+      statusFrom: data.status,
+      statusTo: 'completed',
+    });
+    const auditTrail = this.appendAuditTrail(data.auditTrail, audit);
+    await db.collection(this.collection).doc(settlementId).set(
+      {
+        status: 'completed',
+        completedAt: now,
+        closedForDeletedUser: closure,
+        rejectionReason: null,
+        rejectedAt: null,
+        failureReason: null,
+        auditTrail,
+      },
+      { merge: true },
+    );
+
+    const allComplete = await this.settleEventIfComplete(data.eventId, settlementId, now);
+    return {
+      settlement: {
+        id: settlementId,
+        ...data,
+        status: 'completed',
+        completedAt: new Date(now),
+        closedForDeletedUser: closure,
+        auditTrail,
+      } as unknown as Settlement,
+      allComplete,
+    };
+  }
+
+  /**
+   * What is still unsettled for a user across their events, for the warning shown before they
+   * delete their account. Events in payment use their open payments; events not yet settled use
+   * the user's current balance (their group's, if they're in one). Settled and closed events
+   * have nothing outstanding.
+   */
+  async getOutstandingForUser(userId: string): Promise<OutstandingBalance[]> {
+    const events = await this.eventService.getUserEvents(userId);
+    const results: OutstandingBalance[] = [];
+    for (const event of events) {
+      if (event.status === 'settled' || event.status === 'closed') continue;
+      let owes = 0;
+      let owed = 0;
+      if (event.status === 'payment') {
+        const snap = await db.collection(this.collection).where('eventId', '==', event.id).get();
+        snap.docs.forEach((doc: any) => {
+          const leg = doc.data() || {};
+          if (leg.status === 'completed') return;
+          const amount = Number(leg.amount) || 0;
+          if (leg.fromUserId === userId) owes += amount;
+          if (leg.toUserId === userId) owed += amount;
+        });
+      } else {
+        const [balances, groups] = await Promise.all([
+          this.calculateEntityBalances(event.id),
+          this.groupService.getEventGroups(event.id),
+        ]);
+        const entityId = groups.find((g) => (g.members || []).includes(userId))?.id ?? userId;
+        const balance = balances.find((b) => b.entityId === entityId)?.amount ?? 0;
+        if (balance < 0) owes = -balance;
+        else owed = balance;
+      }
+      owes = Math.round(owes * 100) / 100;
+      owed = Math.round(owed * 100) / 100;
+      if (owes >= 0.01 || owed >= 0.01) {
+        results.push({ eventId: event.id, eventName: event.name, currency: event.currency, owes, owed });
+      }
+    }
+    return results;
   }
 
   /**
@@ -1234,6 +1350,10 @@ export class SettlementService {
         rejectedAt: data.rejectedAt,
         payeePaymentMethods,
         auditTrail: Array.isArray(data.auditTrail) ? data.auditTrail : [],
+        ...(data.kind ? { kind: data.kind } : {}),
+        ...(data.poolCycleId ? { poolCycleId: data.poolCycleId } : {}),
+        ...(data.expenseId ? { expenseId: data.expenseId } : {}),
+        ...(data.closedForDeletedUser ? { closedForDeletedUser: data.closedForDeletedUser } : {}),
         initiatedAt: data.initiatedAt,
         failedAt: data.failedAt,
         createdAt: data.createdAt,
@@ -1242,6 +1362,67 @@ export class SettlementService {
     }));
 
     return settlements;
+  }
+
+  /** Delete the event's settlement plan, keeping pool reimbursement/exit legs. */
+  private async clearStandardSettlements(eventId: string): Promise<void> {
+    const existingSnap = await db.collection(this.collection).where('eventId', '==', eventId).get();
+    const stale = existingSnap.docs.filter((doc: any) => !isPoolSideLeg(doc.data?.() || {}));
+    if (stale.length > 0) {
+      const batch = db.batch();
+      stale.forEach((doc: any) => batch.delete(doc.ref));
+      await batch.commit();
+    }
+  }
+
+  /**
+   * Balances to settle: peer-to-peer debts, plus — for pool-funded events
+   * being settled up — each entity's pool position. One plan covers both.
+   */
+  private async calculateBalancesForPlan(eventId: string, eventData: Record<string, any>): Promise<Balance[]> {
+    const peer = await this.calculateEntityBalances(eventId);
+    if (!isPoolFundedEvent(eventData)) return peer;
+    const pool = await this.poolService.computeSettlementBalances(eventId);
+    return mergeBalances(peer, pool);
+  }
+
+  private async hasOpenPoolSideLegs(eventId: string, eventData: Record<string, any>): Promise<boolean> {
+    if (!isPoolFundedEvent(eventData)) return false;
+    const snap = await db.collection(this.collection).where('eventId', '==', eventId).get();
+    return snap.docs.some((doc: any) => {
+      const d = doc.data?.() || {};
+      return isPoolSideLeg(d) && d.status !== 'completed' && d.status !== 'terminated';
+    });
+  }
+
+  private async finalizePoolIfAny(eventId: string, eventData: Record<string, any>): Promise<void> {
+    if (!isPoolFundedEvent(eventData)) return;
+    const legs = await this.getEventSettlements(eventId);
+    await this.poolService.finalizeOnSettled(eventId, legs.filter((l) => !isPoolSideLeg(l)).map((l) => l.id));
+  }
+
+  /**
+   * Auto-settle once every leg is complete. Peer-to-peer events behave exactly
+   * as before. A pool-funded event only settles from 'payment' (its final
+   * settle-up); paying a reimbursement on an active pool never settles it.
+   */
+  private async settleEventIfComplete(eventId: string, justCompletedId: string, now: string): Promise<boolean> {
+    const allSettlements = await this.getEventSettlements(eventId);
+    const allComplete = allSettlements.every(s =>
+      s.id === justCompletedId ? true : s.status === 'completed'
+    );
+    if (!allComplete) return false;
+
+    const eventDoc = await db.collection('events').doc(eventId).get();
+    const eventData = eventDoc.exists ? (eventDoc.data() || {}) : {};
+    if (isPoolFundedEvent(eventData) && eventData.status !== 'payment') return false;
+
+    await db.collection('events').doc(eventId).set(
+      { status: 'settled', updatedAt: now },
+      { merge: true }
+    );
+    await this.finalizePoolIfAny(eventId, eventData);
+    return true;
   }
 
   /**

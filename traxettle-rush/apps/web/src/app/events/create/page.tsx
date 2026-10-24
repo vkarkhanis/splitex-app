@@ -19,6 +19,14 @@ import {
 } from '@traxettle/ui';
 import { api } from '../../../utils/api';
 import { useEffect } from 'react';
+import { FundingStep } from '../../../components/pool/FundingStep';
+import { FxRatesAttribution } from '../../../components/FxRatesAttribution';
+import { buildFundingPayload, DEFAULT_FUNDING_CHOICE, validateFundingChoice } from '../../../components/pool/fundingChoice';
+import type { FundingChoice } from '../../../components/pool/fundingChoice';
+import { contributorPoolsAvailable } from '@traxettle/shared';
+
+// Production web builds set NEXT_PUBLIC_APP_ENV=production, which hides "Several of us" pools.
+const ALLOW_CONTRIBUTOR_POOLS = contributorPoolsAvailable(process.env.NEXT_PUBLIC_APP_ENV);
 
 const Page = styled.div`
   width: 100%;
@@ -111,6 +119,7 @@ export default function CreateEventPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [funding, setFunding] = useState<FundingChoice>(DEFAULT_FUNDING_CHOICE);
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -124,7 +133,8 @@ export default function CreateEventPage() {
   });
 
   const needsFx = form.settlementCurrency && form.settlementCurrency !== form.currency;
-  const canUseFx = Boolean(profile?.capabilities?.multiCurrencySettlement || profile?.tier === 'pro');
+  // The server's capability already means paid-up Pro; tier alone can be 'pro' after a lapse.
+  const canUseFx = Boolean(profile?.capabilities?.multiCurrencySettlement);
   const proBlocked = Boolean(needsFx && !canUseFx);
 
   useEffect(() => {
@@ -154,6 +164,11 @@ export default function CreateEventPage() {
     }
     if (needsFx && !canUseFx) {
       setError('Multi-currency settlement requires Pro.');
+      return;
+    }
+    const fundingError = validateFundingChoice(funding);
+    if (fundingError) {
+      setError(fundingError);
       return;
     }
     if (needsFx && form.fxRateMode === 'predefined') {
@@ -188,6 +203,9 @@ export default function CreateEventPage() {
           payload.predefinedFxRates = { [key]: parseFloat(form.predefinedFxRate) };
         }
       }
+
+      // Pool funding is additive: split events send no funding fields at all.
+      Object.assign(payload, buildFundingPayload(funding, payload.currency));
 
       const res = await api.post('/api/events', payload);
 
@@ -304,6 +322,9 @@ export default function CreateEventPage() {
               </Field>
             </Row>
 
+            <FundingStep value={funding} onChange={setFunding} currency={form.currency} disabled={loading}
+              allowContributorPools={ALLOW_CONTRIBUTOR_POOLS} />
+
             {/* Settlement Currency (optional — different from expense currency) */}
             <Row>
               <Field>
@@ -373,6 +394,7 @@ export default function CreateEventPage() {
                       Predefined Rate
                     </RadioLabel>
                   </RadioGroup>
+                  {form.fxRateMode === 'eod' && <FxRatesAttribution />}
                 </Field>
                 {form.fxRateMode === 'predefined' && (
                   <Field>

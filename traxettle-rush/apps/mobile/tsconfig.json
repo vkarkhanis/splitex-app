@@ -19,6 +19,6 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src/**/*", "app.json"],
+  "include": ["src/**/*", "app.json", "scripts/**/*.mts"],
   "exclude": ["node_modules", "dist", "babel.config.js"]
 }

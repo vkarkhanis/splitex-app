@@ -1,11 +1,18 @@
 import { Router } from 'express';
-import { ApiResponse, UserProfile, UserPreferences } from '@traxettle/shared';
+import { ApiResponse, UserProfile, UserPreferences, hasActivePro } from '@traxettle/shared';
+import type { OutstandingBalance } from '@traxettle/shared';
 import { auth, db } from '../config/firebase';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { EntitlementService } from '../services/entitlement.service';
+import { AccountDeletionService } from '../services/account-deletion.service';
+import { AppleAuthService } from '../services/apple-auth.service';
+import { SettlementService } from '../services/settlement.service';
 
 const router: Router = Router();
 const entitlementService = new EntitlementService();
+const accountDeletionService = new AccountDeletionService();
+const appleAuthService = new AppleAuthService();
+const settlementService = new SettlementService();
 const PAYMENT_METHOD_TYPES = new Set(['upi', 'bank', 'paypal', 'wise', 'swift', 'other']);
 interface UserPaymentMethod {
   id: string;
@@ -19,7 +26,7 @@ interface UserPaymentMethod {
 }
 
 type ExtendedUserProfile = UserProfile & {
-  authProviders?: ('email' | 'google' | 'microsoft' | 'phone')[];
+  authProviders?: ('email' | 'google' | 'apple' | 'microsoft' | 'phone')[];
   hasPassword?: boolean;
 };
 
@@ -52,12 +59,12 @@ function sortPaymentMethods(methods: UserPaymentMethod[]): UserPaymentMethod[] {
   });
 }
 
-type AuthProviderId = 'email' | 'google' | 'microsoft' | 'phone';
+type AuthProviderId = 'email' | 'google' | 'apple' | 'microsoft' | 'phone';
 
 async function getAuthProviderSummary(uid: string, existing: any): Promise<{ authProviders: AuthProviderId[]; hasPassword: boolean }> {
   const storedProviders = Array.isArray(existing?.authProviders)
     ? existing.authProviders.filter((provider: unknown): provider is AuthProviderId =>
-        provider === 'email' || provider === 'google' || provider === 'microsoft' || provider === 'phone'
+        provider === 'email' || provider === 'google' || provider === 'apple' || provider === 'microsoft' || provider === 'phone'
       )
     : [];
   const storedHasPassword = Boolean(existing?.passwordHash) || storedProviders.includes('email');
@@ -80,7 +87,13 @@ async function getAuthProviderSummary(uid: string, existing: any): Promise<{ aut
       if (provider.providerId === 'google.com') providerMap.add('google');
       if (provider.providerId === 'phone') providerMap.add('phone');
       if (provider.providerId === 'microsoft.com') providerMap.add('microsoft');
+      if (provider.providerId === 'apple.com') providerMap.add('apple');
     });
+    // Google and Apple sign-ins are verified by our API, which signs the app into Firebase with a
+    // custom token, so Firebase Auth has no record of them: take them from the stored profile.
+    storedProviders
+      .filter((provider: AuthProviderId) => provider === 'google' || provider === 'apple')
+      .forEach((provider: AuthProviderId) => providerMap.add(provider));
 
     return {
       authProviders: Array.from(providerMap),
@@ -107,8 +120,7 @@ router.get('/debug/entitlement', requireAuth, async (req: AuthenticatedRequest, 
         userId: uid,
         entitlement,
         capabilities,
-        isActivePro: entitlement.tier === 'pro' && 
-          (entitlement.entitlementStatus === 'active' || entitlement.entitlementStatus === 'grace_period'),
+        isActivePro: hasActivePro(entitlement),
       }
     } as ApiResponse);
   } catch (err: any) {
@@ -375,47 +387,36 @@ router.delete('/payment-methods/:methodId', requireAuth, async (req: Authenticat
   }
 });
 
+// What the user still owes or is owed, per event: shown as a warning before deleting the account.
+router.get('/account/outstanding', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const outstanding = await settlementService.getOutstandingForUser(req.user!.uid);
+    return res.json({ success: true, data: outstanding } as ApiResponse<OutstandingBalance[]>);
+  } catch (err) {
+    console.error('GET /account/outstanding error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to check unsettled amounts' } as ApiResponse);
+  }
+});
+
+// Deletes the account (including its Firebase sign-in) and the user's own data; events shared
+// with others are kept for them with this user shown as "Deleted user" (AccountDeletionService).
 router.delete('/account', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    const uid = req.user!.uid;
-    const batch = db.batch();
-
-    // Delete user document
-    const userRef = db.collection('users').doc(uid);
-    batch.delete(userRef);
-
-    // Delete events where user is the creator
-    const eventsSnapshot = await db.collection('events').where('createdBy', '==', uid).get();
-    eventsSnapshot.forEach(doc => batch.delete(doc.ref));
-
-    // Delete expenses where user is the payer
-    const expensesSnapshot = await db.collection('expenses').where('paidBy', '==', uid).get();
-    expensesSnapshot.forEach(doc => batch.delete(doc.ref));
-
-    // Remove user from participants in events they didn't create
-    const otherEventsSnapshot = await db.collection('events').get();
-    otherEventsSnapshot.forEach(eventDoc => {
-      const eventData = eventDoc.data();
-      const participants = eventData.participants || [];
-      const updatedParticipants = participants.filter((p: any) => p.userId !== uid);
-      if (updatedParticipants.length !== participants.length) {
-        batch.update(eventDoc.ref, { participants: updatedParticipants });
+    // Sign in with Apple accounts: Apple requires revoking the authorization on deletion. The app
+    // sends a fresh authorization code; a failure is logged but never blocks the deletion itself.
+    let appleRevoked: boolean | null = null;
+    const appleCode = req.body?.appleAuthorizationCode;
+    if (typeof appleCode === 'string' && appleCode) {
+      try {
+        await appleAuthService.revokeWithAuthorizationCode(appleCode);
+        appleRevoked = true;
+      } catch (err: any) {
+        appleRevoked = false;
+        console.error('DELETE /account: Apple revocation failed', { uid: req.user!.uid, detail: err?.message });
       }
-    });
-
-    // Remove user from groups in events
-    otherEventsSnapshot.forEach(eventDoc => {
-      const eventData = eventDoc.data();
-      const groups = eventData.groups || [];
-      const updatedGroups = groups.map((group: any) => ({
-        ...group,
-        members: group.members.filter((memberId: string) => memberId !== uid)
-      })).filter((group: any) => group.members.length > 0);
-      batch.update(eventDoc.ref, { groups: updatedGroups });
-    });
-
-    await batch.commit();
-    return res.json({ success: true, data: { deleted: true } } as ApiResponse<{ deleted: boolean }>);
+    }
+    await accountDeletionService.deleteAccount(req.user!.uid);
+    return res.json({ success: true, data: { deleted: true, appleRevoked } } as ApiResponse<{ deleted: boolean; appleRevoked: boolean | null }>);
   } catch (err) {
     console.error('DELETE /account error:', err);
     return res.status(500).json({ success: false, error: 'Failed to delete account' } as ApiResponse);

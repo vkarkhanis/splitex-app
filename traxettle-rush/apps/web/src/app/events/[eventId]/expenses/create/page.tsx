@@ -18,7 +18,13 @@ import {
   useToast,
 } from '@traxettle/ui';
 import { api } from '../../../../../utils/api';
-import type { EventParticipant, Group, OnBehalfOfEntry } from '@traxettle/shared';
+import type { EventFundingModel, EventParticipant, Group, OnBehalfOfEntry, PoolConfig, PoolCycleSummary } from '@traxettle/shared';
+import { resolveFundingModel, toMinor } from '@traxettle/shared';
+import { PaidWithControl } from '../../../../../components/pool/PaidWithControl';
+import type { PaidWith } from '../../../../../components/pool/PaidWithControl';
+import { ReceiptField } from '../../../../../components/pool/ReceiptField';
+import { canRecordAnyway, isReceiptRequired, poolErrorText, poolNoun, toPoolError } from '../../../../../components/pool/poolFormat';
+import { poolApi } from '../../../../../utils/pool-api';
 
 const Page = styled.div`
   width: 100%;
@@ -238,6 +244,16 @@ export default function CreateExpensePage() {
     onBehalfOfEntities: [] as OnBehalfOfEntry[],
   });
 
+  // Pool funding: how this expense was paid, receipts, and the live pool state.
+  const [fundingModel, setFundingModel] = useState<EventFundingModel>('peer_to_peer');
+  const [poolConfig, setPoolConfig] = useState<PoolConfig | null>(null);
+  const [paidWith, setPaidWith] = useState<PaidWith>('self');
+  const [poolSummary, setPoolSummary] = useState<PoolCycleSummary | null>(null);
+  const [receipts, setReceipts] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [refusal, setRefusal] = useState<{ code?: string; message: string } | null>(null);
+  const isPoolDraw = paidWith !== 'self';
+
   // Current user's entity ID (group ID if in a group, else userId from auth)
   const [currentUserId, setCurrentUserId] = useState<string>('');
 
@@ -256,6 +272,13 @@ export default function CreateExpensePage() {
       setGroups(gData);
       if (eRes.data?.currency) {
         setForm(f => ({ ...f, currency: eRes.data.currency }));
+      }
+      const model = resolveFundingModel(eRes.data);
+      setFundingModel(model);
+      if (model !== 'peer_to_peer' && eRes.data?.poolConfig) {
+        setPoolConfig(eRes.data.poolConfig);
+        setPaidWith('pool');
+        poolApi.summary(eventId).then((r) => setPoolSummary(r.data || null)).catch(() => undefined);
       }
       setEntities(buildEntities(pData, gData));
 
@@ -358,11 +381,51 @@ export default function CreateExpensePage() {
   const splitMismatch = !form.isPrivate && expenseAmount > 0 && selectedEntities.length > 0
     && Math.abs(splitTotal - expenseAmount) > 0.01;
 
+  const submitPoolDraw = async (amount: number, alreadyIncurred: boolean) => {
+    setLoading(true);
+    setError('');
+    setRefusal(null);
+    try {
+      await api.post('/api/expenses', {
+        eventId,
+        title: form.title.trim(),
+        description: form.description.trim() || undefined,
+        amount,
+        currency: form.currency,
+        fundingSource: paidWith,
+        attachments: receipts,
+        ...(alreadyIncurred ? { alreadyIncurred: true } : {}),
+      });
+      pushToast({
+        type: 'success',
+        title: paidWith === 'pool_reimbursement' ? 'Claim submitted' : 'Expense recorded',
+        message: paidWith === 'pool_reimbursement' ? `You'll be reimbursed once it's approved.` : `"${form.title}" was paid from the ${poolNoun(poolConfig).toLowerCase()}.`,
+      });
+      router.push(`/events/${eventId}`);
+    } catch (err) {
+      const info = toPoolError(err, 'Failed to create expense');
+      const message = poolErrorText(err, form.currency, 'Failed to create expense');
+      setError(message);
+      if (canRecordAnyway(info.code) && !alreadyIncurred) setRefusal({ code: info.code, message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const amount = parseFloat(form.amount);
     if (!form.title.trim() || !amount || amount <= 0) {
       setError('Title and a positive amount are required.');
+      return;
+    }
+
+    if (isPoolDraw) {
+      if (isReceiptRequired(poolConfig, paidWith, toMinor(amount, form.currency)) && receipts.length === 0) {
+        setError('Attach a receipt to record this.');
+        return;
+      }
+      await submitPoolDraw(amount, false);
       return;
     }
 
@@ -397,6 +460,8 @@ export default function CreateExpensePage() {
           entityId: s.entityId,
           name: s.name,
         })),
+        ...(receipts.length > 0 ? { attachments: receipts } : {}),
+        ...(fundingModel === 'hybrid' ? { fundingSource: 'self' } : {}),
       };
 
       // On behalf of: include the entities the payer is fronting money for
@@ -430,6 +495,19 @@ export default function CreateExpensePage() {
         </CardHeader>
         <CardBody>
           <Form onSubmit={handleSubmit} data-testid="create-expense-form">
+            {fundingModel !== 'peer_to_peer' && (
+              <PaidWithControl
+                model={fundingModel}
+                value={paidWith}
+                onChange={(v) => { setPaidWith(v); setRefusal(null); setError(''); }}
+                summary={poolSummary}
+                currency={form.currency}
+                noun={poolNoun(poolConfig)}
+                amountMinor={(() => { const n = parseFloat(form.amount); return Number.isFinite(n) && n > 0 ? toMinor(n, form.currency) : 0; })()}
+                disabled={loading}
+              />
+            )}
+
             <Field>
               <Label htmlFor="expense-title">Title</Label>
               <Input
@@ -479,7 +557,7 @@ export default function CreateExpensePage() {
                   data-testid="expense-currency-select"
                   value={form.currency}
                   onChange={(e) => updateForm({ currency: e.target.value })}
-                  disabled={loading}
+                  disabled={loading || isPoolDraw}
                 >
                   <option value="USD">$ USD</option>
                   <option value="EUR">€ EUR</option>
@@ -490,6 +568,22 @@ export default function CreateExpensePage() {
               </Field>
             </Row>
 
+            <ReceiptField
+              eventId={eventId}
+              value={receipts}
+              onChange={setReceipts}
+              required={isReceiptRequired(poolConfig, paidWith, (() => { const n = parseFloat(form.amount); return Number.isFinite(n) && n > 0 ? toMinor(n, form.currency) : 0; })())}
+              disabled={loading}
+              onUploadingChange={setUploading}
+            />
+
+            {paidWith === 'pool_reimbursement' && parseFloat(form.amount) > 0 && (
+              <div style={{ fontSize: 13 }} data-testid="claim-note">
+                You&apos;ll be reimbursed {sym}{parseFloat(form.amount).toFixed(2)} from the {poolNoun(poolConfig).toLowerCase()} once it&apos;s approved.
+              </div>
+            )}
+
+            {paidWith === 'self' && (<>
             {/* Private expense toggle */}
             <PrivateToggle>
               <input
@@ -689,7 +783,18 @@ export default function CreateExpensePage() {
               </ErrorText>
             )}
 
+            </>)}
+
             {error && <ErrorText data-testid="create-expense-error">{error}</ErrorText>}
+            {refusal && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Button type="button" $variant="outline" disabled={loading} data-testid="record-anyway"
+                  onClick={() => void submitPoolDraw(parseFloat(form.amount), true)}>
+                  It&apos;s already paid — record it anyway
+                </Button>
+                <span style={{ fontSize: 12, opacity: 0.75 }}>It will be flagged for the custodian.</span>
+              </div>
+            )}
 
             <Buttons>
               <Button type="button" $variant="outline" onClick={() => router.back()} disabled={loading}>
@@ -698,10 +803,10 @@ export default function CreateExpensePage() {
               <Button
                 type="submit"
                 $variant="primary"
-                disabled={loading || !form.title.trim() || !form.amount || splitMismatch}
+                disabled={loading || uploading || !form.title.trim() || !form.amount || (!isPoolDraw && splitMismatch)}
                 data-testid="create-expense-submit"
               >
-                {loading ? 'Adding...' : 'Add Expense'}
+                {loading ? 'Adding...' : paidWith === 'pool_reimbursement' ? 'Submit claim' : 'Add Expense'}
               </Button>
             </Buttons>
           </Form>

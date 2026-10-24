@@ -32,12 +32,15 @@ export class ApiRequestError extends Error {
   status: number;
   code?: string;
   feature?: string;
+  /** Structured details some errors carry (e.g. a refused pool draw). */
+  data?: unknown;
 
-  constructor(message: string, status: number, code?: string, feature?: string) {
+  constructor(message: string, status: number, code?: string, feature?: string, data?: unknown) {
     super(message);
     this.status = status;
     this.code = code;
     this.feature = feature;
+    this.data = data;
   }
 }
 
@@ -188,7 +191,7 @@ async function request<T = any>(
 
   if (!res.ok) {
     const msg = json?.error || json?.message || `Request failed (${res.status})`;
-    const error = new ApiRequestError(msg, res.status, json?.code, json?.feature);
+    const error = new ApiRequestError(msg, res.status, json?.code, json?.feature, json?.data);
     if (res.status === 401 && authFailureHandler) {
       await authFailureHandler(error);
     }
@@ -256,5 +259,6 @@ export const api = {
     request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
   put: <T = any>(path: string, body?: any) =>
     request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
-  delete: <T = any>(path: string) => request<T>(path, { method: 'DELETE' }),
+  delete: <T = any>(path: string, body?: any) =>
+    request<T>(path, { method: 'DELETE', body: body ? JSON.stringify(body) : undefined }),
 };

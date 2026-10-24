@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { ApiResponse, CreateEventDto, UpdateEventDto } from '@traxettle/shared';
+import { ApiResponse, CreateEventDto, UpdateEventDto, hasActivePro } from '@traxettle/shared';
 import { EventService } from '../services/event.service';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { emitToEvent } from '../config/websocket';
@@ -8,12 +8,28 @@ import { EmailService } from '../services/email.service';
 import { getEventLockStatus, requireActiveEvent } from '../utils/event-guards';
 import { db } from '../config/firebase';
 import { EntitlementService } from '../services/entitlement.service';
+import { PoolError, PoolService } from '../services/pool.service';
+import { SettlementService } from '../services/settlement.service';
+import { poolCreateSchema } from '../validation/pool.schemas';
 
 const emailService = new EmailService();
 
 const router: Router = Router();
 const eventService = new EventService();
 const entitlementService = new EntitlementService();
+const poolService = new PoolService();
+const settlementService = new SettlementService();
+const planner = settlementService.calculateSettlementPlan.bind(settlementService);
+
+/** Keep a pool's roster in step after a genuine membership change. Never fails the caller. */
+async function syncPoolMembership(eventId: string, actorId: string, change: { joinedUserIds?: string[]; leftUserIds?: string[] }) {
+  try {
+    const result = await poolService.onMembershipChanged(eventId, actorId, change, planner);
+    if (result.action !== 'none') emitToEvent(eventId, 'pool:updated', { reason: result.action, settlementIds: result.settlementIds });
+  } catch (err) {
+    console.error('Pool membership sync failed:', err);
+  }
+}
 
 function parseLimit(v: any): number | null {
   const n = Number.parseInt(String(v || ''), 10);
@@ -171,11 +187,11 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     }
 
     // Free-tier limit: max 3 active or closed events/trips.
-    // Missing tier defaults to free until billing/subscription state is available.
-    const userDoc = await db.collection('users').doc(uid).get();
-    const userTier = (userDoc.exists ? (userDoc.data()?.tier as string | undefined) : undefined) || 'free';
+    // Same rule as the Pro features: a lapsed subscription (tier still 'pro', status
+    // 'expired') counts as free. Missing tier defaults to free.
+    const entitlement = await entitlementService.getEntitlement(uid);
     const isMockUser = uid.startsWith('mock-');
-    if (userTier !== 'pro' && !isMockUser) {
+    if (!hasActivePro(entitlement) && !isMockUser) {
       const existingEvents = await eventService.getUserEvents(uid);
       const activeOrClosedCount = existingEvents.filter(
         (evt) => evt.status === 'active' || evt.status === 'closed'
@@ -188,9 +204,39 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
       }
     }
 
-    const event = await eventService.createEvent(uid, body);
+    // Pool funding (optional). Absent ⇒ today's split-expenses event, unchanged.
+    let pool: ReturnType<PoolService['buildConfigForNewEvent']> | undefined;
+    const wantsPool = body.pool !== undefined || (body.fundingModel !== undefined && body.fundingModel !== 'peer_to_peer');
+    if (wantsPool) {
+      if (body.fundingModel !== undefined && !['pool', 'hybrid'].includes(body.fundingModel)) {
+        return res.status(400).json({ success: false, error: 'fundingModel must be "peer_to_peer", "pool", or "hybrid"' } as ApiResponse);
+      }
+      const parsed = poolCreateSchema.safeParse(body.pool ?? {});
+      if (!parsed.success) {
+        const issue = parsed.error.issues[0];
+        return res.status(400).json({ success: false, error: `pool.${issue?.path.join('.') || ''}: ${issue?.message || 'invalid'}`, code: 'VALIDATION_ERROR' } as ApiResponse);
+      }
+      pool = poolService.buildConfigForNewEvent(uid, {
+        ...parsed.data,
+        allowPeerExpenses: body.fundingModel === 'hybrid' || parsed.data.allowPeerExpenses,
+      });
+    }
+
+    const event = await eventService.createEvent(uid, body, pool);
+    if (pool) {
+      try {
+        await poolService.openFirstCycle(event.id, uid);
+      } catch (cycleErr) {
+        // Never leave a pool event without a cycle.
+        await db.collection('events').doc(event.id).delete().catch(() => undefined);
+        throw cycleErr;
+      }
+    }
     return res.status(201).json({ success: true, data: event } as ApiResponse);
   } catch (err) {
+    if (err instanceof PoolError) {
+      return res.status(err.statusCode).json({ success: false, error: err.message, code: err.code } as ApiResponse);
+    }
     console.error('POST /events error:', err);
     return res.status(500).json({ success: false, error: 'Failed to create event' } as ApiResponse);
   }
@@ -340,7 +386,9 @@ router.post('/:eventId/participants', requireAuth, async (req: AuthenticatedRequ
     }
 
     await requireActiveEvent(req.params.eventId);
+    const alreadyMember = await eventService.isParticipant(req.params.eventId, userId);
     const participant = await eventService.addParticipant(req.params.eventId, userId, uid, role || 'member');
+    if (!alreadyMember) await syncPoolMembership(req.params.eventId, uid, { joinedUserIds: [userId] });
     return res.status(201).json({ success: true, data: participant } as ApiResponse);
   } catch (err) {
     console.error('POST /events/:id/participants error:', err);
@@ -352,14 +400,19 @@ router.post('/:eventId/participants', requireAuth, async (req: AuthenticatedRequ
 router.delete('/:eventId/participants/:userId', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const requesterId = req.user!.uid;
+    await poolService.assertCanLeave(req.params.eventId, req.params.userId);
     const removed = await eventService.removeParticipant(req.params.eventId, req.params.userId, requesterId);
 
     if (!removed) {
       return res.status(404).json({ success: false, error: 'Participant not found' } as ApiResponse);
     }
 
+    await syncPoolMembership(req.params.eventId, requesterId, { leftUserIds: [req.params.userId] });
     return res.json({ success: true, data: { message: 'Participant removed successfully' } } as ApiResponse);
   } catch (err: any) {
+    if (err instanceof PoolError) {
+      return res.status(err.statusCode).json({ success: false, error: err.message, code: err.code } as ApiResponse);
+    }
     console.error('DELETE /events/:id/participants/:userId error:', err);
     if (err.message?.includes('Forbidden') || err.message?.includes('Cannot remove')) {
       return res.status(403).json({ success: false, error: err.message } as ApiResponse);

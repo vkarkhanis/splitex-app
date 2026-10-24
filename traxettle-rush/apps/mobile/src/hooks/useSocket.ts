@@ -37,6 +37,7 @@ const EVENT_TYPES = [
   'invitation:revoked',
   'settlement:generated',
   'settlement:updated',
+  'pool:updated',
 ];
 
 /**
@@ -86,7 +87,7 @@ export function useMultiEventSocket(
     const socket = getSocket();
     eventIds.forEach((id) => socket.emit('join-event', id));
 
-    const types = ['event:updated', 'event:deleted', 'settlement:generated', 'settlement:updated'];
+    const types = ['event:updated', 'event:deleted', 'settlement:generated', 'settlement:updated', 'pool:updated'];
     const handlers = types.map((type) => {
       const handler = (payload: any) => callbackRef.current(type, payload);
       socket.on(type, handler);

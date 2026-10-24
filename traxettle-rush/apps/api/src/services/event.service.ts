@@ -1,10 +1,21 @@
-import { Event, CreateEventDto, UpdateEventDto, EventParticipant, ApiResponse } from '@traxettle/shared';
+import { Event, CreateEventDto, UpdateEventDto, EventParticipant, ApiResponse, DELETED_USER_NAME } from '@traxettle/shared';
+import type { PoolConfig } from '@traxettle/shared';
 import { auth, db } from '../config/firebase';
+
+/** Funding fields are only present on pool-funded events; absent ⇒ peer_to_peer. */
+function fundingFields(data: Record<string, any>): Partial<Event> {
+  if (!data.fundingModel || data.fundingModel === 'peer_to_peer') return {};
+  return { fundingModel: data.fundingModel, poolConfig: data.poolConfig };
+}
 
 export class EventService {
   private collection = 'events';
 
-  async createEvent(userId: string, dto: CreateEventDto): Promise<Event> {
+  async createEvent(
+    userId: string,
+    dto: CreateEventDto,
+    pool?: { fundingModel: 'pool' | 'hybrid'; poolConfig: PoolConfig },
+  ): Promise<Event> {
     const now = new Date().toISOString();
     const eventData: Record<string, any> = {
       name: dto.name,
@@ -25,6 +36,12 @@ export class EventService {
     if (dto.settlementCurrency) eventData.settlementCurrency = dto.settlementCurrency;
     if (dto.fxRateMode) eventData.fxRateMode = dto.fxRateMode;
     if (dto.predefinedFxRates) eventData.predefinedFxRates = dto.predefinedFxRates;
+
+    // Pool funding. Split-expenses events never get these fields (absent ⇒ peer_to_peer).
+    if (pool) {
+      eventData.fundingModel = pool.fundingModel;
+      eventData.poolConfig = pool.poolConfig;
+    }
 
     const docRef = await db.collection(this.collection).add(eventData);
     const eventId = docRef.id;
@@ -69,6 +86,7 @@ export class EventService {
       status: data.status,
       settlementApprovals: data.settlementApprovals || undefined,
       settlementStale: data.settlementStale || false,
+      ...fundingFields(data),
       createdBy: data.createdBy,
       admins: data.admins || [],
       participantIds: data.participantIds || [],
@@ -100,6 +118,7 @@ export class EventService {
           endDate: data.endDate || undefined,
           currency: data.currency,
           status: data.status,
+          ...fundingFields(data),
           createdBy: data.createdBy,
           admins: data.admins || [],
           createdAt: data.createdAt,
@@ -127,6 +146,7 @@ export class EventService {
             endDate: data.endDate || undefined,
             currency: data.currency,
             status: data.status,
+            ...fundingFields(data),
             createdBy: data.createdBy,
             admins: data.admins || [],
             createdAt: data.createdAt,
@@ -155,6 +175,7 @@ export class EventService {
             endDate: data.endDate || undefined,
             currency: data.currency,
             status: data.status,
+            ...fundingFields(data),
             createdBy: data.createdBy,
             admins: data.admins || [],
             createdAt: data.createdAt,
@@ -292,12 +313,15 @@ export class EventService {
         joinedAt: data.joinedAt,
         invitedBy: data.invitedBy,
         status: data.status || 'accepted',
+        ...(data.deleted ? { deleted: true, displayName: DELETED_USER_NAME } : {}),
       } as EventParticipant;
     });
 
     // Enrich with user profile data (displayName, email)
     const enriched = await Promise.all(
       participants.map(async (p) => {
+        // A deleted account keeps its anonymised record; there's no profile to look up.
+        if (p.deleted) return p;
         try {
           const userDoc = await db.collection('users').doc(p.userId).get();
           if (userDoc.exists) {

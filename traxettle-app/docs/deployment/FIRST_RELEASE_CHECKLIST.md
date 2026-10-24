@@ -25,13 +25,10 @@ Use this in order. Do not skip sections.
 
 - [ ] `gcloud` installed and works
 - [ ] `firebase` installed and works
-- [ ] `eas` installed and works
 - [ ] Logged in: `gcloud auth login`
 - [ ] Logged in: `firebase login`
-- [ ] Logged in: `eas login`
-- [ ] `eas whoami` works in `traxettle-rush/apps/mobile`
-- [ ] `eas.json` exists in `traxettle-rush/apps/mobile`
-- [ ] `eas init` completed if project was not initialized
+- [ ] Xcode 26 installed and set as default (`sudo xcode-select -s /Applications/Xcode_26.app/Contents/Developer`); Apple ID added in Xcode → Settings → Accounts
+- [ ] Mobile builds run on this Mac; EAS isn't used (it can't install this Rush monorepo)
 - [ ] Active project set:
   - [ ] `gcloud config set project traxettle-staging`
   - [ ] `gcloud config get-value project` returns `traxettle-staging`
@@ -61,40 +58,26 @@ curl https://traxettle-api-staging-862789756309.us-central1.run.app/health
 
 ## D) Staging Mobile Internal Testing Build
 
-- [ ] Copy staging Firebase files into mobile app:
+One build serves every environment: release builds open on production, and testers switch
+to staging by tapping "Traxettle" 7 times on the sign-in screen. The files each build needs
+are listed in [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md) section 6.2.
 
-```bash
-cp <STAGING_GOOGLE_SERVICES_JSON> traxettle-rush/apps/mobile/google-services.json
-cp <STAGING_GOOGLESERVICE_INFO_PLIST> traxettle-rush/apps/mobile/ios/Traxettle/GoogleService-Info.plist
-```
-
-- [ ] Build iOS staging:
+- [ ] Build iOS and upload to TestFlight:
 
 ```bash
 cd traxettle-rush/apps/mobile
-EXPO_PUBLIC_API_URL=https://traxettle-api-staging-862789756309.us-central1.run.app \
-EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=<STAGING_WEB_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=<STAGING_ANDROID_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=<STAGING_IOS_CLIENT_ID> \
-eas build --platform ios --profile staging
+APPLE_TEAM_ID=<your Team ID> npm run build:ios:testflight
 ```
 
-- [ ] Build Android staging:
+- [ ] Build the Android AAB and upload it to Play Console → Testing → Internal testing:
 
 ```bash
-EXPO_PUBLIC_API_URL=https://traxettle-api-staging-862789756309.us-central1.run.app \
-EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=<STAGING_WEB_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=<STAGING_ANDROID_CLIENT_ID> \
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=<STAGING_IOS_CLIENT_ID> \
-eas build --platform android --profile staging
+cd traxettle-rush/apps/mobile
+npm run build:android:production
 ```
 
-- [ ] Submit to stores (when accounts are active):
-
-```bash
-eas submit --platform ios --latest
-eas submit --platform android --latest
-```
+- [ ] When testing passes, promote the same builds: App Store Connect → submit the version for
+  review; Play Console → promote the internal-testing release to production.
 
 ## E) Store Account Requirements
 

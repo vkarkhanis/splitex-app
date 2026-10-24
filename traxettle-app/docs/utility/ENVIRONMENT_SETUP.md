@@ -189,7 +189,7 @@ EXPO_PUBLIC_REVENUECAT_APPLE_KEY=appl_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 EXPO_PUBLIC_REVENUECAT_GOOGLE_KEY=goog_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # RevenueCat Configuration (optional overrides)
-EXPO_PUBLIC_REVENUECAT_PRO_ENTITLEMENT_ID=pro
+EXPO_PUBLIC_REVENUECAT_PRO_ENTITLEMENT_ID=traxettle-pro
 EXPO_PUBLIC_REVENUECAT_OFFERING_ID=default
 
 # ===========================================
@@ -358,14 +358,19 @@ for (const varName of requiredVars) {
 
 ### Mobile Environment Switching
 
-For mobile, use build scripts or Expo EAS:
+For mobile, use the build scripts in `apps/mobile/scripts` (EAS isn't used). One build
+serves every environment: release builds open on production, and the in-app switch
+(tap "Traxettle" 7 times on the sign-in screen) selects staging.
 
 ```bash
-# Staging build
+# Android APK to install directly for testing
 bash scripts/build-android.sh debug:staging
 
-# Production build
-bash scripts/build-android.sh release:production
+# Android AAB for the Play Store
+bash scripts/build-android.sh production
+
+# iOS build uploaded to TestFlight (promote it to the App Store)
+APPLE_TEAM_ID=<your Team ID> bash scripts/build-ios.sh testflight
 ```
 
 ## Troubleshooting

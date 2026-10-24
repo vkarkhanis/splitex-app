@@ -17,6 +17,23 @@ jest.mock('../../services/entitlement.service', () => ({
   })),
 }));
 
+// Account deletion has its own service test (account-deletion.service.test.ts) on a real-query store.
+const mockDeleteAccount = jest.fn();
+jest.mock('../../services/account-deletion.service', () => ({
+  AccountDeletionService: jest.fn().mockImplementation(() => ({ deleteAccount: mockDeleteAccount })),
+}));
+
+const mockRevokeApple = jest.fn();
+jest.mock('../../services/apple-auth.service', () => ({
+  AppleAuthService: jest.fn().mockImplementation(() => ({ revokeWithAuthorizationCode: mockRevokeApple })),
+}));
+
+// The outstanding-amounts query has its own service test (settlement.outstanding.test.ts).
+const mockGetOutstanding = jest.fn();
+jest.mock('../../services/settlement.service', () => ({
+  SettlementService: jest.fn().mockImplementation(() => ({ getOutstandingForUser: mockGetOutstanding })),
+}));
+
 // Mock firebase config before importing routes
 jest.mock('../../config/firebase', () => {
   const makeDocRef = (collectionName: string, id: string) => ({
@@ -676,15 +693,32 @@ describe('User debug entitlement and account deletion', () => {
     expect(res.body.error).toBe('entitlement lookup failed');
   });
 
-  it('deletes account data successfully', async () => {
-    mockData['users:mock-delete-user'] = { displayName: 'Delete Me' };
-    mockData['events:event-owned'] = { createdBy: 'mock-delete-user', participants: [], groups: [] };
-    mockData['events:event-other'] = {
-      createdBy: 'someone-else',
-      participants: [{ userId: 'mock-delete-user' }, { userId: 'other' }],
-      groups: [{ members: ['mock-delete-user', 'other'] }, { members: ['mock-delete-user'] }],
-    };
-    mockData['expenses:expense-1'] = { paidBy: 'mock-delete-user' };
+  it('lists what the user still owes or is owed, for the deletion warning', async () => {
+    const outstanding = [{ eventId: 'trip', eventName: 'Goa Trip', currency: 'INR', owes: 1200, owed: 0 }];
+    mockGetOutstanding.mockResolvedValue(outstanding);
+
+    const res = await request(createApp())
+      .get('/api/users/account/outstanding')
+      .set('Authorization', 'Bearer mock-delete-user');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual(outstanding);
+    expect(mockGetOutstanding).toHaveBeenCalledWith('mock-delete-user');
+  });
+
+  it('returns 500 when the unsettled-amounts check fails', async () => {
+    mockGetOutstanding.mockRejectedValue(new Error('boom'));
+
+    const res = await request(createApp())
+      .get('/api/users/account/outstanding')
+      .set('Authorization', 'Bearer mock-delete-user');
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('Failed to check unsettled amounts');
+  });
+
+  it('deletes the signed-in account', async () => {
+    mockDeleteAccount.mockResolvedValue({ deletedEventIds: [], keptEventIds: [] });
 
     const app = createApp();
     const res = await request(app)
@@ -692,11 +726,42 @@ describe('User debug entitlement and account deletion', () => {
       .set('Authorization', 'Bearer mock-delete-user');
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ deleted: true });
+    expect(res.body.data).toEqual({ deleted: true, appleRevoked: null });
+    expect(mockDeleteAccount).toHaveBeenCalledWith('mock-delete-user');
+    expect(mockRevokeApple).not.toHaveBeenCalled();
   });
 
-  it('returns 500 when account deletion batch commit fails', async () => {
-    shouldThrowOnBatchCommit = true;
+  it('revokes Sign in with Apple before deleting, when the app sends an authorization code', async () => {
+    mockRevokeApple.mockReset().mockResolvedValue(undefined);
+    mockDeleteAccount.mockResolvedValue({ deletedEventIds: [], keptEventIds: [] });
+
+    const res = await request(createApp())
+      .delete('/api/users/account')
+      .set('Authorization', 'Bearer mock-delete-user')
+      .send({ appleAuthorizationCode: 'apple-code' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ deleted: true, appleRevoked: true });
+    expect(mockRevokeApple).toHaveBeenCalledWith('apple-code');
+    expect(mockDeleteAccount).toHaveBeenCalledWith('mock-delete-user');
+  });
+
+  it('still deletes the account when Apple revocation fails', async () => {
+    mockRevokeApple.mockReset().mockRejectedValue(new Error('invalid_grant'));
+    mockDeleteAccount.mockResolvedValue({ deletedEventIds: [], keptEventIds: [] });
+
+    const res = await request(createApp())
+      .delete('/api/users/account')
+      .set('Authorization', 'Bearer mock-delete-user')
+      .send({ appleAuthorizationCode: 'stale-code' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ deleted: true, appleRevoked: false });
+    expect(mockDeleteAccount).toHaveBeenCalledWith('mock-delete-user');
+  });
+
+  it("returns 500, so the app doesn't report success, when deletion fails", async () => {
+    mockDeleteAccount.mockRejectedValue(new Error('auth/internal-error'));
     const app = createApp();
     const res = await request(app)
       .delete('/api/users/account')

@@ -11,6 +11,12 @@ import {
   FxRateMode,
   PaymentProvider,
   SUPPORTED_CURRENCIES,
+  hasActivePro,
+  showsProviderFxRates,
+  FX_RATES_ATTRIBUTION,
+  deletedPaymentParty,
+  formatMoney,
+  accountDeletionWarning,
 } from '../index';
 
 import type {
@@ -48,6 +54,112 @@ import type {
   SupportedCurrency,
   OnBehalfOfEntry,
 } from '../index';
+
+describe('hasActivePro', () => {
+  it('is true for paid-up Pro and during the store grace period', () => {
+    expect(hasActivePro({ tier: 'pro', entitlementStatus: 'active' })).toBe(true);
+    expect(hasActivePro({ tier: 'pro', entitlementStatus: 'grace_period' })).toBe(true);
+  });
+
+  it('is false for a lapsed or failing subscription that still reads tier pro', () => {
+    expect(hasActivePro({ tier: 'pro', entitlementStatus: 'expired' })).toBe(false);
+    expect(hasActivePro({ tier: 'pro', entitlementStatus: 'billing_retry' })).toBe(false);
+    expect(hasActivePro({ tier: 'pro', entitlementStatus: 'revoked' })).toBe(false);
+  });
+
+  it('is false for free users whatever the status', () => {
+    expect(hasActivePro({ tier: 'free', entitlementStatus: 'active' })).toBe(false);
+    expect(hasActivePro({})).toBe(false);
+  });
+
+  it('treats a missing status as active, as the API does', () => {
+    expect(hasActivePro({ tier: 'pro' })).toBe(true);
+    expect(hasActivePro({ tier: 'pro', entitlementStatus: null })).toBe(true);
+  });
+});
+
+describe('formatMoney', () => {
+  it('uses the currency symbol, thousands separators and two decimals', () => {
+    expect(formatMoney(1200, 'INR')).toBe('₹1,200.00');
+    expect(formatMoney(1234567.891, 'USD')).toBe('$1,234,567.89');
+    expect(formatMoney(-42.5, 'EUR')).toBe('-€42.50');
+  });
+
+  it('has no decimals for JPY and falls back to the code for other currencies', () => {
+    expect(formatMoney(15000, 'JPY')).toBe('¥15,000');
+    expect(formatMoney(5, 'CHF')).toBe('CHF 5.00');
+  });
+});
+
+describe('accountDeletionWarning', () => {
+  it('lists what is owed each way, per event, and says deleting will not settle it', () => {
+    const warning = accountDeletionWarning([
+      { eventId: 'trip', eventName: 'Goa Trip', currency: 'INR', owes: 1200, owed: 0 },
+      { eventId: 'flat', eventName: 'Flat', currency: 'INR', owes: 0, owed: 300 },
+      { eventId: 'both', eventName: 'Offsite', currency: 'USD', owes: 10, owed: 4 },
+    ]);
+    expect(warning).toContain('• Goa Trip: you owe ₹1,200.00');
+    expect(warning).toContain("• Flat: you're owed ₹300.00");
+    expect(warning).toContain('• Offsite: you owe $10.00');
+    expect(warning).toContain("• Offsite: you're owed $4.00");
+    expect(warning).toContain("Deleting your account won't settle them");
+    expect(warning).toContain('"Deleted user"');
+  });
+
+  it('is null when nothing is outstanding', () => {
+    expect(accountDeletionWarning([])).toBeNull();
+    expect(accountDeletionWarning([{ eventId: 'x', eventName: 'X', currency: 'INR', owes: 0, owed: 0 }])).toBeNull();
+  });
+});
+
+describe('deletedPaymentParty', () => {
+  const people = [
+    { userId: 'alice', deleted: true },
+    { userId: 'bob' },
+    { userId: 'carol' },
+  ];
+
+  it('finds a deleted account on either side of the payment', () => {
+    expect(deletedPaymentParty({ fromUserId: 'alice', toUserId: 'bob' }, people)?.userId).toBe('alice');
+    expect(deletedPaymentParty({ fromUserId: 'bob', toUserId: 'alice' }, people)?.userId).toBe('alice');
+  });
+
+  it('is null when both people still have accounts', () => {
+    expect(deletedPaymentParty({ fromUserId: 'bob', toUserId: 'carol' }, people)).toBeNull();
+    expect(deletedPaymentParty({ fromUserId: 'bob', toUserId: 'carol' }, [])).toBeNull();
+  });
+});
+
+describe('showsProviderFxRates', () => {
+  const usdToInr = { currency: 'USD', settlementCurrency: 'INR', fxRate: 83.1 };
+  const eurToInr = { currency: 'EUR', settlementCurrency: 'INR', fxRate: 90.4 };
+
+  it('needs the credit when an end-of-day event shows a converted amount', () => {
+    expect(showsProviderFxRates({ fxRateMode: 'eod' }, [usdToInr])).toBe(true);
+    expect(showsProviderFxRates({}, [usdToInr])).toBe(true); // mode defaults to end-of-day
+  });
+
+  it("doesn't need it when every rate shown is the group's own", () => {
+    expect(showsProviderFxRates({ fxRateMode: 'predefined', predefinedFxRates: { USD_INR: 83 } }, [usdToInr])).toBe(false);
+    expect(showsProviderFxRates({ fxRateMode: 'predefined', predefinedFxRates: { INR_USD: 0.012 } }, [usdToInr])).toBe(false);
+  });
+
+  it('needs it when a predefined event falls back to the provider for a pair it did not set', () => {
+    expect(
+      showsProviderFxRates({ fxRateMode: 'predefined', predefinedFxRates: { USD_INR: 83 } }, [usdToInr, eurToInr]),
+    ).toBe(true);
+  });
+
+  it("doesn't need it when nothing is converted", () => {
+    expect(showsProviderFxRates({ fxRateMode: 'eod' }, [])).toBe(false);
+    expect(showsProviderFxRates({ fxRateMode: 'eod' }, [{ currency: 'INR', settlementCurrency: undefined, fxRate: undefined }])).toBe(false);
+    expect(showsProviderFxRates({ fxRateMode: 'eod' }, [{ currency: 'INR', settlementCurrency: 'INR', fxRate: 1 }])).toBe(false);
+  });
+
+  it('credits ExchangeRate-API with the wording and link its terms ask for', () => {
+    expect(FX_RATES_ATTRIBUTION).toEqual({ text: 'Rates By Exchange Rate API', url: 'https://www.exchangerate-api.com' });
+  });
+});
 
 describe('Shared types - Enums', () => {
   it('UserRole should have ADMIN and MEMBER', () => {

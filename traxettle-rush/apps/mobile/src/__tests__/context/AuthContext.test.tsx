@@ -272,6 +272,53 @@ describe('AuthContext', () => {
     expect(captured?.user?.userId).toBe('u-google');
   });
 
+  it('apple login exchanges the identity token for a Firebase session and loads the profile', async () => {
+    (api.post as jest.Mock).mockResolvedValueOnce({ data: { firebaseCustomToken: 'firebase-custom-token' } });
+    (getToken as jest.Mock).mockResolvedValue('custom-token');
+    (api.get as jest.Mock).mockResolvedValue({
+      data: { userId: 'apple-s1', email: 'ann@example.com', displayName: 'Ann Lee', tier: 'free' },
+    });
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    await act(async () => {
+      await captured?.loginWithApple({ identityToken: 'apple-id-token', rawNonce: 'raw-nonce', fullName: 'Ann Lee' });
+    });
+
+    expect(api.post).toHaveBeenCalledWith('/api/auth/apple', {
+      identityToken: 'apple-id-token',
+      rawNonce: 'raw-nonce',
+      fullName: 'Ann Lee',
+    });
+    expect(signInWithCustomToken).toHaveBeenCalledWith(expect.anything(), 'firebase-custom-token');
+    expect(setTokens).toHaveBeenCalledWith('custom-token', null);
+    expect(captured?.user?.userId).toBe('apple-s1');
+  });
+
+  it('apple login rejects when the server returns no Firebase session', async () => {
+    (api.post as jest.Mock).mockResolvedValueOnce({ data: {} });
+
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+
+    await expect(
+      captured!.loginWithApple({ identityToken: 't', rawNonce: 'n', fullName: null }),
+    ).rejects.toThrow('No Firebase session received from server');
+  });
+
   it('register stores token and loads profile', async () => {
     (getToken as jest.Mock).mockResolvedValue('firebase-register-token');
     (api.get as jest.Mock).mockResolvedValue({
