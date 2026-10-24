@@ -18,6 +18,7 @@ import {
   poolPaymentActionsText,
   REIMBURSEMENT_STATUS,
   reimbursementStatus,
+  repaymentStatus,
   toPoolError,
   validateFundingChoice,
   withPreset,
@@ -268,5 +269,20 @@ describe('pool payments waiting on a user', () => {
     expect(poolPaymentActionsText(2, 1)).toBe('2 payments to confirm · 1 payment to make');
     expect(poolPaymentActionsText(0, 3)).toBe('3 payments to make');
     expect(poolPaymentActionsText(0, 0)).toBeNull();
+  });
+});
+
+describe('repaymentStatus (§9.2)', () => {
+  it('follows the repayment leg of a rejected, already-paid pool spend', () => {
+    expect(repaymentStatus('rejected', 'pending')).toBe('to_repay');
+    expect(repaymentStatus('rejected', 'initiated')).toBe('repay_sent');
+    expect(repaymentStatus('rejected', 'completed')).toBe('repaid');
+  });
+
+  it('is nothing without a leg, or for draws that were not rejected', () => {
+    expect(repaymentStatus('rejected', null)).toBeNull();
+    expect(repaymentStatus('rejected', undefined)).toBeNull();
+    expect(repaymentStatus('approved', 'pending')).toBeNull();
+    expect(repaymentStatus('pending', 'pending')).toBeNull();
   });
 });

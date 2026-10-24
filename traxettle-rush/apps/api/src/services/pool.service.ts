@@ -239,6 +239,7 @@ export class PoolService {
       fromEntityType: d.fromEntityType || 'user',
       fromUserId: d.fromUserId,
       kind: d.kind || 'regular',
+      ...(d.gift === true ? { gift: true } : {}),
       expectedMinor: d.expectedMinor || 0,
       receivedMinor: d.receivedMinor || 0,
       claimedMinor: d.claimedMinor ?? null,
@@ -303,7 +304,14 @@ export class PoolService {
   }
 
   private toContributionLike(c: PoolContribution): ContributionLike {
-    return { entityKey: entityKey(c.fromEntityType, c.fromEntityId), kind: c.kind, status: c.status, expectedMinor: c.expectedMinor, receivedMinor: c.receivedMinor };
+    return {
+      entityKey: entityKey(c.fromEntityType, c.fromEntityId),
+      kind: c.kind,
+      status: c.status,
+      expectedMinor: c.expectedMinor,
+      receivedMinor: c.receivedMinor,
+      ...(c.gift ? { gift: true } : {}),
+    };
   }
 
   private toDrawLike(e: Record<string, any>, currency: string, groups: Group[]): DrawLike {
@@ -467,6 +475,7 @@ export class PoolService {
     fromUserId: string,
     opts: {
       kind: PoolContribution['kind'];
+      gift?: boolean;
       expectedMinor: number;
       receivedMinor?: number;
       status?: PoolContribution['status'];
@@ -484,6 +493,7 @@ export class PoolService {
       fromEntityType: ref.entityType,
       fromUserId,
       kind: opts.kind,
+      ...(opts.kind === 'top_up' && opts.gift ? { gift: true } : {}),
       expectedMinor: opts.expectedMinor,
       receivedMinor: opts.receivedMinor ?? 0,
       claimedMinor: null,
@@ -562,8 +572,11 @@ export class PoolService {
     return this.listContributions(cycle.id);
   }
 
-  /** Ad-hoc money in — e.g. to unpause a pool or pay off carried arrears. */
-  async addTopUp(eventId: string, actorId: string, input: { amountMinor: number; note?: string; entityId?: string; entityType?: 'user' | 'group' }): Promise<PoolContribution> {
+  /**
+   * Ad-hoc money in — e.g. to unpause a pool or pay off carried arrears. It's a loan, paid back
+   * at close, unless `gift` (design doc §10). The custodian confirming receipt accepts the loan.
+   */
+  async addTopUp(eventId: string, actorId: string, input: { amountMinor: number; note?: string; gift?: boolean; entityId?: string; entityType?: 'user' | 'group' }): Promise<PoolContribution> {
     const event = await this.getEvent(eventId);
     const config = this.requirePoolConfig(event);
     this.assertEventEditable(event);
@@ -578,12 +591,13 @@ export class PoolService {
     const selfConfirmed = actorId === config.custodianUserId && this.payerForEntity(ref, groups) === actorId;
     const contribution = await this.writeContribution(event, cycle, ref, this.payerForEntity(ref, groups), {
       kind: 'top_up',
+      gift: input.gift,
       expectedMinor: input.amountMinor,
       receivedMinor: selfConfirmed ? input.amountMinor : 0,
       status: selfConfirmed ? 'confirmed' : 'pending',
       createdBy: actorId,
       custodianConfirmedAt: selfConfirmed ? nowIso() : undefined,
-      audit: [auditEntry('created', actorId, { amountMinor: input.amountMinor, note: input.note, statusTo: selfConfirmed ? 'confirmed' : 'pending' })],
+      audit: [auditEntry('created', actorId, { amountMinor: input.amountMinor, note: input.gift ? [input.note, 'Gift'].filter(Boolean).join(' · ') : input.note, statusTo: selfConfirmed ? 'confirmed' : 'pending' })],
     });
     if (selfConfirmed) await this.refreshOverdraftLatch(eventId, cycle.id);
     return contribution;
@@ -942,7 +956,52 @@ export class PoolService {
     if (expense.poolDraw?.status !== 'pending') throw new PoolError(409, `Cannot reject: this draw is ${expense.poolDraw?.status}`);
     const poolDraw: PoolDrawState = { ...expense.poolDraw, status: 'rejected', decidedBy: actorId, decidedAt: nowIso(), reason: (reason || 'Rejected').trim() };
     await db.collection('expenses').doc(expenseId).set({ poolDraw, updatedAt: nowIso() }, { merge: true });
-    return { ...expense, poolDraw };
+    const settlementId = await this.ensureRepaymentLeg({ ...expense, poolDraw }, event, config, actorId);
+    return { ...expense, poolDraw: settlementId ? { ...poolDraw, settlementId } : poolDraw };
+  }
+
+  /** A pool spend already paid with the pool's money, then rejected: the spender owes it back (§9.2). */
+  private owesRepayment(expense: Record<string, any>, config: PoolConfig): boolean {
+    return expense.fundingSource === 'pool'
+      && expense.poolDraw?.status === 'rejected'
+      && expense.poolDraw?.alreadyIncurred === true
+      && expense.paidBy !== config.custodianUserId;
+  }
+
+  /**
+   * Create the `pool_repayment` leg (spender → custodian) a rejected, already-paid pool spend
+   * needs, unless it exists. Paid through the usual I've Paid → confirm flow under Pool payments.
+   */
+  private async ensureRepaymentLeg(expense: Record<string, any> & { id: string }, event: EventRecord, config: PoolConfig, actorId: string): Promise<string | null> {
+    if (!this.owesRepayment(expense, config) || (await this.legExists(expense.poolDraw?.settlementId))) return null;
+    const now = nowIso();
+    const leg = await db.collection(SETTLEMENTS).add({
+      eventId: expense.eventId,
+      kind: 'pool_repayment',
+      poolCycleId: expense.poolCycleId,
+      expenseId: expense.id,
+      fromEntityId: expense.paidBy,
+      fromEntityType: 'user',
+      toEntityId: config.custodianUserId,
+      toEntityType: 'user',
+      fromUserId: expense.paidBy,
+      toUserId: config.custodianUserId,
+      amount: expense.amount,
+      currency: event.data.currency,
+      status: 'pending',
+      createdAt: now,
+      auditTrail: [{
+        id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        action: 'created',
+        actorUserId: actorId,
+        note: `Pool money spent on "${expense.title}", not approved`,
+        statusFrom: 'none',
+        statusTo: 'pending',
+        createdAt: now,
+      }],
+    });
+    await db.collection('expenses').doc(expense.id).set({ poolDraw: { ...expense.poolDraw, settlementId: leg.id } }, { merge: true });
+    return leg.id;
   }
 
   /** Nothing in a closed cycle may change (its reconciliation is final). */
@@ -953,18 +1012,29 @@ export class PoolService {
   }
 
   /**
-   * Guard edits/deletes of a pool draw. Returns the reimbursement leg (if any)
-   * that must be removed because the approved amount is changing or going away.
+   * Guard edits/deletes of a pool draw. Returns the reimbursement or repayment leg (if any)
+   * that must be removed because the amount is changing or the expense is going away.
+   * An amount change sends a rejected spend back for approval; only a manager may delete one
+   * the spender still owes for, so a spender can't erase their own debt.
    */
-  async assertDrawMutable(expense: Record<string, any>): Promise<{ legToRemove: string | null; cycle: PoolCycle | null }> {
+  async assertDrawMutable(expense: Record<string, any>, opts: { deletingBy?: string } = {}): Promise<{ legToRemove: string | null; cycle: PoolCycle | null }> {
     if (expense.fundingSource !== 'pool' && expense.fundingSource !== 'pool_reimbursement') return { legToRemove: null, cycle: null };
     const cycle = expense.poolCycleId ? await this.getCycle(expense.poolCycleId) : null;
     if (cycle) this.assertCycleWritable(cycle);
     const legId = expense.poolDraw?.settlementId;
     if (!legId) return { legToRemove: null, cycle };
     const leg = await db.collection(SETTLEMENTS).doc(legId).get();
+    const repayment = leg.exists && leg.data()?.kind === 'pool_repayment';
     if (leg.exists && leg.data()?.status !== 'pending') {
-      throw new PoolError(409, 'This reimbursement is already being paid and can no longer change', 'POOL_REIMBURSEMENT_IN_PAYMENT');
+      throw repayment
+        ? new PoolError(409, 'This repayment is already being paid and can no longer change', 'POOL_REPAYMENT_IN_PAYMENT')
+        : new PoolError(409, 'This reimbursement is already being paid and can no longer change', 'POOL_REIMBURSEMENT_IN_PAYMENT');
+    }
+    if (repayment && opts.deletingBy) {
+      const event = await this.getEvent(expense.eventId);
+      if (!this.isManager(event, this.requirePoolConfig(event), opts.deletingBy)) {
+        throw new PoolError(403, 'This spend was not approved, so it is owed back to the custodian. Only the custodian or an admin can delete it.', 'POOL_REPAYMENT_OWED');
+      }
     }
     return { legToRemove: leg.exists ? legId : null, cycle };
   }
@@ -1053,6 +1123,7 @@ export class PoolService {
         fundingSource: d.fundingSource,
         receiptUrls: Array.isArray(d.attachments) ? d.attachments : [],
         flags: Array.isArray(d.poolFlags) && d.poolFlags.length > 0 ? d.poolFlags : undefined,
+        ...(d.fundingSource === 'pool' ? { alreadyIncurred: d.poolDraw?.alreadyIncurred === true } : {}),
         settlementStatus: d.poolDraw?.selfReimbursed ? 'completed' : (d.poolDraw?.settlementId ? legStatus.get(d.poolDraw.settlementId) ?? null : null),
         counted: d.poolDraw?.status === 'approved',
       });
@@ -1212,6 +1283,17 @@ export class PoolService {
   }
 
   /**
+   * Money someone says they've added must be confirmed (or rejected) before the pool closes:
+   * a lender is paid back only what the custodian confirmed receiving (§10).
+   */
+  private assertNoUnconfirmedTopUps(contributions: PoolContribution[]): void {
+    const waiting = contributions.filter((c) => c.kind === 'top_up' && c.status === 'initiated');
+    if (waiting.length > 0) {
+      throw new PoolError(409, 'Confirm or reject the money people have added to the pool before closing it', 'POOL_UNCONFIRMED_TOP_UPS', { count: waiting.length });
+    }
+  }
+
+  /**
    * Close the current cycle (scheduled, manual, or forced by a membership
    * change). Carry-forward pools roll the balance into a new cycle; leavers are
    * paid out; settle-policy pools pay out every net position.
@@ -1238,6 +1320,7 @@ export class PoolService {
     if (built._draws.some((d) => d.poolDraw?.status === 'pending')) {
       throw new PoolError(409, 'Approve or reject pending pool expenses before closing the cycle', 'POOL_PENDING_DRAWS');
     }
+    this.assertNoUnconfirmedTopUps(built._contributions);
 
     const raw = reconcileCycle(this.reconcileInput(config, cycle, built, {}));
     const cover = this.normalizeCover(config, built._groups, raw.uncoveredDeficitMinor, opts.cover);
@@ -1360,10 +1443,14 @@ export class PoolService {
     if (built._draws.some((d) => d.poolDraw?.status === 'pending')) {
       throw new PoolError(409, 'Approve or reject pending pool expenses before settling up', 'POOL_PENDING_DRAWS');
     }
-    // Settling with an approved claim that has no leg would close the event without paying the claimant back.
+    this.assertNoUnconfirmedTopUps(built._contributions);
+    // Settling with an approved claim (or a rejected, already-paid spend) that has no leg would
+    // close the event without the money being paid back.
     for (const draw of built._draws) {
       if (draw.fundingSource === 'pool_reimbursement' && draw.poolDraw?.status === 'approved' && !draw.poolDraw.selfReimbursed) {
         await this.finalizeApprovedDraw(draw as Expense & { poolDraw?: PoolDrawState }, actorId);
+      } else if (this.owesRepayment(draw, config)) {
+        await this.ensureRepaymentLeg(draw, event, config, actorId);
       }
     }
     const raw = reconcileCycle(this.reconcileInput(config, cycle, built, { forDissolution: true }));

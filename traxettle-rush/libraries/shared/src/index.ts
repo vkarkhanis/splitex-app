@@ -361,12 +361,12 @@ export function deletedPaymentParty<P extends { userId: string; deleted?: boolea
   return participants.find((p) => p.deleted && (p.userId === leg.fromUserId || p.userId === leg.toUserId)) ?? null;
 }
 
-export type SettlementKind = 'standard' | 'pool_reimbursement' | 'pool_cycle' | 'pool_member_exit';
+export type SettlementKind = 'standard' | 'pool_reimbursement' | 'pool_repayment' | 'pool_cycle' | 'pool_member_exit';
 
 /** Legs that belong to an active pool rather than the event's final settlement. */
 export function isPoolSideLeg(settlement: { kind?: SettlementKind | null } | null | undefined): boolean {
   const kind = settlement?.kind ?? 'standard';
-  return kind === 'pool_reimbursement' || kind === 'pool_cycle' || kind === 'pool_member_exit';
+  return kind === 'pool_reimbursement' || kind === 'pool_repayment' || kind === 'pool_cycle' || kind === 'pool_member_exit';
 }
 
 type PoolLegLike = Pick<Settlement, 'kind' | 'status' | 'fromUserId' | 'toUserId'>;

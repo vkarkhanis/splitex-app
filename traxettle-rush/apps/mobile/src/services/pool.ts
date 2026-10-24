@@ -25,7 +25,7 @@ export const poolService = {
   convert: async (eventId: string, dto: CreatePoolConfigDto) => (await api.post(`/api/pools/event/${eventId}/convert`, dto)).data,
   setContributions: async (eventId: string, contributions: Array<{ entityId: string; entityType: 'user' | 'group'; expectedMinor: number }>) =>
     (await api.put<PoolContribution[]>(`/api/pools/event/${eventId}/contributions`, { contributions })).data,
-  topUp: async (eventId: string, body: { amountMinor: number; note?: string }) =>
+  topUp: async (eventId: string, body: { amountMinor: number; note?: string; gift?: boolean }) =>
     (await api.post<PoolContribution>(`/api/pools/event/${eventId}/top-ups`, body)).data,
   markPaid: async (id: string, body: { amountMinor?: number; reference?: string; note?: string; proofUrl?: string }) =>
     (await api.post<PoolContribution>(`/api/pools/contributions/${id}/mark-paid`, body)).data,

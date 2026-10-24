@@ -64,9 +64,13 @@ export function PaidWithSelector(props: {
   currency: string;
   noun: string;
   amountMinor: number;
+  /** Listed first and marked "Suggested" (spenders in a sponsor pool: claiming back is risk-free). */
+  preferred?: ExpenseFundingSource;
 }) {
   const { colors } = useTheme().theme;
   const o = props.summary?.overdraft;
+  const options = allowedFundingSources(props.model);
+  if (props.preferred && options.includes(props.preferred)) options.sort((a, b) => Number(b === props.preferred) - Number(a === props.preferred));
   let status: { color: string; text: string } | null = null;
   if (o && props.value !== 'self') {
     const projected = o.balanceMinor - props.amountMinor;
@@ -81,13 +85,13 @@ export function PaidWithSelector(props: {
     <View testID="paid-with" style={{ marginBottom: spacing.md }}>
       <Text style={[s.label, { color: colors.textSecondary }]}>Paid with</Text>
       <View style={s.optionRow} accessibilityRole="radiogroup">
-        {allowedFundingSources(props.model).map((opt) => {
+        {options.map((opt) => {
           const selected = props.value === opt;
           return (
             <TouchableOpacity key={opt} testID={`paid-with-${opt}`} accessibilityRole="radio" accessibilityState={{ selected }}
               onPress={() => props.onChange(opt)}
               style={[s.option, { borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.infoBg : colors.surface }]}>
-              <Text style={[s.optionTitle, { color: colors.text }]}>{PAID_WITH_COPY[opt].title}</Text>
+              <Text style={[s.optionTitle, { color: colors.text }]}>{PAID_WITH_COPY[opt].title}{opt === props.preferred ? '  · Suggested' : ''}</Text>
               <Text style={[s.optionText, { color: colors.muted }]}>{PAID_WITH_COPY[opt].text}</Text>
             </TouchableOpacity>
           );

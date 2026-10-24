@@ -22,7 +22,7 @@ import {
   Select,
   useToast,
 } from '@traxettle/ui';
-import { REIMBURSEMENT_STATUS, canApproveDraw, entityKey, fromMinor, isPoolSideLeg, reimbursementStatus, toMinor } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, canApproveDraw, entityKey, fromMinor, isPoolSideLeg, lentTopUps, reimbursementStatus, repaymentStatus, toMinor } from '@traxettle/shared';
 import type {
   Event as TraxettleEvent,
   EventParticipant,
@@ -163,7 +163,7 @@ type ModalState =
   | { kind: 'none' }
   | { kind: 'markPaid'; contribution: PoolContribution }
   | { kind: 'confirm'; contribution: PoolContribution }
-  | { kind: 'reject'; target: 'contribution' | 'draw'; id: string; title: string }
+  | { kind: 'reject'; target: 'contribution' | 'draw'; id: string; title: string; warning?: string }
   | { kind: 'topUp' }
   | { kind: 'amounts' }
   | { kind: 'close' }
@@ -238,6 +238,8 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
     && canApproveDraw(currentUserId ?? '', e.actorUserId, config.custodianUserId, isManager));
   const outstanding = summary.arrears.reduce((s, a) => s + a.outstandingMinor, 0);
   const sponsor = config.funderMode === 'sponsor';
+  // Money others lent to a sponsor pool: the custodian pays it back at close (design doc §10).
+  const lent = sponsor ? lentTopUps(contributions, config.custodianUserId) : { totalMinor: 0, byUser: {} as Record<string, number> };
 
   return (
     <Stack data-testid="pool-tab">
@@ -284,6 +286,15 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
             {summary.totals.reimbursementsMinor > 0 && <span>reimbursed {formatMinor(summary.totals.reimbursementsMinor, currency)}</span>}
             {summary.totals.pendingDrawsMinor > 0 && <span>awaiting approval {formatMinor(summary.totals.pendingDrawsMinor, currency)}</span>}
           </Totals>
+          {lent.totalMinor > 0 && (
+            <ItemMeta data-testid="pool-lent">
+              {isCustodian
+                ? `You'll pay back ${formatMinor(lent.totalMinor, currency)} that others added, when the ${noun.toLowerCase()} closes.`
+                : currentUserId && lent.byUser[currentUserId]
+                  ? `${formatMinor(lent.byUser[currentUserId], currency)} to get back from ${nameOf('user', config.custodianUserId)} when the ${noun.toLowerCase()} closes.`
+                  : `Lent by others: ${formatMinor(lent.totalMinor, currency)} (paid back at close).`}
+            </ItemMeta>
+          )}
           {summary.funding.targetMinor !== null && config.preset === 'target_collection' && (
             <Banner $tone={summary.funding.state === 'funded' ? 'info' : 'warning'} data-testid="pool-funding">
               {summary.funding.state === 'funded'
@@ -318,7 +329,7 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
                   <ItemMain>
                     <ItemTitle>
                       {e.title}
-                      <Badge $variant="info">{e.fundingSource === 'pool_reimbursement' ? 'Reimbursement' : 'Pool spend'}</Badge>
+                      <Badge $variant="info">{e.fundingSource === 'pool_reimbursement' ? 'Reimbursement' : e.alreadyIncurred ? 'Pool spend · already paid' : 'Pool spend · asking first'}</Badge>
                       {e.flags?.map((f) => <Badge key={f} $variant="warning">{f === 'exceeds_spender_cap' ? 'Over spending limit' : 'Over limit'}</Badge>)}
                     </ItemTitle>
                     <ItemMeta>
@@ -332,7 +343,13 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
                       onClick={() => run('Approved', () => poolApi.approveDraw(e.id), e.fundingSource === 'pool_reimbursement' ? 'A reimbursement payment was created.' : 'Deducted from the pool.')}>
                       Approve
                     </Button>
-                    <Button $size="sm" $variant="ghost" disabled={busy || !canAct} onClick={() => setModal({ kind: 'reject', target: 'draw', id: e.id, title: e.title })}>Reject</Button>
+                    <Button $size="sm" $variant="ghost" disabled={busy || !canAct} data-testid={`reject-draw-${e.id}`} onClick={() => setModal({
+                      kind: 'reject', target: 'draw', id: e.id, title: e.title,
+                      // Rejecting money already spent from the pool means the spender owes it back (§9.2).
+                      warning: e.fundingSource === 'pool' && e.alreadyIncurred && e.actorUserId !== config.custodianUserId
+                        ? `${nameOf('user', e.actorUserId)} says this was already paid with the ${noun.toLowerCase()}'s money. If you reject it, they owe ${formatMinor(-e.amountMinor, currency)} back to ${isCustodian ? 'you' : nameOf('user', config.custodianUserId)}.`
+                        : undefined,
+                    })}>Reject</Button>
                   </Actions>
                 </Item>
               ))}
@@ -369,7 +386,7 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
                     <ItemMain>
                       <ItemTitle>
                         {nameOf(c.fromEntityType, c.fromEntityId)}
-                        {c.kind !== 'regular' && <Badge>{c.kind === 'top_up' ? 'Top-up' : 'Covered shortfall'}</Badge>}
+                        {c.kind !== 'regular' && <Badge>{c.kind === 'top_up' ? (c.gift ? 'Gift' : c.fromUserId === config.custodianUserId ? 'Top-up' : 'Top-up · paid back at close') : 'Covered shortfall'}</Badge>}
                         <Badge $variant={status.tone}>{status.label}</Badge>
                       </ItemTitle>
                       <ItemMeta>
@@ -480,23 +497,34 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
       {modal.kind === 'confirm' && (
         <AmountModal title="Confirm money received" label="Amount received" currency={currency} busy={busy}
           initialMinor={modal.contribution.claimedMinor || Math.max(0, modal.contribution.expectedMinor - modal.contribution.receivedMinor)}
-          hint="Only confirmed money counts toward the pool balance."
+          hint={modal.contribution.kind === 'top_up' && modal.contribution.fromUserId !== config.custodianUserId
+            ? (modal.contribution.gift
+              ? `A gift from ${nameOf(modal.contribution.fromEntityType, modal.contribution.fromEntityId)}: it isn't paid back.`
+              : `You'll pay this back to ${nameOf(modal.contribution.fromEntityType, modal.contribution.fromEntityId)} when the ${noun.toLowerCase()} closes.`)
+            : 'Only confirmed money counts toward the pool balance.'}
           submitLabel="Confirm"
           onClose={() => setModal({ kind: 'none' })}
           onSubmit={(minor) => run('Confirmed', () => poolApi.confirm(modal.contribution.id, minor), 'Added to the pool.')} />
       )}
       {modal.kind === 'reject' && (
         <ReasonModal title={modal.target === 'draw' ? `Reject “${modal.title}”?` : `Mark ${modal.title}'s payment as not received?`}
+          warning={modal.warning}
           busy={busy} onClose={() => setModal({ kind: 'none' })}
           onSubmit={(reason) => run('Updated', () => (modal.target === 'draw' ? poolApi.rejectDraw(modal.id, reason) : poolApi.reject(modal.id, reason)))} />
       )}
       {modal.kind === 'topUp' && (
         <AmountModal title={`Add money to the ${noun.toLowerCase()}`} label="Amount" currency={currency} busy={busy} initialMinor={0}
           hint={isCustodian ? 'Money you hold is added straight away.' : `${nameOf('user', config.custodianUserId)} confirms once it arrives.`}
+          // Anyone but the custodian is lending to the event, unless they give it (§10).
+          giftChoice={isCustodian ? undefined : {
+            loanLabel: sponsor
+              ? `${nameOf('user', config.custodianUserId)} pays it back when the ${noun.toLowerCase()} closes`
+              : `Paid back to me when the ${noun.toLowerCase()} settles up`,
+          }}
           submitLabel="Add"
           onClose={() => setModal({ kind: 'none' })}
-          onSubmit={(minor) => run('Money added', async () => {
-            const res = await poolApi.topUp(event.id, { amountMinor: minor });
+          onSubmit={(minor, gift) => run('Money added', async () => {
+            const res = await poolApi.topUp(event.id, { amountMinor: minor, ...(gift ? { gift: true } : {}) });
             if (!isCustodian && res.data) await poolApi.markPaid(res.data.id, { amountMinor: minor });
           }, isCustodian ? 'Added to the pool.' : 'Waiting for the custodian to confirm.')} />
       )}
@@ -525,7 +553,12 @@ function LedgerRow({ entry: e, currency, nameOf }: { entry: PoolLedgerEntry; cur
   let state: React.ReactNode = null;
   if (e.type === 'draw') {
     if (e.status === 'pending') state = <Badge $variant="info">Awaiting approval</Badge>;
-    else if (e.status === 'rejected') state = <Badge $variant="error">Rejected</Badge>;
+    else if (e.status === 'rejected') {
+      const repay = repaymentStatus(e.status, e.settlementStatus);
+      state = repay
+        ? <><Badge $variant="error">Rejected</Badge><Badge $variant={REPAYMENT_STATUS[repay].tone}>{REPAYMENT_STATUS[repay].label}</Badge></>
+        : <Badge $variant="error">Rejected</Badge>;
+    }
     else if (e.fundingSource === 'pool_reimbursement') {
       const payBack = reimbursementStatus({ status: e.status as PoolDrawStatus }, e.settlementStatus);
       if (payBack) state = <Badge $variant={REIMBURSEMENT_STATUS[payBack].tone}>{REIMBURSEMENT_STATUS[payBack].label}</Badge>;
@@ -560,9 +593,11 @@ function parseMajor(text: string, currency: string): number | null {
 
 function AmountModal(props: {
   title: string; label: string; hint?: string; currency: string; initialMinor: number; submitLabel: string; busy: boolean;
-  onClose: () => void; onSubmit: (minor: number) => void;
+  giftChoice?: { loanLabel: string };
+  onClose: () => void; onSubmit: (minor: number, gift: boolean) => void;
 }) {
   const [text, setText] = useState(props.initialMinor > 0 ? String(fromMinor(props.initialMinor, props.currency)) : '');
+  const [gift, setGift] = useState(false);
   const minor = parseMajor(text, props.currency);
   return (
     <Modal open onClose={props.onClose} dataTestId="pool-amount-modal">
@@ -572,22 +607,35 @@ function AmountModal(props: {
           <Label htmlFor="pool-amount">{props.label}</Label>
           <Input id="pool-amount" type="number" min="0" step="any" inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} autoFocus data-testid="pool-amount-input" />
         </Field>
+        {props.giftChoice && (
+          <Field role="radiogroup" style={{ marginTop: 12 }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <input type="radio" name="pool-gift" checked={!gift} onChange={() => setGift(false)} data-testid="top-up-loan" />
+              {props.giftChoice.loanLabel}
+            </label>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input type="radio" name="pool-gift" checked={gift} onChange={() => setGift(true)} data-testid="top-up-gift" />
+              It&apos;s a gift — don&apos;t pay me back
+            </label>
+          </Field>
+        )}
         {props.hint && <ItemMeta style={{ marginTop: 8 }}>{props.hint}</ItemMeta>}
       </ModalBody>
       <ModalFooter>
         <Button $variant="outline" onClick={props.onClose}>Cancel</Button>
-        <Button $variant="primary" disabled={props.busy || minor === null} onClick={() => minor !== null && props.onSubmit(minor)} data-testid="pool-amount-submit">{props.submitLabel}</Button>
+        <Button $variant="primary" disabled={props.busy || minor === null} onClick={() => minor !== null && props.onSubmit(minor, gift)} data-testid="pool-amount-submit">{props.submitLabel}</Button>
       </ModalFooter>
     </Modal>
   );
 }
 
-function ReasonModal(props: { title: string; busy: boolean; onClose: () => void; onSubmit: (reason?: string) => void }) {
+function ReasonModal(props: { title: string; warning?: string; busy: boolean; onClose: () => void; onSubmit: (reason?: string) => void }) {
   const [reason, setReason] = useState('');
   return (
     <Modal open onClose={props.onClose}>
       <ModalHeader><ModalTitle>{props.title}</ModalTitle></ModalHeader>
       <ModalBody>
+        {props.warning && <Banner $tone="warning" data-testid="reject-warning">{props.warning}</Banner>}
         <Field>
           <Label htmlFor="pool-reason">Reason (optional)</Label>
           <Input id="pool-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />

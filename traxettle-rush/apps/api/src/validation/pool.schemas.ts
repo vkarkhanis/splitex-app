@@ -65,6 +65,8 @@ export const setContributionsSchema = z.object({
 export const topUpSchema = z.object({
   amountMinor: positiveMinor,
   note: z.string().max(500).optional(),
+  /** Given to the event rather than lent: never paid back (design doc §10). */
+  gift: z.boolean().optional(),
   entityId: z.string().min(1).optional(),
   entityType: entityType.optional(),
 }).strict();

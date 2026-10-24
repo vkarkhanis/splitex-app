@@ -45,7 +45,7 @@ jest.mock('../../utils/pool-api', () => ({
 import { FundingStep } from '../../components/pool/FundingStep';
 import { DEFAULT_FUNDING_CHOICE } from '../../components/pool/fundingChoice';
 import type { FundingChoice } from '../../components/pool/fundingChoice';
-import { PaidWithControl } from '../../components/pool/PaidWithControl';
+import { PaidWithControl, SpendTimingControl } from '../../components/pool/PaidWithControl';
 import { PoolTab } from '../../components/pool/PoolTab';
 import { PoolTileStatus } from '../../components/pool/PoolTileStatus';
 
@@ -80,6 +80,14 @@ const q = (testId: string) => container.querySelector(`[data-testid="${testId}"]
 async function click(el: Element | null) {
   if (!el) throw new Error('element not found');
   await act(async () => { (el as HTMLElement).click(); });
+}
+async function typeInto(el: Element | null, value: string) {
+  if (!el) throw new Error('element not found');
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
+  await act(async () => {
+    setter.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
 }
 
 // ── FundingStep ───────────────────────────────────────────────────────────
@@ -159,6 +167,13 @@ describe('PaidWithControl', () => {
     expect(q('paid-with-pool')).not.toBeNull();
     expect(q('paid-with-pool_reimbursement')).not.toBeNull();
     expect(q('paid-with-self')).toBeNull();
+  });
+
+  it('lists a preferred option first, marked Suggested', async () => {
+    await render(<PaidWithControl model="pool" value="pool_reimbursement" onChange={jest.fn()} summary={null} currency="INR" noun="Budget" amountMinor={0} preferred="pool_reimbursement" />);
+    const options = [...container.querySelectorAll('[role="radio"]')].map((o) => o.textContent);
+    expect(options[0]).toMatch(/^My money — claim it back · Suggested/);
+    expect(options[1]).toMatch(/^Pool funds/);
   });
 
   it('also offers a regular split in a hybrid event', async () => {
@@ -367,5 +382,83 @@ describe('PoolTab', () => {
     mockPoolApi.ledger.mockRejectedValueOnce(new Error('offline'));
     await render(<PoolTab event={event} currentUserId={BOB} participants={participants} groups={[]} settlements={[]} refreshKey={0} onChanged={jest.fn()} />);
     expect(q('empty')!.textContent).toMatch(/offline/);
+  });
+});
+
+// ── Phase 1 enhancements (design doc §9.2, §10) ───────────────────────────
+
+describe('SpendTimingControl', () => {
+  it('asks whether a pool spend is already paid or a request', async () => {
+    const onChange = jest.fn();
+    await render(<SpendTimingControl value={null} onChange={onChange} noun="Budget" />);
+    expect(q('spend-timing-paid')!.textContent).toMatch(/already paid with the budget's money/);
+    await click(q('spend-timing-asking'));
+    expect(onChange).toHaveBeenCalledWith('asking');
+  });
+});
+
+describe('PoolTab — money owed back in a sponsor pool', () => {
+  const CAROL = 'carol';
+  const sponsorEvent = {
+    ...event,
+    poolConfig: { preset: 'sponsor_budget', funderMode: 'sponsor', cycleMode: 'single', custodianUserId: ALICE, authorizedSpenders: [BOB] },
+  } as any;
+  const people = [...participants, { userId: CAROL, displayName: 'Carol' }] as any;
+
+  function sponsorLedger(): PoolLedger {
+    const ledger = ledgerFixture();
+    const contribution = (id: string, from: string, kind: any, received: number, gift?: boolean) => ({
+      id, eventId: 'e1', cycleId: 'c1', fromEntityId: from, fromEntityType: 'user' as const, fromUserId: from, kind,
+      ...(gift ? { gift: true } : {}),
+      expectedMinor: received, receivedMinor: received, claimedMinor: null, currency: 'INR', status: 'confirmed',
+      auditTrail: [], createdBy: from, createdAt: '2026-10-02', updatedAt: '2026-10-02',
+    });
+    ledger.summary.arrears = [];
+    ledger.contributions = [
+      contribution('s1', ALICE, 'regular', 8000000),
+      contribution('l1', BOB, 'top_up', 1000000),
+      contribution('g1', CAROL, 'top_up', 500000, true),
+    ] as any;
+    ledger.entries = [
+      { id: 'p1', type: 'draw', at: '2026-10-05', title: 'Flowers', amountMinor: -50000, status: 'pending', actorUserId: BOB, fundingSource: 'pool', alreadyIncurred: true, receiptUrls: [], counted: false },
+      { id: 'r1', type: 'draw', at: '2026-10-04', title: 'Band', amountMinor: -70000, status: 'rejected', actorUserId: BOB, fundingSource: 'pool', alreadyIncurred: true, settlementStatus: 'pending', receiptUrls: [], counted: false },
+    ] as any;
+    return ledger;
+  }
+
+  beforeEach(() => mockPoolApi.ledger.mockResolvedValue({ success: true, data: sponsorLedger() }));
+
+  it('tells the custodian what they will pay back, and labels loans and gifts', async () => {
+    await render(<PoolTab event={sponsorEvent} currentUserId={ALICE} participants={people} groups={[]} settlements={[]} refreshKey={0} onChanged={jest.fn()} />);
+    expect(q('pool-lent')!.textContent).toMatch(/You'll pay back ₹10,000\.00 that others added/);
+    expect(q('contribution-l1')!.textContent).toMatch(/Top-up · paid back at close/);
+    expect(q('contribution-g1')!.textContent).toMatch(/Gift/);
+    expect(q('contribution-s1')!.textContent).not.toMatch(/paid back/);
+    expect(q('ledger-r1')!.textContent).toMatch(/Rejected.*Owed back/);
+  });
+
+  it('tells a lender what they will get back', async () => {
+    await render(<PoolTab event={sponsorEvent} currentUserId={BOB} participants={people} groups={[]} settlements={[]} refreshKey={0} onChanged={jest.fn()} />);
+    expect(q('pool-lent')!.textContent).toMatch(/₹10,000\.00 to get back from Alice/);
+  });
+
+  it('warns before rejecting a spend already paid with the pool\'s money', async () => {
+    await render(<PoolTab event={sponsorEvent} currentUserId={ALICE} participants={people} groups={[]} settlements={[]} refreshKey={0} onChanged={jest.fn()} />);
+    expect(q('pool-pending-approvals')!.textContent).toMatch(/Pool spend · already paid/);
+    await click(q('reject-draw-p1'));
+    expect(q('reject-warning')!.textContent).toMatch(/Bob says this was already paid.*owe ₹500\.00 back to you/);
+    await click(q('reason-submit'));
+    expect(mockPoolApi.rejectDraw).toHaveBeenCalledWith('p1', undefined);
+  });
+
+  it('lets a member add money as a gift', async () => {
+    await render(<PoolTab event={sponsorEvent} currentUserId={BOB} participants={people} groups={[]} settlements={[]} refreshKey={0} onChanged={jest.fn()} />);
+    await click(q('pool-add-money'));
+    expect(q('pool-amount-modal')!.textContent).toMatch(/Alice pays it back when the budget closes/);
+    await typeInto(q('pool-amount-input'), '250');
+    await click(q('top-up-gift'));
+    await click(q('pool-amount-submit'));
+    expect(mockPoolApi.topUp).toHaveBeenCalledWith('e1', { amountMinor: 25000, gift: true });
+    expect(mockPoolApi.markPaid).toHaveBeenCalledWith('tu1', { amountMinor: 25000 });
   });
 });

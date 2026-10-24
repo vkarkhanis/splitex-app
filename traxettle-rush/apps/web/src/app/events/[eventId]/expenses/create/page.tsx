@@ -20,8 +20,8 @@ import {
 import { api } from '../../../../../utils/api';
 import type { EventFundingModel, EventParticipant, Group, OnBehalfOfEntry, PoolConfig, PoolCycleSummary } from '@traxettle/shared';
 import { resolveFundingModel, toMinor } from '@traxettle/shared';
-import { PaidWithControl } from '../../../../../components/pool/PaidWithControl';
-import type { PaidWith } from '../../../../../components/pool/PaidWithControl';
+import { PaidWithControl, SpendTimingControl } from '../../../../../components/pool/PaidWithControl';
+import type { PaidWith, SpendTiming } from '../../../../../components/pool/PaidWithControl';
 import { ReceiptField } from '../../../../../components/pool/ReceiptField';
 import { canRecordAnyway, isReceiptRequired, poolErrorText, poolNoun, toPoolError } from '../../../../../components/pool/poolFormat';
 import { poolApi } from '../../../../../utils/pool-api';
@@ -248,6 +248,7 @@ export default function CreateExpensePage() {
   const [fundingModel, setFundingModel] = useState<EventFundingModel>('peer_to_peer');
   const [poolConfig, setPoolConfig] = useState<PoolConfig | null>(null);
   const [paidWith, setPaidWith] = useState<PaidWith>('self');
+  const [spendTiming, setSpendTiming] = useState<SpendTiming | null>(null);
   const [poolSummary, setPoolSummary] = useState<PoolCycleSummary | null>(null);
   const [receipts, setReceipts] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -256,6 +257,9 @@ export default function CreateExpensePage() {
 
   // Current user's entity ID (group ID if in a group, else userId from auth)
   const [currentUserId, setCurrentUserId] = useState<string>('');
+  const isCustodian = Boolean(poolConfig && currentUserId && poolConfig.custodianUserId === currentUserId);
+  // Anyone but the custodian says whether a pool spend is already paid or a request (§9.2).
+  const needsSpendTiming = paidWith === 'pool' && Boolean(poolConfig) && Boolean(currentUserId) && !isCustodian;
 
   const [entities, setEntities] = useState<SplitEntry[]>([]);
 
@@ -285,7 +289,13 @@ export default function CreateExpensePage() {
       // Determine current user ID from auth token
       try {
         const profileRes = await api.get('/api/users/profile');
-        if (profileRes.data?.userId) setCurrentUserId(profileRes.data.userId);
+        const uid = profileRes.data?.userId;
+        if (uid) {
+          setCurrentUserId(uid);
+          // Spenders in a sponsor pool start on the zero-risk choice: their own money, claimed back.
+          const cfg = eRes.data?.poolConfig;
+          if (model === 'pool' && cfg?.funderMode === 'sponsor' && cfg.custodianUserId !== uid) setPaidWith('pool_reimbursement');
+        }
       } catch { /* ignore */ }
     } catch (err: any) {
       setError(err.message || 'Failed to load event data');
@@ -386,7 +396,7 @@ export default function CreateExpensePage() {
     setError('');
     setRefusal(null);
     try {
-      await api.post('/api/expenses', {
+      const res = await api.post<{ poolDraw?: { status?: string } }>('/api/expenses', {
         eventId,
         title: form.title.trim(),
         description: form.description.trim() || undefined,
@@ -396,10 +406,18 @@ export default function CreateExpensePage() {
         attachments: receipts,
         ...(alreadyIncurred ? { alreadyIncurred: true } : {}),
       });
+      const pending = res.data?.poolDraw?.status === 'pending';
+      const noun = poolNoun(poolConfig).toLowerCase();
       pushToast({
         type: 'success',
-        title: paidWith === 'pool_reimbursement' ? 'Claim submitted' : 'Expense recorded',
-        message: paidWith === 'pool_reimbursement' ? `You'll be reimbursed once it's approved.` : `"${form.title}" was paid from the ${poolNoun(poolConfig).toLowerCase()}.`,
+        title: paidWith === 'pool_reimbursement' ? 'Claim submitted' : pending && !alreadyIncurred ? 'Asked for approval' : 'Expense recorded',
+        message: paidWith === 'pool_reimbursement'
+          ? `You'll be reimbursed once it's approved.`
+          : pending && !alreadyIncurred
+            ? `Spend the ${noun}'s money only once it's approved.`
+            : pending
+              ? `Waiting for approval. If it's not approved, you'll owe it back to the ${noun}'s holder.`
+              : `"${form.title}" was paid from the ${noun}.`,
       });
       router.push(`/events/${eventId}`);
     } catch (err) {
@@ -425,7 +443,11 @@ export default function CreateExpensePage() {
         setError('Attach a receipt to record this.');
         return;
       }
-      await submitPoolDraw(amount, false);
+      if (needsSpendTiming && !spendTiming) {
+        setError(`Say whether you've already paid with the ${poolNoun(poolConfig).toLowerCase()}'s money or are asking first.`);
+        return;
+      }
+      await submitPoolDraw(amount, needsSpendTiming && spendTiming === 'paid');
       return;
     }
 
@@ -505,7 +527,11 @@ export default function CreateExpensePage() {
                 noun={poolNoun(poolConfig)}
                 amountMinor={(() => { const n = parseFloat(form.amount); return Number.isFinite(n) && n > 0 ? toMinor(n, form.currency) : 0; })()}
                 disabled={loading}
+                preferred={poolConfig?.funderMode === 'sponsor' && !isCustodian ? 'pool_reimbursement' : undefined}
               />
+            )}
+            {needsSpendTiming && (
+              <SpendTimingControl value={spendTiming} onChange={(v) => { setSpendTiming(v); setError(''); }} noun={poolNoun(poolConfig)} disabled={loading} />
             )}
 
             <Field>

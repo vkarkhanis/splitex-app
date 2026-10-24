@@ -599,6 +599,121 @@ describe('sponsor budget (UC-2)', () => {
     await api.confirmLeg(legId, BOB);
     expect((await api.event(eventId, ALICE)).status).toBe('settled');
   });
+
+  // Design doc §9.2: a spend already paid with the sponsor's money, then rejected, is owed back.
+  describe('rejected spends already paid with the pool\'s money (§9.2)', () => {
+    const receipt = { attachments: ['https://r/1.jpg'] };
+    const repaymentLegs = async (eventId: string) =>
+      (await api.settlements(eventId, ALICE)).filter((s) => s.kind === 'pool_repayment');
+
+    it('creates a repayment leg from the spender to the custodian; asking first creates none', async () => {
+      const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
+      const paid = (await api.spend(eventId, BOB, 5000, { ...receipt, title: 'Flowers', alreadyIncurred: true })).body.data;
+      const asked = (await api.spend(eventId, BOB, 7000, { ...receipt, title: 'Band', alreadyIncurred: false })).body.data;
+
+      const rejected = await api.rejectDraw(paid.id, ALICE, 'Not in the plan');
+      expect(rejected.status).toBe(200);
+      expect(rejected.body.data.poolDraw).toMatchObject({ status: 'rejected', alreadyIncurred: true, settlementId: expect.any(String) });
+      await api.rejectDraw(asked.id, ALICE);
+
+      const legs = await repaymentLegs(eventId);
+      expect(legs).toHaveLength(1);
+      expect(legs[0]).toMatchObject({ fromUserId: BOB, toUserId: ALICE, amount: 5000, status: 'pending', expenseId: paid.id });
+      // The pool never deducted it, and rejecting again is refused.
+      expect((await api.summary(eventId, ALICE)).totals.balanceMinor).toBe(80000000);
+      expect((await api.rejectDraw(paid.id, ALICE)).status).toBe(409);
+      const entry = (await api.ledger(eventId, ALICE)).entries.find((e: any) => e.id === paid.id);
+      expect(entry).toMatchObject({ status: 'rejected', settlementStatus: 'pending', counted: false });
+    });
+
+    it("doesn't let the spender delete a spend they owe for; the custodian can, removing the leg", async () => {
+      const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
+      const paid = (await api.spend(eventId, BOB, 5000, { ...receipt, alreadyIncurred: true })).body.data;
+      await api.rejectDraw(paid.id, ALICE);
+
+      const bobDelete = await request(app).delete(`/api/expenses/${paid.id}`).set(auth(BOB));
+      expect(bobDelete.status).toBe(403);
+      expect(bobDelete.body.code).toBe('POOL_REPAYMENT_OWED');
+      expect(await repaymentLegs(eventId)).toHaveLength(1);
+
+      expect((await request(app).delete(`/api/expenses/${paid.id}`).set(auth(ALICE))).status).toBe(200);
+      expect(await repaymentLegs(eventId)).toHaveLength(0);
+    });
+
+    it('sends an edited amount back for approval and drops the old repayment leg', async () => {
+      const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
+      const paid = (await api.spend(eventId, BOB, 5000, { ...receipt, alreadyIncurred: true })).body.data;
+      await api.rejectDraw(paid.id, ALICE);
+      const edited = await request(app).put(`/api/expenses/${paid.id}`).set(auth(BOB)).send({ amount: 4000 });
+      expect(edited.status).toBe(200);
+      expect(edited.body.data.poolDraw).toEqual({ status: 'pending', alreadyIncurred: true });
+      expect(await repaymentLegs(eventId)).toHaveLength(0);
+      // Rejected again: a new leg for the new amount.
+      await api.rejectDraw(paid.id, ALICE);
+      expect((await repaymentLegs(eventId)).map((l) => l.amount)).toEqual([4000]);
+    });
+
+    it('waits for the repayment before the event settles on dissolve', async () => {
+      const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
+      const paid = (await api.spend(eventId, BOB, 5000, { ...receipt, alreadyIncurred: true })).body.data;
+      const legId = (await api.rejectDraw(paid.id, ALICE)).body.data.poolDraw.settlementId;
+      await api.dissolve(eventId, ALICE);
+      expect((await api.event(eventId, ALICE)).status).toBe('payment');
+      await api.payLeg(legId, BOB);
+      await api.confirmLeg(legId, ALICE);
+      expect((await api.event(eventId, ALICE)).status).toBe('settled');
+    });
+  });
+
+  // Design doc §10: money others add is a loan the sponsor pays back at close, unless it's a gift.
+  describe('money added by others (§10)', () => {
+    async function lend(eventId: string, uid: string, amountMinor: number, gift?: boolean) {
+      const created = await api.topUp(eventId, uid, { amountMinor, ...(gift ? { gift: true } : {}) });
+      expect(created.status).toBe(201);
+      expect((await api.markPaid(created.body.data.id, uid)).status).toBe(200);
+      return created.body.data;
+    }
+
+    it('records a gift as a gift', async () => {
+      const eventId = await wedding();
+      const gift = await lend(eventId, CAROL, 500000, true);
+      expect(gift).toMatchObject({ kind: 'top_up', gift: true, status: 'pending' });
+      const loan = await lend(eventId, BOB, 500000);
+      expect(loan.gift).toBeUndefined();
+    });
+
+    it('pays a lender back at close; a gift is not paid back', async () => {
+      const eventId = await wedding();
+      const loan = await lend(eventId, BOB, 1000000);
+      const gift = await lend(eventId, CAROL, 500000, true);
+      await api.confirm(loan.id, ALICE);
+      await api.confirm(gift.id, ALICE);
+      await api.spend(eventId, ALICE, 800000, { attachments: ['https://r/1.jpg'] });
+
+      const preview = (await api.previewClose(eventId, ALICE, { forDissolution: true })).body.data;
+      expect(preview.giftsMinor).toBe(500000);
+      expect(preview.entityShares.find((e: any) => e.entityId === CAROL)).toMatchObject({ giftedMinor: 500000, netMinor: 0 });
+      expect(preview.entityShares.find((e: any) => e.entityId === BOB)).toMatchObject({ netMinor: 1000000 });
+
+      const res = await api.dissolve(eventId, ALICE);
+      expect(res.status).toBe(200);
+      expect(res.body.data.plan.settlements).toHaveLength(1);
+      expect(res.body.data.plan.settlements[0]).toMatchObject({ fromUserId: ALICE, toUserId: BOB, amount: 10000 });
+    });
+
+    it('refuses to close while money someone added is waiting for confirmation', async () => {
+      const eventId = await wedding();
+      await lend(eventId, BOB, 1000000);
+      const res = await api.dissolve(eventId, ALICE);
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('POOL_UNCONFIRMED_TOP_UPS');
+    });
+
+    it('validates the gift flag', async () => {
+      const eventId = await wedding();
+      expect((await api.topUp(eventId, BOB, { amountMinor: 1000, gift: 'yes' })).status).toBe(400);
+    });
+  });
 });
 
 // ── Dissolution of contributor pools ──────────────────────────────────────

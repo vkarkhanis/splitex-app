@@ -38,12 +38,14 @@ import { useEventSocket } from '../hooks/useSocket';
 import { useFeedback } from '../context/FeedbackContext';
 import {
   REIMBURSEMENT_STATUS,
+  REPAYMENT_STATUS,
   isPoolFundedEvent,
   isPoolFundedExpense,
   poolNoun,
   poolPaymentActions,
   poolPaymentActionsText,
   reimbursementStatus,
+  repaymentStatus,
   showsProviderFxRates,
   deletedPaymentParty,
   DELETED_USER_NAME,
@@ -692,6 +694,18 @@ export default function EventDetailScreen({ route, navigation }: any) {
   );
 
   const renderPayBackBadge = (exp: Expense) => {
+    // A rejected spend already paid with the pool's money is owed back (§9.2).
+    if (exp.fundingSource === 'pool') {
+      const repay = repaymentStatus(exp.poolDraw?.status, legStatusById.get(exp.poolDraw?.settlementId ?? ''));
+      if (!repay) return null;
+      const { label, tone } = REPAYMENT_STATUS[repay];
+      const background = { success: colors.successBg, warning: colors.warningBg, info: colors.infoBg }[tone];
+      return (
+        <Text testID={`repayment-badge-${exp.id}`} style={[styles.fxBadge, { color: colors[tone], backgroundColor: background }]}>
+          {label}
+        </Text>
+      );
+    }
     if (exp.fundingSource !== 'pool_reimbursement') return null;
     const payBack = reimbursementStatus(exp.poolDraw, legStatusById.get(exp.poolDraw?.settlementId ?? ''));
     if (!payBack) return null;

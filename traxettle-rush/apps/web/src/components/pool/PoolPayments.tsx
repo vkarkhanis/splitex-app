@@ -32,6 +32,7 @@ const Meta = styled.div`
 
 const KIND_LABEL: Record<string, string> = {
   pool_reimbursement: 'Reimbursement',
+  pool_repayment: 'Repayment (spend not approved)',
   pool_member_exit: 'Leaving settlement',
   pool_cycle: 'Cycle refund',
 };

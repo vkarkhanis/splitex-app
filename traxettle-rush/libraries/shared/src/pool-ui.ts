@@ -97,6 +97,24 @@ export function reimbursementStatus(
  * Explain a refused pool draw in plain language, using the structured details
  * the API returns. Falls back to the raw message.
  */
+export type RepaymentStatus = 'to_repay' | 'repay_sent' | 'repaid';
+
+export const REPAYMENT_STATUS: Record<RepaymentStatus, { label: string; tone: 'success' | 'warning' | 'info' }> = {
+  to_repay: { label: 'Owed back', tone: 'warning' },
+  repay_sent: { label: 'Repayment sent', tone: 'info' },
+  repaid: { label: 'Repaid', tone: 'success' },
+};
+
+/**
+ * A pool spend already paid with the pool's money, then rejected: the spender owes it back
+ * through its `pool_repayment` leg (§9.2). `legStatus` is that leg's status; none ⇒ nothing owed.
+ */
+export function repaymentStatus(drawStatus: string | null | undefined, legStatus?: string | null): RepaymentStatus | null {
+  if (drawStatus !== 'rejected' || !legStatus) return null;
+  if (legStatus === 'completed') return 'repaid';
+  return legStatus === 'initiated' ? 'repay_sent' : 'to_repay';
+}
+
 export function describePoolRefusal(err: { code?: string; message?: string; data?: Partial<PoolRefusalDetails> }, currency: string): string {
   const d = err.data || {};
   const money = (v?: number) => formatMinor(Math.max(0, v || 0), currency);

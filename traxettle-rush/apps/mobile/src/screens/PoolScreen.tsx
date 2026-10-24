@@ -20,12 +20,15 @@ import {
   formatMinor,
   fromMinor,
   isPoolSideLeg,
+  lentTopUps,
   poolErrorText,
   poolNoun,
   poolPaymentActions,
   poolPaymentActionsText,
   REIMBURSEMENT_STATUS,
+  REPAYMENT_STATUS,
   reimbursementStatus,
+  repaymentStatus,
   toMinor,
 } from '@traxettle/shared';
 import type {
@@ -48,7 +51,7 @@ import type { ClosePreview, CoverEntry, ImagePickerLike } from '../services/pool
 
 type Sheet =
   | { kind: 'none' }
-  | { kind: 'amount'; title: string; hint?: string; initialMinor: number; submit: (minor: number) => Promise<unknown> }
+  | { kind: 'amount'; title: string; hint?: string; initialMinor: number; giftChoice?: { loanLabel: string }; submit: (minor: number, gift: boolean) => Promise<unknown> }
   | { kind: 'markPaid'; contribution: PoolContribution }
   | { kind: 'amounts' }
   | { kind: 'reconcile'; mode: 'close' | 'settle' };
@@ -120,6 +123,8 @@ export default function PoolScreen({ route, navigation }: any) {
   const myLegIds = new Set([...myPayments.toConfirm, ...myPayments.toPay].map((l) => l.id));
   const orderedLegs = [...legs].sort((a, b) => Number(myLegIds.has(b.id)) - Number(myLegIds.has(a.id)));
   const money = (v: number, signed = false) => formatMinor(v, currency, { signed });
+  // Money others lent to a sponsor pool: the custodian pays it back at close (design doc §10).
+  const lent = sponsor ? lentTopUps(contributions, config.custodianUserId) : { totalMinor: 0, byUser: {} as Record<string, number> };
 
   const nameOf = (type: 'user' | 'group', id: string) => {
     if (type === 'group') return groups.find((g) => g.id === id)?.name || 'Group';
@@ -164,6 +169,15 @@ export default function PoolScreen({ route, navigation }: any) {
             collected {money(summary.totals.confirmedRegularMinor + summary.totals.confirmedTopUpMinor)} · spent {money(summary.totals.poolSpendMinor)}
             {summary.totals.reimbursementsMinor ? ` · reimbursed ${money(summary.totals.reimbursementsMinor)}` : ''}
           </Text>
+          {lent.totalMinor > 0 && (
+            <Text style={[meta, { marginTop: spacing.xs }]} testID="pool-lent">
+              {isCustodian
+                ? `You'll pay back ${money(lent.totalMinor)} that others added, when the ${noun.toLowerCase()} closes.`
+                : me && lent.byUser[me]
+                  ? `${money(lent.byUser[me])} to get back from ${nameOf('user', config.custodianUserId)} when the ${noun.toLowerCase()} closes.`
+                  : `Lent by others: ${money(lent.totalMinor)} (paid back at close).`}
+            </Text>
+          )}
           {config.preset === 'target_collection' && summary.funding.targetMinor !== null && (
             <Text style={[st.banner, { color: summary.funding.state === 'funded' ? colors.info : colors.warning, backgroundColor: summary.funding.state === 'funded' ? colors.infoBg : colors.warningBg }]}>
               {summary.funding.state === 'funded'
@@ -187,8 +201,14 @@ export default function PoolScreen({ route, navigation }: any) {
               <Btn testID="pool-add-money" label="Add money" color={colors.primary} outline onPress={() => setSheet({
                 kind: 'amount', title: `Add money to the ${noun.toLowerCase()}`, initialMinor: 0,
                 hint: isCustodian ? 'Money you hold is added straight away.' : `${nameOf('user', config.custodianUserId)} confirms once it arrives.`,
-                submit: async (minor) => {
-                  const c = await poolService.topUp(eventId, { amountMinor: minor });
+                // Anyone but the custodian is lending to the event, unless they give it (§10).
+                giftChoice: isCustodian ? undefined : {
+                  loanLabel: sponsor
+                    ? `${nameOf('user', config.custodianUserId)} pays it back when the ${noun.toLowerCase()} closes`
+                    : `Paid back to me when the ${noun.toLowerCase()} settles up`,
+                },
+                submit: async (minor, gift) => {
+                  const c = await poolService.topUp(eventId, { amountMinor: minor, ...(gift ? { gift: true } : {}) });
                   if (!isCustodian && c?.id) await poolService.markPaid(c.id, { amountMinor: minor });
                 },
               })} />
@@ -212,7 +232,7 @@ export default function PoolScreen({ route, navigation }: any) {
               <View key={leg.id} style={[st.row, { borderColor: colors.border }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[st.rowTitle, { color: colors.text }]}>{nameOf('user', leg.fromUserId)} → {nameOf('user', leg.toUserId)}</Text>
-                  <Text style={meta}>{leg.kind === 'pool_reimbursement' ? 'Reimbursement' : leg.kind === 'pool_member_exit' ? 'Leaving settlement' : 'Cycle refund'} · {leg.status === 'completed' ? 'Done' : leg.status === 'initiated' ? 'Paid — awaiting confirmation' : 'To pay'}</Text>
+                  <Text style={meta}>{leg.kind === 'pool_reimbursement' ? 'Reimbursement' : leg.kind === 'pool_repayment' ? 'Repayment (spend not approved)' : leg.kind === 'pool_member_exit' ? 'Leaving settlement' : 'Cycle refund'} · {leg.status === 'completed' ? 'Done' : leg.status === 'initiated' ? 'Paid — awaiting confirmation' : 'To pay'}</Text>
                 </View>
                 <Text style={[st.amount, { color: colors.text }]}>{money(toMinor(leg.amount, currency))}</Text>
                 {me === leg.fromUserId && (leg.status === 'pending' || leg.status === 'failed') && (
@@ -237,13 +257,27 @@ export default function PoolScreen({ route, navigation }: any) {
               <View key={e.id} style={[st.row, { borderColor: colors.border }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[st.rowTitle, { color: colors.text }]}>{e.title}</Text>
-                  <Text style={meta}>{e.fundingSource === 'pool_reimbursement' ? 'Reimbursement' : 'Pool spend'} · {nameOf('user', e.actorUserId)}{e.receiptUrls.length ? ` · ${e.receiptUrls.length} receipt(s)` : ''}</Text>
+                  <Text style={meta}>
+                    {e.fundingSource === 'pool_reimbursement' ? 'Reimbursement' : e.alreadyIncurred ? 'Pool spend · already paid' : 'Pool spend · asking first'} · {nameOf('user', e.actorUserId)}{e.receiptUrls.length ? ` · ${e.receiptUrls.length} receipt(s)` : ''}
+                  </Text>
                 </View>
                 <Text style={[st.amount, { color: colors.text }]}>{money(-e.amountMinor)}</Text>
                 <Btn testID={`approve-${e.id}`} label="Approve" color={colors.success} small disabled={busy || !canAct}
                   onPress={() => run('Approve', () => poolService.approveDraw(e.id))} />
-                <Btn label="Reject" color={colors.error} small outline disabled={busy || !canAct}
-                  onPress={() => run('Reject', () => poolService.rejectDraw(e.id))} />
+                <Btn testID={`reject-${e.id}`} label="Reject" color={colors.error} small outline disabled={busy || !canAct}
+                  onPress={() => {
+                    const reject = () => run('Reject', () => poolService.rejectDraw(e.id));
+                    // Rejecting money already spent from the pool means the spender owes it back (§9.2).
+                    if (e.fundingSource === 'pool' && e.alreadyIncurred && e.actorUserId !== config.custodianUserId) {
+                      const who = nameOf('user', e.actorUserId);
+                      Alert.alert('Reject this spend?', `${who} says this was already paid with the ${noun.toLowerCase()}'s money. If you reject it, ${who} owes ${money(-e.amountMinor)} back to ${nameOf('user', config.custodianUserId).replace(/^You$/, 'you')}.`, [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Reject', style: 'destructive', onPress: () => { void reject(); } },
+                      ]);
+                    } else {
+                      void reject();
+                    }
+                  }} />
               </View>
             ))}
           </View>
@@ -262,7 +296,7 @@ export default function PoolScreen({ route, navigation }: any) {
               <View key={c.id} style={[st.row, { borderColor: colors.border }]} testID={`contribution-${c.id}`}>
                 <View style={{ flex: 1 }}>
                   <Text style={[st.rowTitle, { color: colors.text }]}>
-                    {nameOf(c.fromEntityType, c.fromEntityId)}{c.kind === 'top_up' ? ' · top-up' : c.kind === 'overdraft_cover' ? ' · covered shortfall' : ''}
+                    {nameOf(c.fromEntityType, c.fromEntityId)}{c.kind === 'top_up' ? (c.gift ? ' · gift' : c.fromUserId === config.custodianUserId ? ' · top-up' : ' · top-up · paid back at close') : c.kind === 'overdraft_cover' ? ' · covered shortfall' : ''}
                   </Text>
                   <Text style={meta}>
                     {status.label} · {c.kind === 'regular' ? `${money(c.receivedMinor)} of ${money(c.expectedMinor)}` : money(c.receivedMinor || c.expectedMinor)}
@@ -276,7 +310,9 @@ export default function PoolScreen({ route, navigation }: any) {
                 {canAct && isCustodian && (c.status === 'initiated' || ((c.status === 'pending' || c.status === 'partial') && !mine && outstanding > 0)) && (
                   <Btn testID={`confirm-${c.id}`} label={c.status === 'initiated' ? 'Confirm' : 'Record'} color={colors.success} small onPress={() => setSheet({
                     kind: 'amount', title: 'Confirm money received', initialMinor: c.claimedMinor || outstanding,
-                    hint: 'Only confirmed money counts toward the balance.',
+                    hint: c.kind === 'top_up' && c.fromUserId !== config.custodianUserId
+                      ? (c.gift ? `A gift from ${nameOf(c.fromEntityType, c.fromEntityId)}: it isn't paid back.` : `You'll pay this back to ${nameOf(c.fromEntityType, c.fromEntityId)} when the ${noun.toLowerCase()} closes.`)
+                      : 'Only confirmed money counts toward the balance.',
                     submit: (minor) => poolService.confirm(c.id, minor),
                   })} />
                 )}
@@ -339,7 +375,7 @@ export default function PoolScreen({ route, navigation }: any) {
                 <Text style={meta}>
                   {e.entityType ? nameOf(e.entityType, e.entityId!) : nameOf('user', e.actorUserId)} · {new Date(e.at).toLocaleDateString()}
                   {e.status === 'pending' ? ' · awaiting approval' : e.status === 'rejected' ? ' · rejected' : ''}
-                  {e.fundingSource === 'pool_reimbursement' ? payBackText(e.status, e.settlementStatus) : ''}
+                  {e.fundingSource === 'pool_reimbursement' ? payBackText(e.status, e.settlementStatus) : repayText(e.status, e.settlementStatus)}
                   {e.flags?.includes('exceeds_tolerance') ? ' · over the limit' : ''}
                   {e.receiptUrls.length ? ` · ${e.receiptUrls.length} receipt(s)` : ''}
                 </Text>
@@ -369,8 +405,8 @@ export default function PoolScreen({ route, navigation }: any) {
       </ScrollView>
 
       {sheet.kind === 'amount' && (
-        <AmountSheet title={sheet.title} hint={sheet.hint} currency={currency} initialMinor={sheet.initialMinor} busy={busy}
-          onClose={() => setSheet({ kind: 'none' })} onSubmit={(minor) => run(sheet.title, () => sheet.submit(minor))} />
+        <AmountSheet title={sheet.title} hint={sheet.hint} currency={currency} initialMinor={sheet.initialMinor} busy={busy} giftChoice={sheet.giftChoice}
+          onClose={() => setSheet({ kind: 'none' })} onSubmit={(minor, gift) => run(sheet.title, () => sheet.submit(minor, gift))} />
       )}
       {sheet.kind === 'markPaid' && (
         <MarkPaidSheet contribution={sheet.contribution} currency={currency} busy={busy}
@@ -427,20 +463,37 @@ function payBackText(status: string, settlementStatus?: string | null): string {
   return payBack ? ` · ${REIMBURSEMENT_STATUS[payBack].label.toLowerCase()}` : '';
 }
 
+function repayText(status: string, settlementStatus?: string | null): string {
+  const repay = repaymentStatus(status, settlementStatus);
+  return repay ? ` · ${REPAYMENT_STATUS[repay].label.toLowerCase()}` : '';
+}
+
 function parseMinor(text: string, currency: string): number | null {
   const n = Number(text);
   return text.trim() && Number.isFinite(n) && n > 0 ? toMinor(n, currency) : null;
 }
 
-function AmountSheet(props: { title: string; hint?: string; currency: string; initialMinor: number; busy: boolean; onClose: () => void; onSubmit: (minor: number) => void }) {
+function AmountSheet(props: { title: string; hint?: string; currency: string; initialMinor: number; busy: boolean; giftChoice?: { loanLabel: string }; onClose: () => void; onSubmit: (minor: number, gift: boolean) => void }) {
   const { colors } = useTheme().theme;
   const [text, setText] = useState(props.initialMinor > 0 ? String(fromMinor(props.initialMinor, props.currency)) : '');
+  const [gift, setGift] = useState(false);
   const minor = parseMinor(text, props.currency);
+  const option = (value: boolean, label: string, testID: string) => (
+    <TouchableOpacity testID={testID} onPress={() => setGift(value)} style={[st.choice, { borderColor: gift === value ? colors.primary : colors.border, backgroundColor: gift === value ? colors.primary + '12' : 'transparent' }]}>
+      <Text style={{ color: gift === value ? colors.primary : colors.text, fontWeight: gift === value ? '700' : '400' }}>{gift === value ? '◉' : '○'}  {label}</Text>
+    </TouchableOpacity>
+  );
   return (
     <Sheet title={props.title} onClose={props.onClose}
-      footer={<Btn testID="amount-submit" label="Save" color={colors.primary} disabled={props.busy || minor === null} onPress={() => minor !== null && props.onSubmit(minor)} />}>
+      footer={<Btn testID="amount-submit" label="Save" color={colors.primary} disabled={props.busy || minor === null} onPress={() => minor !== null && props.onSubmit(minor, gift)} />}>
       <TextInput testID="amount-input" autoFocus keyboardType="decimal-pad" value={text} onChangeText={setText}
         style={[st.input, { borderColor: colors.border, color: colors.text }]} placeholder={`Amount (${props.currency})`} placeholderTextColor={colors.muted} />
+      {props.giftChoice && (
+        <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+          {option(false, props.giftChoice.loanLabel, 'top-up-loan')}
+          {option(true, "It's a gift — don't pay me back", 'top-up-gift')}
+        </View>
+      )}
       {props.hint && <Text style={[st.meta, { color: colors.textSecondary, marginTop: spacing.sm }]}>{props.hint}</Text>}
     </Sheet>
   );
@@ -597,6 +650,7 @@ const st = StyleSheet.create({
   btn: { borderWidth: 1.5, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   btnSmall: { paddingHorizontal: spacing.sm, paddingVertical: 4 },
   input: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, fontSize: fontSizes.md },
+  choice: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   sheet: { borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: spacing.lg, paddingBottom: spacing.xxxl },
   fab: { alignSelf: 'center', borderRadius: radii.full, paddingHorizontal: spacing.xl, paddingVertical: spacing.md },
