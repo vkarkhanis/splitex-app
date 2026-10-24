@@ -1,6 +1,6 @@
 # Money Pooling — Functional Design
 
-**Status:** Implemented on branch `feature/money-pooling` — read **§0** first for what changed from the proposal while building it. Testing guide: [MONEY_POOLING_TESTING.md](../runbook/MONEY_POOLING_TESTING.md). **Open gap, proposed fix not built:** a spender's rejected spend of the sponsor's money, and money handed to spenders — **§9**.
+**Status:** Implemented on branch `feature/money-pooling` — read **§0** first for what changed from the proposal while building it. Testing guide: [MONEY_POOLING_TESTING.md](../runbook/MONEY_POOLING_TESTING.md). **Phase 1 enhancements built** on branch `feature/money-pooling-enhancements-phase1` (2026-10-25): a rejected spend already paid with the pool's money is owed back (**§9.2**), and money others add is paid back unless it's a gift (**§10**, Phase 1). **Still proposals:** advances to spenders (§9.3) and paying back early (§10.6).
 **Date:** 2026-09-15
 **Scope:** Additive feature. The existing peer-to-peer split model remains fully supported and unchanged.
 
@@ -514,7 +514,8 @@ When a flatmate pays the internet bill with their own card, they add it with `fu
 
 **3 · Expenditure — two paths.**
 
-- **Direct pool spend** — spender has the pool card or cash. `fundingSource: 'pool'`, receipt required. Deducts immediately on approval. *(As built, rejecting one that was already paid with the sponsor's money leaves no way to get it back, and the handover of cash or card isn't recorded. See §9.)*
+- **Direct pool spend** — spender has the pool card or cash. `fundingSource: 'pool'`, receipt required. Deducts immediately on approval. *(Rejecting one that was already paid with the sponsor's money creates a repayment leg back to the sponsor, §9.2. The handover of cash or card isn't recorded yet, §9.3.)*
+- **Others adding money** — a spender who tops up the pool is lending to the event; the sponsor pays it back at close unless it was a gift (§10).
 - **Spend-then-reimburse** — the common case. Spender uses their own money, adds the expense with `fundingSource: 'pool_reimbursement'` and **a mandatory receipt**. State machine:
 
 ```
@@ -852,13 +853,14 @@ Items 1, 2 and 5 are roughly an hour each and are the highest-leverage work in t
 | **Where to start?** | Phase A prerequisites (≈1 hour each, mostly security), then UC-3 the trip kitty. |
 | **What happens when the pool runs dry?** | Graduated overdraft (§3.7): warn down to −20% of pool value, refuse beyond. Self-latching, auto-recovers when confirmed money arrives. After-the-fact expenses are always recorded, never refused. |
 | **Biggest technical risk?** | Float money arithmetic accumulating drift across carry-forward cycles. Move pool amounts to integer minor units before Phase B. |
-| **What if a spender spends the sponsor's money and it's rejected?** | Not handled as built. Proposed in §9: they owe it back through a repayment leg (Phase 1), and advances track who holds what (Phase 2). |
+| **What if a spender spends the sponsor's money and it's rejected?** | Built (§9.2, Phase 1): if they say it was already paid, rejecting it creates a `pool_repayment` leg back to the custodian. Advances (§9.3) remain a proposal. |
+| **What if someone other than the sponsor adds money?** | Built (§10, Phase 1): it's a loan the sponsor pays back at close (I've Paid → confirm, or Mark as Paid), unless they mark it a gift. |
 
 ---
 
 ## 9. Spending the sponsor's money: rejections, advances and who holds what
 
-**Status:** Proposed 2026-10-21, after hand-testing the "Just me" pool. **Not built.** §9.2 (Phase 1) is meant for the first release; §9.3 (Phase 2) comes after.
+**Status:** Proposed 2026-10-21, after hand-testing the "Just me" pool. **§9.2 (Phase 1) built** on branch `feature/money-pooling-enhancements-phase1` (2026-10-25); §9.3 (Phase 2) is still a proposal.
 
 ### 9.1 The gap
 
@@ -893,7 +895,7 @@ When a spender who isn't the custodian picks **Pool funds**, they also choose on
 Rules:
 
 - **Overdraft (§3.7) is unchanged.** Asking-first draws are pre-authorised, so they're refused past the floor. Already-paid draws are always recorded and flagged.
-- **Editing or deleting** a rejected already-paid draw adjusts or removes its repayment leg. This reuses the leg repair that the H1 fix added for claims (`legExists`, dissolution repair).
+- **Editing** the amount of a rejected already-paid draw sends it back for approval and removes its (unpaid) repayment leg; rejecting it again creates a new one. **Deleting** it removes the leg too, but only the custodian or an admin may delete it (`POOL_REPAYMENT_OWED`), so a spender can't erase their own debt. A leg already being paid blocks both. Missing legs are recreated at dissolution, as for claims (`legExists`).
 - **The custodian's own pool spends** are unchanged (auto-approved; it's their money).
 - **Dissolving** treats an unpaid repayment leg like any other open pool leg.
 - **The UI suggests "My money — claim it back" first** to spenders in sponsor pools, as the zero-risk path.
@@ -981,3 +983,95 @@ export interface PoolAdvance {
 - Should transfers between spenders need the custodian's confirmation too, or only the receiver's?
 - Should the custodian be able to switch off "the sponsor's card/UPI" per pool?
 - Multiple custodians (§7.4) remain out of scope.
+
+---
+
+## 10. Money added by others: paid back unless it's a gift
+
+**Status:** Proposed 2026-10-25. **§10.1–10.5 (Phase 1) built** on branch `feature/money-pooling-enhancements-phase1` the same day; early repayment (§10.6) is still a proposal.
+
+### 10.1 The gap
+
+A family event: Anita sponsors it. Priya, one of the spenders, sees the pool running low and adds ₹10,000 so everyone can keep spending. She is fronting money for the event's cause, so Anita should pay it back.
+
+As built, any member can **Add money** (a top-up). The custodian confirms when it arrives. At close, a "Just me" pool reconciles with the `custodian` share basis (surplus `retain`, deficit `custodian_absorbs`): **every non-custodian's money is consumed in full** (`fairShare = contributed`, so `net = 0`). Priya gets nothing back, and Anita's own cost drops by ₹10,000: Priya has paid part of the sponsor's costs. The app doesn't tell her.
+
+That is inconsistent with the rest of the model:
+
+| Pool | Money added by | As built at close | Proposed |
+|---|---|---|---|
+| "Just me" | the custodian | Their own money; nothing to return | Unchanged |
+| "Just me" | anyone else: **top-up** | ❌ Consumed, never returned | **Paid back by the custodian**, unless marked a gift |
+| "Just me" | anyone else: **overdraft cover** | ✅ Returned (`net += cover`) | Unchanged |
+| "Several of us" (commitment, equal or consumption basis) | a member: top-up | ✅ Refunded (it doesn't enlarge a stake) | Unchanged; can now be marked a gift |
+| "Several of us" with `retain` / `custodian_absorbs` | a member: top-up | ❌ Consumed | Paid back, unless a gift |
+
+### 10.2 The rule
+
+**Money someone adds beyond what they agreed to put in is a loan to the event's cause.** Whoever bears the spending pays it back: the sponsor in a "Just me" pool, and the members through their usual fair shares in a "Several of us" pool (unchanged).
+
+- **Paid back by default.** When adding money, the person can choose **"It's a gift — don't pay me back"** instead, for example a relative contributing towards a wedding. A gift is consumed, as all top-ups in sponsor pools are today.
+- **The custodian's confirmation is also their acceptance of the loan.** If they don't want it, they reject the top-up ("not received"), as built.
+- **The custodian's own top-ups are never repaid.** It's their money.
+- **Regular contributions** (agreed amounts) still follow the pool's surplus/deficit policy. Only top-ups change.
+
+### 10.3 When and how it's paid back (Phase 1: at close)
+
+- **Dissolving the pool**, or closing a cycle that settles, creates **one leg per lender**, custodian → lender, for what they lent: repayable top-ups plus overdraft cover. With Phase 2 advances (§9.3), the same leg also nets what the person still holds: `lent − held`; above zero, custodian → lender; below zero, lender → custodian. Approved claims keep their own legs, as built.
+- **The legs are settled outside the app and tracked with the standard actions**, listed under **Pool payments**:
+  - the custodian taps **I've Paid**, and the lender **confirms** they received it; or
+  - by mutual understanding (for example, settled in person), the lender alone taps **Mark as Paid**.
+- **If the pool ends with money left,** the custodian keeps the rest after paying back (`retain`).
+- **If it ends short,** the custodian still pays back in full: in a sponsor pool the sponsor bears all the spending.
+- **Unconfirmed top-ups at close** (the lender said they sent it: status `initiated`) must be confirmed or rejected first (`POOL_UNCONFIRMED_TOP_UPS`), as pending draws are today. A top-up the custodian rejected goes back to `pending` with nothing received, and doesn't block closing.
+
+### 10.4 The calculation
+
+Gifts reduce the spending to be shared; everything else someone put in is theirs, less their fair share:
+
+```
+spendToShare = approved spend − Σ gifts
+net[k]       = opening[k] + contributed[k] − gifted[k] − fairShare[k] + cover[k]
+```
+
+`fairShare` is allocated from `spendToShare` by the pool's basis, as built (under the consumption basis each expense is shared by consumption and the gifts then lower shares by commitment). For the `custodian` basis: `fairShare[k] = regular contributions of k` for everyone but the custodian (dues are still consumed under `retain`; a sponsor pool has none), and the custodian takes `spendToShare − Σ those`. **Σ net still equals the closing balance**, so the `reconcileCycle` invariant check holds unchanged.
+
+**Worked example ("Just me").** Anita funds ₹1,00,000. Priya lends ₹10,000. Uncle Ravi gives ₹5,000 as a gift. Approved spending is ₹1,12,000, so the closing balance is ₹3,000.
+
+| | Put in | Gift | Fair share | Net | Leg |
+|---|---|---|---|---|---|
+| Anita (custodian) | ₹1,00,000 | — | ₹1,07,000 (₹1,12,000 − ₹5,000) | −₹7,000 | pays ₹10,000 to Priya |
+| Priya | ₹10,000 | — | ₹0 | +₹10,000 | receives ₹10,000 |
+| Ravi | ₹5,000 | ₹5,000 | ₹0 | ₹0 | — |
+| **Σ** | | | | **₹3,000** = closing | |
+
+Anita pays Priya ₹10,000: the ₹3,000 still in the pool plus ₹7,000 of her own. Final report: budgeted ₹1,00,000 · spent ₹1,12,000 · lent by others ₹10,000 (paid back) · gifts ₹5,000 · sponsor's cost ₹1,07,000.
+
+### 10.5 Data model, UI and tests (Phase 1)
+
+**Data:** `PoolContribution.gift?: boolean`, meaningful only on `kind: 'top_up'`; absent ⇒ repayable. Existing non-custodian top-ups therefore become repayable, which is the fix. Ignored for the custodian's own top-ups.
+
+**UI:**
+- **Add money** (anyone but the custodian): amount, then *"{sponsor} pays it back when the pool closes"* (default) or *"It's a gift — don't pay me back"*. Hint: *"{sponsor} confirms when it arrives."*
+- **Custodian's confirm prompt:** *"Confirm you received ₹10,000 from Priya. You'll pay it back when the pool closes."* (or *"…as a gift"*).
+- **Pool summary:** *Lent by others ₹x (to pay back)*; the custodian sees *"You'll pay back ₹x"*, a lender sees *"₹x to get back from {sponsor}"*.
+- **Contribution list:** *top-up · paid back at close* or *gift*.
+- **Close / dissolve preview:** lists the repayments before anything is created.
+
+**Tests:**
+- "Just me": a repayable top-up by a spender gives exactly one leg custodian → lender for that amount; a gift gives none and lowers the sponsor's share; the custodian's own top-up gives none.
+- Overdraft cover is unchanged.
+- "Several of us": refunds are unchanged; a gift lowers everyone's share (by commitment, or equally under the equal basis).
+- Σ net = closing balance in every case (property test across bases).
+- A pending top-up blocks closing until it's confirmed or rejected.
+
+### 10.6 Phase 2: paying back early
+
+A lender may want their money back before the event ends. The custodian taps **Pay back now**: a repayment, custodian → lender, settled with the same I've Paid → confirm (or Mark as Paid) actions. It lowers the pool's remaining amount (money leaving, not spending) and what's owed at close. Because it lowers the balance, it can trigger the overdraft pause (§3.7), like any other drop. The ledger can be shared with §9.3's `PoolAdvance`, as kind `'repayment'`: the one kind there that changes `remaining`.
+
+### 10.7 Open questions
+
+- Should the gift/loan choice be editable after the custodian confirms (needs both to agree)?
+- Should a lender be able to **ask** for early repayment in the app, or does the custodian always start it?
+- Should early repayment be refused while the pool is paused, since it takes money the spenders were counting on?
+- In "Several of us" pools with `retain`, are top-ups repayable as proposed, or do clubs treat them as donations by default?
