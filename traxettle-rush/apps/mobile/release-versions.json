@@ -4,7 +4,7 @@
     "build": "1.0.40"
   },
   "android": {
-    "version": "1.0.38",
-    "build": "40"
+    "version": "1.0.40",
+    "build": "41"
   }
 }
