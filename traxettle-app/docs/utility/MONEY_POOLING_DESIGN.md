@@ -1084,6 +1084,6 @@ A lender may want their money back before the event ends. The custodian taps **P
 - **The gift/loan choice can't change once the custodian has confirmed the top-up.**
 - **Only the custodian starts early repayment** (§10.6).
 - **Early repayment while paused is allowed, with a warning** (§10.6).
+- **"Several of us" pools with `retain` keep loan by default.** A member's top-up is pre-selected as *"Pay me back when the pool closes"*, as in every other pool, and they can choose *"It's a gift"* instead. This is what Phase 1 already builds, so nothing changes. A club that thinks of extra money as donations relies on members ticking "gift". It's consistent across pool types, and it's the safer mistake: nobody's money is consumed without a choice.
 
-**Still open:**
-- In "Several of us" pools with `retain`, are top-ups repayable as proposed, or do clubs treat them as donations by default?
+No questions remain open in §10.
