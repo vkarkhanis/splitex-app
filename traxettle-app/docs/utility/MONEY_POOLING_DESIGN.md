@@ -860,7 +860,7 @@ Items 1, 2 and 5 are roughly an hour each and are the highest-leverage work in t
 
 ## 9. Spending the sponsor's money: rejections, advances and who holds what
 
-**Status:** Proposed 2026-10-21, after hand-testing the "Just me" pool. **§9.2 (Phase 1) built** on branch `feature/money-pooling-enhancements-phase1` (2026-10-25); §9.3 (Phase 2) is still a proposal.
+**Status:** Proposed 2026-10-21, after hand-testing the "Just me" pool. **§9.2 (Phase 1) built** on branch `feature/money-pooling-enhancements-phase1` (2026-10-25); §9.3 (Phase 2) is still a proposal; its design decisions were recorded on 2026-11-12, including dropping transfers between spenders.
 
 ### 9.1 The gap
 
@@ -909,7 +909,7 @@ Tests: a rejected already-paid draw creates exactly one leg spender → custodia
 - The pool's **remaining** amount (funded − approved spends) is unchanged by advances. It splits into **with the custodian** and **with each spender**.
 - **Only approved spends reduce the pool,** however they were paid: from an advance, on the sponsor's card, or as a claim.
 - **What a spender holds is derived, never stored:**
-  `held = confirmed advances in − confirmed returns out ± confirmed transfers − approved spends paid from held money`.
+  `held = confirmed advances in − confirmed returns out − approved spends paid from held money`.
   A rejected spend doesn't reduce `held`, so the spender still owes it. That makes the Phase 1 repayment leg unnecessary for advance money, because the debt shows up in `held`. A spend past what they hold takes `held` below zero, which means **the pool owes the spender**, exactly like a claim.
 
 #### Records
@@ -918,9 +918,8 @@ Tests: a rejected already-paid draw creates exactly one leg spender → custodia
 |---|---|---|
 | **Advance** | custodian → spender confirms receipt | custodian → spender; pool unchanged |
 | **Spend from held money** | spender (approval as today) | `fundingSource: 'pool'`, `poolDraw.paidFrom: 'advance'`; always already incurred. Approved → reduces `held` and the pool |
-| **Spend on the sponsor's card/UPI** | spender (approval as today) | `poolDraw.paidFrom: 'sponsor_card'`; already incurred. Rejected → the Phase 1 repayment leg |
+| **Spend on the sponsor's card/UPI** | spender (approval as today) | `poolDraw.paidFrom: 'sponsor_card'`; already incurred. Rejected → the Phase 1 repayment leg. Offered only while the budget allows it (`allowSponsorCardSpends`, below) |
 | **Return** | spender → custodian confirms | spender → custodian; pool unchanged |
-| **Transfer** | spender A → spender B confirms | A → B (Priya hands cash to Ravi); pool unchanged |
 | **Claim** | existing | spender's own money; approved → leg custodian → spender |
 
 Data model sketch: a ledger entity alongside `PoolContribution`. All amounts in integer minor units (§3.6).
@@ -930,7 +929,7 @@ export interface PoolAdvance {
   id: string;
   eventId: string;
   poolCycleId: string;
-  kind: 'advance' | 'return' | 'transfer';
+  kind: 'advance' | 'return';
   fromUserId: string;
   toUserId: string;
   amountMinor: number;
@@ -944,6 +943,7 @@ export interface PoolAdvance {
   auditTrail: AuditEntry[];
 }
 // PoolDrawState gains: paidFrom?: 'advance' | 'sponsor_card'  (absent ⇒ as built)
+// PoolConfig gains: allowSponsorCardSpends?: boolean  (absent ⇒ true, today's behaviour)
 ```
 
 #### Scenarios
@@ -951,7 +951,7 @@ export interface PoolAdvance {
 | Scenario | Rule |
 |---|---|
 | Spender runs out, **custodian still holds money** | Give another advance. |
-| Spender runs out, **the money is with other spenders** | A return then an advance, or one **transfer** between the spenders. |
+| Spender runs out, **the money is with other spenders** | A **return** from the spender holding it, then an **advance** to the one who needs it. The cash can go directly between them; the records route it through the custodian (no transfers, see Decisions). |
 | Spender runs out, **pool is empty** | The custodian tops up first (top-ups exist), then advances; or the spender pays themselves and claims. |
 | **Pool in overdraft or paused** (§3.7 latch) | **New advances are refused**: they promise money the pool doesn't have. Spends already made from held money are always recorded and flagged. |
 | Advance larger than **what the custodian holds** | Refused (`advance > withCustodian`): the custodian can't hand over money they don't hold. Top up first. |
@@ -967,28 +967,32 @@ export interface PoolAdvance {
 #### Invariants
 
 - `withCustodian + Σ held(spender) = remaining` after every write.
-- Advances, returns and transfers never change `remaining`.
+- Advances and returns never change `remaining`.
 - Rejected spends never change `remaining`; they change what the spender holds or owes.
 
 #### UI
 
 - **Pool meter:** With you · With spenders · Spent · Remaining.
 - **Per spender:** Holding · Spent · Owes / Is owed.
-- **Spender's "Paid with":** "Pool money I'm holding (₹x left)" · "The sponsor's card/UPI" (if the custodian allows it) · "My money — claim it back".
+- **Spender's "Paid with":** "Pool money I'm holding (₹x left)" · "The sponsor's card/UPI" (only while the setting below is on) · "My money — claim it back".
 - **Custodian actions:** Give money · Ask for money back.
+- **Budget setting:** *"Spenders can pay with my card or UPI"* (`allowSponsorCardSpends`), on by default. Turned off, spenders see only "Pool money I'm holding" and "My money — claim it back", for sponsors who never share their card or UPI and don't want it picked by mistake.
 
-#### Open questions
+#### Decisions (2026-11-12)
 
-- Should advances and returns require proof, or only allow it (as contributions do)?
-- Should transfers between spenders need the custodian's confirmation too, or only the receiver's?
-- Should the custodian be able to switch off "the sponsor's card/UPI" per pool?
+- **Proof:** optional on advances and returns. Both offer **Attach proof** (photo or PDF), never required, as contributions do.
+- **Paying with the sponsor's card/UPI:** a per-budget switch, on by default (see UI above).
+- **No transfers between spenders.** Money moving from one spender to another is recorded as a **return** to the custodian plus an **advance** to the other spender; the cash itself can go directly. This keeps the custodian in every movement (the transparency asked for), avoids a three-party approval flow and its edge cases (a transfer rejected after the cash moved, half-confirmed transfers at close), and leaves two record kinds instead of three.
+  - **Hint on Give money:** *"Moving money between spenders? Record a return from one and an advance to the other. The cash can go directly."*
+  - **Known cost:** if spenders swap cash without recording it, the pool total stays right, but the individual close-out legs don't. The one who handed over is asked to return money they no longer hold, and the other is reimbursed for spending beyond what they held. They settle the difference between themselves.
+  - **Revisit if users ask.** A transfer would be a return plus an advance in one step, with the custodian approving before the hand-over (request → custodian approves → hand-over → receiver confirms). Adding `'transfer'` to `kind` later needs no data migration.
 - Multiple custodians (§7.4) remain out of scope.
 
 ---
 
 ## 10. Money added by others: paid back unless it's a gift
 
-**Status:** Proposed 2026-10-25. **§10.1–10.5 (Phase 1) built** on branch `feature/money-pooling-enhancements-phase1` the same day; early repayment (§10.6) is still a proposal.
+**Status:** Proposed 2026-10-25. **§10.1–10.5 (Phase 1) built** on branch `feature/money-pooling-enhancements-phase1` the same day; early repayment (§10.6) is still a proposal, with its decisions recorded on 2026-11-12.
 
 ### 10.1 The gap
 
@@ -1069,9 +1073,17 @@ Anita pays Priya ₹10,000: the ₹3,000 still in the pool plus ₹7,000 of her 
 
 A lender may want their money back before the event ends. The custodian taps **Pay back now**: a repayment, custodian → lender, settled with the same I've Paid → confirm (or Mark as Paid) actions. It lowers the pool's remaining amount (money leaving, not spending) and what's owed at close. Because it lowers the balance, it can trigger the overdraft pause (§3.7), like any other drop. The ledger can be shared with §9.3's `PoolAdvance`, as kind `'repayment'`: the one kind there that changes `remaining`.
 
-### 10.7 Open questions
+**Decisions (2026-11-12):**
+- **Only the custodian starts it.** Lenders can't request early repayment in the app, for now.
+- **Allowed while paused, with a warning.** It's also allowed when it would cause the pause. The confirm step says so, for example: *"Spending is paused. Paying Ravi ₹4,000 now means you'll need to add ₹X before anyone can spend again."* The lender's money is theirs, the custodian controls the budget and can add money to resume spending, and a hard block would leave a lender stuck because of overspending that isn't theirs.
+- **Proof is optional,** as for advances and returns (§9.3).
 
-- Should the gift/loan choice be editable after the custodian confirms (needs both to agree)?
-- Should a lender be able to **ask** for early repayment in the app, or does the custodian always start it?
-- Should early repayment be refused while the pool is paused, since it takes money the spenders were counting on?
+### 10.7 Questions
+
+**Decided (2026-11-12):**
+- **The gift/loan choice can't change once the custodian has confirmed the top-up.**
+- **Only the custodian starts early repayment** (§10.6).
+- **Early repayment while paused is allowed, with a warning** (§10.6).
+
+**Still open:**
 - In "Several of us" pools with `retain`, are top-ups repayable as proposed, or do clubs treat them as donations by default?
