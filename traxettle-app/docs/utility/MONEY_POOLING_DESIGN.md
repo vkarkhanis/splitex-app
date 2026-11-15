@@ -1,6 +1,6 @@
 # Money Pooling — Functional Design
 
-**Status:** Implemented on branch `feature/money-pooling` — read **§0** first for what changed from the proposal while building it. Testing guide: [MONEY_POOLING_TESTING.md](../runbook/MONEY_POOLING_TESTING.md). **Phase 1 enhancements built** on branch `feature/money-pooling-enhancements-phase1` (2026-10-25): a rejected spend already paid with the pool's money is owed back (**§9.2**), and money others add is paid back unless it's a gift (**§10**, Phase 1). **Still proposals:** advances to spenders (§9.3) and paying back early (§10.6).
+**Status:** Implemented on branch `feature/money-pooling` — read **§0** first for what changed from the proposal while building it. Testing guide: [MONEY_POOLING_TESTING.md](../runbook/MONEY_POOLING_TESTING.md). **Phase 1 enhancements built** on branch `feature/money-pooling-enhancements-phase1` (2026-10-25): a rejected spend already paid with the pool's money is owed back (**§9.2**), and money others add is paid back unless it's a gift (**§10**, Phase 1). **Still proposals:** advances to spenders (§9.3) and paying back early (§10.6). **Planned for Phase 2:** netting repayments and unpaid claims into the final settlement (**§11**, decided 2026-11-15); until then they're labelled *paid separately*.
 **Date:** 2026-09-15
 **Scope:** Additive feature. The existing peer-to-peer split model remains fully supported and unchanged.
 
@@ -855,6 +855,7 @@ Items 1, 2 and 5 are roughly an hour each and are the highest-leverage work in t
 | **Biggest technical risk?** | Float money arithmetic accumulating drift across carry-forward cycles. Move pool amounts to integer minor units before Phase B. |
 | **What if a spender spends the sponsor's money and it's rejected?** | Built (§9.2, Phase 1): if they say it was already paid, rejecting it creates a `pool_repayment` leg back to the custodian. Advances (§9.3) remain a proposal. |
 | **What if someone other than the sponsor adds money?** | Built (§10, Phase 1): it's a loan the sponsor pays back at close (I've Paid → confirm, or Mark as Paid), unless they mark it a gift. |
+| **Are repayments netted at settle-up?** | Not yet (§11). Repayments and unpaid claims are paid on their own and labelled so. Netting is planned for Phase 2 and required before "Several of us" pools are released in production. |
 
 ---
 
@@ -897,7 +898,7 @@ Rules:
 - **Overdraft (§3.7) is unchanged.** Asking-first draws are pre-authorised, so they're refused past the floor. Already-paid draws are always recorded and flagged.
 - **Editing** the amount of a rejected already-paid draw sends it back for approval and removes its (unpaid) repayment leg; rejecting it again creates a new one. **Deleting** it removes the leg too, but only the custodian or an admin may delete it (`POOL_REPAYMENT_OWED`), so a spender can't erase their own debt. A leg already being paid blocks both. Missing legs are recreated at dissolution, as for claims (`legExists`).
 - **The custodian's own pool spends** are unchanged (auto-approved; it's their money).
-- **Dissolving** treats an unpaid repayment leg like any other open pool leg.
+- **Dissolving** treats an unpaid repayment leg like any other open pool leg: it's paid on its own, not netted into the final settlement. Netting is planned for Phase 2 (§11).
 - **The UI suggests "My money — claim it back" first** to spenders in sponsor pools, as the zero-risk path.
 
 Tests: a rejected already-paid draw creates exactly one leg spender → custodian (rejecting again is refused, as it is no longer pending). An asking-first rejection creates none. Deleting the expense removes an unpaid repayment leg. Approving either kind still deducts once.
@@ -1087,3 +1088,80 @@ A lender may want their money back before the event ends. The custodian taps **P
 - **"Several of us" pools with `retain` keep loan by default.** A member's top-up is pre-selected as *"Pay me back when the pool closes"*, as in every other pool, and they can choose *"It's a gift"* instead. This is what Phase 1 already builds, so nothing changes. A club that thinks of extra money as donations relies on members ticking "gift". It's consistent across pool types, and it's the safer mistake: nobody's money is consumed without a choice.
 
 No questions remain open in §10.
+
+---
+
+## 11. Netting pool payments into the final settlement (Phase 2)
+
+**Status:** Decided 2026-11-15. Not in Phase 1: it's built with Phase 2 (§9.3), and it's **required before "Several of us" pools are released in production** (`CONTRIBUTOR_POOLS_IN_PRODUCTION`). Phase 1 labels these payments instead (§11.2).
+
+### 11.1 The gap
+
+The final settle-up already finds the fewest payments across everyone's balances: split debts plus each person's pool position (`calculateBalancesForPlan` → `calculateSettlementPlan`). Pool payments created earlier sit outside that calculation:
+
+- repayments for rejected already-paid spends (`pool_repayment`, §9.2);
+- approved claims not yet paid back (`pool_reimbursement`);
+- rows from earlier cycles (`pool_cycle`) and from people who left (`pool_member_exit`).
+
+`clearStandardSettlements` keeps them, and the plan is worked out without them. Nothing is counted twice: `reconcileCycle` counts only approved spends, so "Left over" already assumes a rejected spend's money comes back. The cost is extra payments:
+
+| Event (Phase 1 test plan) | Today | Netted |
+|---|---|---|
+| Wedding budget (Scenario 1) | Anita → Ravi ₹10,000; Ravi → Anita ₹600 | Anita → Ravi ₹9,400 |
+| The same, with the Taxi claim still unpaid | Anita → Ravi ₹800, and ₹10,000 | Anita → Ravi ₹10,800 |
+| Office kitty (Scenario 3) | Anita → Ravi ₹1,400; Anita → Priya ₹1,400; Ravi → Anita ₹1,500 (3 payments, ₹4,300 moved) | Anita → Priya ₹1,300; Ravi → Priya ₹100 (2 payments, ₹1,400 moved) |
+
+### 11.2 Phase 1: labelled and paid on their own (as built 2026-11-15)
+
+- **Finish & report / Settle up preview:** open pool payments are listed under **Paid separately**, with *"These stay as they are and are paid on their own. They aren't combined with the amounts above."* When nobody gets or pays anything from the pool itself, it says *"Nothing to pay out of the budget"* instead of *"Nobody owes anybody anything"*. Closing a cycle doesn't list them, because no money moves then.
+- **Settlement Review and Settlements lists:** after settle-up these list the pool payments next to the plan's own (Pool payments shows only while the event is active). Each pool payment is labelled (*Repayment (spend not approved)*, *Reimbursement*, *Leaving settlement*, *Cycle refund*) with "paid on its own", or "already paid" in Review. Above the rows: *"Pool payments (reimbursements and repayments) are paid on their own. They aren't combined with the other payments."*
+- Shared helpers: `poolLegLabel`, `openPoolSideLegs`, `POOL_LEGS_PAID_SEPARATELY_NOTE`. Text only; no money logic changed.
+- **Workaround to move money once:** Anita sends Ravi ₹9,400. Ravi confirms the ₹10,000 payment, and Anita taps **Mark as Paid** on the ₹600 repayment. Both rows end Done.
+
+### 11.3 Decisions (2026-11-15)
+
+- **Net repayments and unpaid claims** (`pool_repayment`, `pool_reimbursement`) of the cycle being settled up.
+- **Keep the existing fewest-payments calculation, including payments between members** (Ravi → Priya ₹100 above), as split-expense settle-up already does. Payments aren't forced through the custodian.
+- **Only at the final settle-up.** While the event is active, these payments are still paid on their own. Offsetting during the event comes from §9.3's derived `held`.
+- **Not netted:** `pool_cycle` and `pool_member_exit` rows. They belong to closed cycles, and someone who left isn't part of the review.
+
+### 11.4 Design
+
+1. **Fold** at settle-up (generate and regenerate): take open rows of those kinds that nobody has started paying (`pending` or `failed`) and add each to the balances (payer −, receiver +) before `calculateSettlementPlan`. Rows already `initiated` stay separate.
+2. **Mark, don't delete:** folded rows get `status: 'netted'` and a pointer to the plan, so their history and the expense's link (`poolDraw.settlementId`) survive.
+3. **Labels:** the expense shows *In final settlement* during Review and Payment, and *Repaid* / *Reimbursed* once the event is Settled.
+4. **Re-running the plan** (stale plan, or a regenerate during Review) first restores folded rows to `pending`, then folds again.
+5. **Explain the figure:** the preview shows the breakdown, e.g. *"Ravi gets back ₹10,000, less ₹600 owed for Snacks = ₹9,400"*.
+6. **With §9.3:** each spender's close-out leg (from `held`) and the lender legs (§10.3) join the same netting, so the whole close is one plan. Design them together.
+
+### 11.5 What the build must handle
+
+**Breaks unless handled:**
+- **Auto-settle** waits for every row to be `completed` (`settleEventIfComplete`), and `hasOpenPoolSideLegs` treats anything else as open. Treat `netted` as done, or the event stays in Payment forever, and a close that nets to zero goes to Payment instead of Settled.
+- **Totals:** `getOutstandingForUser` and `getPendingSettlementTotal` count every unfinished row, and so does the web "x of y complete" counter. Exclude `netted`, or Ravi sees "owes ₹600" next to "gets ₹9,400".
+- **Labels:** web `PoolPayments` and mobile `PoolScreen` show an unknown status as "To pay", and `repaymentStatus` / `reimbursementStatus` would say "Owed back" / "To reimburse". Older installed builds show "To pay" until they're updated. Use a new status rather than a flag on `pending`: `initiatePayment` refuses rows that aren't pending or failed, so an old app can't pay a folded row twice.
+- **Preview vs plan:** `previewClose` returns only the pool's figures, and must include the folded amounts. Claims without a leg get one only at settle-up (`beginDissolution`), so the preview works from the expenses, not the rows.
+- **Cycle history:** the reconciliation snapshot must record which rows were folded, or it shows Ravi +₹10,000 next to a ₹9,400 payment.
+
+**Edits and timing during Review:**
+- An event in Review is editable and its reconciling cycle is writable. `assertDrawMutable` must allow editing or deleting a spend whose row is `netted` (un-fold it and mark the plan stale). Otherwise it refuses with "already being paid", and the custodian can't forgive a spend during Review.
+- Un-fold and re-fold in one batched write. A failure halfway would charge twice or lose the debt.
+- Fold only rows still `pending` / `failed`, checked in a transaction, so a **Mark paid** at the same moment can't pay twice.
+- `closeForDeletedUser` must recognise `netted`.
+
+**Behaviour changes to accept:**
+- A close where only a repayment is open goes to **Review** (everyone approves) instead of straight to Payment, and one person who never approves blocks it. The false "settled" socket update for that case (Phase 1 test plan, watch item 5) goes away.
+- **Payments between members:** the payee may be someone other than the custodian, and the payer needs their payment details.
+- **Groups:** pool rows are person to person, the plan is per group. A member's repayment folds into their group's balance, so the group's payer pays it.
+- **Currency:** pool rows were never converted. Folded into a plan with a different settlement currency, they're converted at the settle-up rate.
+- **Mixed results:** rows already being paid, earlier-cycle rows and leaving rows stay separate. A row marked "Not received" after settle-up goes back to "to pay" outside the plan.
+- **One payment instead of per-expense rows:** proof attaches to the combined payment, and notifications should show the breakdown (Ravi was told "you owe ₹600" when the spend was rejected).
+
+### 11.6 Tests
+
+- Scenario 1 nets to one payment, Anita → Ravi ₹9,400. Scenario 3 gives Anita → Priya ₹1,300 and Ravi → Priya ₹100.
+- A row `initiated` before settle-up stays separate, and the event settles once both are done.
+- Re-running the plan restores and re-folds without duplicates. Editing or deleting the rejected spend during Review un-folds it.
+- A `netted` row counts as done for auto-settle and isn't counted in outstanding totals.
+- A row being marked paid while settle-up runs is either folded or paid, never both.
+- Split-expenses events produce exactly the same plan as before.

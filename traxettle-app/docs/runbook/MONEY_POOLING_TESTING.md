@@ -124,6 +124,10 @@ Use INR and round numbers so the arithmetic is easy to check.
 
 ### Phase 1 enhancements (design doc §9.2 and §10)
 
+> For full end-to-end runs (each event from creation to Settled, with expected text and balances
+> at every step), use [MONEY_POOLING_PHASE1_E2E.md](MONEY_POOLING_PHASE1_E2E.md). The steps below
+> are the short version.
+
 Use a fresh "Just me" budget with two invited people, one allowed to spend (the **spender**), and the
 sponsor (**custodian**).
 
@@ -141,7 +145,9 @@ sponsor (**custodian**).
    Edit its amount instead → it goes back to *awaiting approval* and the repayment disappears; reject again →
    a new repayment for the new amount.
 6. The spender taps **Mark paid** on the repayment, the sponsor taps **Received** → *Repaid*.
-7. **Finish & report** while a repayment is unpaid → the event waits in *payment* until it's paid and confirmed.
+7. **Finish & report** while a repayment is unpaid → the preview lists it under **Paid separately**; the event waits in
+   *payment* until it's paid and confirmed (from the Settlements list, where it's labelled *paid on its own*). It isn't
+   netted against other payments; netting is planned for Phase 2 (design doc §11).
 
 **Money added by others (§10)**
 
