@@ -1,6 +1,6 @@
 # Money Pooling — Functional Design
 
-**Status:** Implemented on branch `feature/money-pooling` — read **§0** first for what changed from the proposal while building it. Testing guide: [MONEY_POOLING_TESTING.md](../runbook/MONEY_POOLING_TESTING.md). **Phase 1 enhancements built** on branch `feature/money-pooling-enhancements-phase1` (2026-10-25): a rejected spend already paid with the pool's money is owed back (**§9.2**), and money others add is paid back unless it's a gift (**§10**, Phase 1). **Still proposals:** advances to spenders (§9.3) and paying back early (§10.6). **Planned for Phase 2:** netting repayments and unpaid claims into the final settlement (**§11**, decided 2026-11-15); until then they're labelled *paid separately*.
+**Status:** Implemented on branch `feature/money-pooling` — read **§0** first for what changed from the proposal while building it. Testing guide: [MONEY_POOLING_TESTING.md](../runbook/MONEY_POOLING_TESTING.md). **Phase 1 enhancements built** on branch `feature/money-pooling-enhancements-phase1` (2026-10-25): a rejected spend already paid with the pool's money is owed back (**§9.2**), and money others add is paid back unless it's a gift (**§10**, Phase 1). **Still proposals:** advances to spenders (§9.3) and paying back early (§10.6). **Planned for Phase 2:** netting repayments and unpaid claims into the final settlement (**§11**, decided 2026-11-15); until then they're labelled *paid separately*. Making "Several of us" a Pro feature, and updating every place that lists Pro features (**§12**, decided 2026-11-15). Both are required before "Several of us" is released in production.
 **Date:** 2026-09-15
 **Scope:** Additive feature. The existing peer-to-peer split model remains fully supported and unchanged.
 
@@ -856,6 +856,7 @@ Items 1, 2 and 5 are roughly an hour each and are the highest-leverage work in t
 | **What if a spender spends the sponsor's money and it's rejected?** | Built (§9.2, Phase 1): if they say it was already paid, rejecting it creates a `pool_repayment` leg back to the custodian. Advances (§9.3) remain a proposal. |
 | **What if someone other than the sponsor adds money?** | Built (§10, Phase 1): it's a loan the sponsor pays back at close (I've Paid → confirm, or Mark as Paid), unless they mark it a gift. |
 | **Are repayments netted at settle-up?** | Not yet (§11). Repayments and unpaid claims are paid on their own and labelled so. Netting is planned for Phase 2 and required before "Several of us" pools are released in production. |
+| **Is pooling free?** | "Just me" is free. "Several of us" becomes Pro in Phase 2 (§12): only the person creating the pool needs Pro, members join free, and existing pools keep working if Pro lapses. |
 
 ---
 
@@ -1093,7 +1094,7 @@ No questions remain open in §10.
 
 ## 11. Netting pool payments into the final settlement (Phase 2)
 
-**Status:** Decided 2026-11-15. Not in Phase 1: it's built with Phase 2 (§9.3), and it's **required before "Several of us" pools are released in production** (`CONTRIBUTOR_POOLS_IN_PRODUCTION`). Phase 1 labels these payments instead (§11.2).
+**Status:** Decided 2026-11-15. Not in Phase 1: it's built with Phase 2 (§9.3), and it's **required before "Several of us" pools are released in production** (`CONTRIBUTOR_POOLS_IN_PRODUCTION`), as is the Pro check (§12). Phase 1 labels these payments instead (§11.2).
 
 ### 11.1 The gap
 
@@ -1165,3 +1166,103 @@ The final settle-up already finds the fewest payments across everyone's balances
 - A `netted` row counts as done for auto-settle and isn't counted in outstanding totals.
 - A row being marked paid while settle-up runs is either folded or paid, never both.
 - Split-expenses events produce exactly the same plan as before.
+
+---
+
+## 12. "Several of us" is a Pro feature (Phase 2)
+
+**Status:** Decided 2026-11-15. Built in Phase 2, together with §9.3 and §11. Like netting (§11), it's **required before "Several of us" is released in production** (`CONTRIBUTOR_POOLS_IN_PRODUCTION`). It also includes updating every place that lists Pro features (§12.4), so users see accurate information when the release ships.
+
+### 12.1 Decision
+
+- **Every "Several of us" pool is Pro:** Kitty, Fund, Treasury and Collection (`CONTRIBUTOR_PRESETS`), including hybrid events built on them.
+- **Free:** "Just me" (`sponsor_budget`) and split-expenses events. The 3-event limit on the free plan still applies to them.
+- **Why:** a shared fund, a club treasury or a running kitty gets used week after week by a group. That ongoing use is what a subscription pays for. "Several of us" isn't in production yet, so nobody loses a feature they had.
+
+### 12.2 Rules
+
+1. **Only the person who creates the pool needs Pro.** Members join, pay in, spend, approve, close cycles and settle up on the free plan. Multi-currency settlement works the same way: only the person setting up the event needs Pro.
+2. **Two ways to create one, both checked:**
+   - creating an event with a "Several of us" preset (`POST /api/events`);
+   - adding a pool to an existing split-expenses event (`POST /api/pools/event/:eventId/convert`), where the person converting needs Pro.
+
+   The preset can't change after creation (`updateConfig` keeps `config.preset`), so editing needs no check.
+3. **When the creator's Pro lapses, existing pools keep working.** Everyone can still:
+   - record money and spends, and approve spends;
+   - close a cycle, including opening the next month of a Fund;
+   - settle up, dissolve the pool, and remove people.
+
+   The lapse only stops that person creating new "Several of us" pools. Money that people have already put in must never get stuck.
+4. **Show the option with a Pro badge; don't hide it.** On both create-event screens, a free user who picks "Several of us" sees a **PRO** badge and a link to upgrade: the Pro upgrade screen on mobile, and `/pro` on web (Pro is bought in the mobile app). Seeing the option is what makes people upgrade.
+5. **The API enforces it, not just the apps.**
+   - Add a capability `contributorPools` to `UserCapabilities` (shared) and `computeCapabilities`, following `multiCurrencySettlement`.
+   - Add the feature code `contributor_pools` to `PRO_FEATURE_CODES`.
+   - When refused, return 403 `FEATURE_REQUIRES_PRO` with `feature: 'contributor_pools'`.
+   - Today the API accepts a "Several of us" pool even in production; the switch only hides it in the apps. This check closes that gap.
+6. **No retroactive effect.** The check runs only when a pool is created. Pools already on staging keep working, and nothing is backfilled. Production has none.
+
+### 12.3 What the build must handle
+
+- **Error text:** the web and mobile create screens show *"Multi-currency settlement requires Pro"* for **every** `FEATURE_REQUIRES_PRO` they get back:
+  - web: `apps/web/src/app/events/create/page.tsx`, the catch block;
+  - mobile: `CreateEventScreen.tsx`, the catch block.
+
+  Choose the text by `feature`, so a free user picking a Kitty isn't told about currencies.
+- **Lapsed is free:** use `hasActivePro` (active or grace period count as Pro; expired and revoked don't), the same rule as the other Pro limits.
+- **Settling up, regenerating, dissolving and cycle closes aren't creation:** don't check Pro on them (rule 3).
+- **Not decided:** a free trial for new subscribers (an introductory offer in App Store Connect and Google Play). It would let people try group pools before paying. Decide before the Phase 2 release.
+
+### 12.4 Update every place that lists Pro features
+
+These change **in the Phase 2 release, at the same time as the switch is turned on**, not before. Store listings must describe only what the shipped build does, so update the store text in the same submission as the build. While updating, make the lists agree with each other; today they don't (see the notes in the table).
+
+**In the apps**
+
+| Where | File | Today | Change |
+|---|---|---|---|
+| Mobile Pro upgrade screen | `apps/mobile/src/screens/ProUpgradeScreen.tsx` (`PRO_FEATURES`) | No ads, Unlimited events, Multi-currency, Analytics (coming soon), Priority support | Add **Group pools**: Kitty, shared fund, club treasury and collection |
+| Mobile Profile upgrade row | `apps/mobile/src/screens/ProfileScreen.tsx` | "Unlimited events, multi-currency & more" | "Unlimited events, group pools, multi-currency & more" |
+| Mobile purchase message | `apps/mobile/src/context/PurchaseContext.tsx` (`PRO_READY`) | "…all Pro features including multi-currency settlement." | Mention group pools |
+| Mobile Help | `apps/mobile/src/screens/HelpScreen.tsx` (`FEATURES`) | No pooling card | Add a pooling card: "Just me" free, "Several of us" Pro |
+| Mobile create event | `apps/mobile/src/screens/CreateEventScreen.tsx` | PRO badge on currency only | PRO badge on "Several of us", plus the alert text (§12.3) |
+| Web Pro page | `apps/web/src/app/pro/page.tsx` | Badges: Multi-currency, *Advanced analytics*, More power-user features | Add **Group pools**. Analytics isn't built (mobile says "coming soon"), so drop it or mark it coming soon |
+| Web Help | `apps/web/src/app/help/page.tsx` ("Pro features" card) | Same badges as the Pro page; no pooling content anywhere on the page | Same change as the Pro page, plus a short pooling section ("Just me" free, "Several of us" Pro) |
+| Web create event | `apps/web/src/app/events/create/page.tsx` | PRO notice on currency only | PRO badge and upgrade link on "Several of us", plus the error text (§12.3) |
+| Web user guide | `apps/web/public/traxettle/index.html` ("Pro Plan" section) | "higher limits, multi-currency settlement capabilities, and advanced workflows"; no pooling content anywhere in the guide | List the features: unlimited events, multi-currency, group pools. Add a pooling section ("Just me" and "Several of us") |
+| Privacy policy | `apps/web/public/privacy.html` | Mentions Pro, lists no features | Check only; no change expected |
+
+**Store listings and billing** (most are edited in the store consoles; keep the repo copies in step)
+
+| Where | Today | Change |
+|---|---|---|
+| Google Play description: `play-store-assets/full-description.txt` ("PRO FEATURES") | "Expanded multi-currency settlement support" | Add group pools and unlimited events; paste into Play Console |
+| App Store description, and the Traxettle Pro subscription's localized description (App Store Connect → Subscriptions) | Doesn't mention pools | Add group pools |
+| App Store promotional image `app-store-assets/pro-yearly-promo-1024.png` and screenshots (local only, excluded from git) | Check whether they list Pro features | Re-make any that list features |
+| RevenueCat product descriptions: [REVENUECAT_SETUP.md](REVENUECAT_SETUP.md) | "Unlock multi-currency settlement, analytics, unlimited groups, and more" | Update in RevenueCat and in the doc |
+| App Review notes: [APP_REVIEW_RESPONSE.md](../deployment/APP_REVIEW_RESPONSE.md) | "Pro adds unlimited events and multi-currency settlement" (several places) | Add group pools, and how a reviewer reaches the PRO badge on "Several of us" |
+
+**Project docs**
+
+| Doc | Change |
+|---|---|
+| [Functional.md](../app/Functional.md) §16 (16.1, 16.4) and 9.7 | "Several of us" is Pro-gated server-side; "Just me" is free |
+| [TIER_ENTITLEMENT_ENV_MATRIX.md](TIER_ENTITLEMENT_ENV_MATRIX.md) "Capability Rules" | New row: group pools (creation and convert): Free denied, Pro allowed, lapsed denied |
+| [PRO_FREE_IMPLEMENTATION_CHECKLIST.md](PRO_FREE_IMPLEMENTATION_CHECKLIST.md) | Add `UserCapabilities.contributorPools` and the create-screen checks |
+| [DESIGN_DOCUMENT.md](DESIGN_DOCUMENT.md) §16.2–16.3 | Add the capability and where it's enforced |
+| [MONEY_POOLING_TESTING.md](../runbook/MONEY_POOLING_TESTING.md) | UC-1, UC-3, UC-4, UC-5 and hybrid need a Pro creator; add the free-user check |
+| This doc: §0, §6.2 | Note the Pro badge on "Several of us" |
+
+### 12.5 Tests
+
+- **API:**
+  - A free user creating a Kitty, Fund, Treasury or Collection gets 403 `FEATURE_REQUIRES_PRO` with `feature: 'contributor_pools'`. Pro, including the grace period, gets 201. Expired and revoked get 403.
+  - A free user can still create "Just me" and split-expenses events (the 3-event limit unchanged).
+  - Converting a split-expenses event with a "Several of us" preset: refused for a free user, allowed for Pro.
+- **Free members:** in a Pro creator's pool, a free member can join, pay in, spend, approve and settle up.
+- **Lapse:** after the creator's Pro expires mid-month, closing the cycle opens the next one, and settling up and dissolving still work.
+- **Apps (web and mobile):**
+  - The PRO badge shows for free users and not for Pro.
+  - Tapping it leads to upgrading.
+  - The refusal message names group pools, not multi-currency.
+  - The upgrade screens list group pools.
+- **E2E:** add the free-user refusal to `e2e/tests/tier-entitlements.spec.ts`.
