@@ -34,7 +34,7 @@ import { getResolvedApiBaseUrl } from '../../../config/dev-options';
 import { PoolTab } from '../../../components/pool/PoolTab';
 import { SpenderPermissions } from '../../../components/pool/SpenderPermissions';
 import { poolNoun } from '../../../components/pool/poolFormat';
-import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, isPoolFundedEvent, isPoolFundedExpense, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, POOL_LEGS_PAID_SEPARATELY_NOTE, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg, poolLegLabel, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
 import { FxRatesAttribution } from '../../../components/FxRatesAttribution';
 import type {
   Event as TraxettleEvent,
@@ -1470,6 +1470,9 @@ export default function EventDetailPage() {
             </div>
 
             {/* Settlement transactions preview */}
+            {settlements.some(isPoolSideLeg) && (
+              <p style={{ fontSize: 12, opacity: 0.75, margin: '0 0 8px' }} data-testid="settlement-review-pool-note">{POOL_LEGS_PAID_SEPARATELY_NOTE}</p>
+            )}
             {settlements.filter(s => s.amount > 0.01).map((s) => (
               <TransactionCard key={s.id} $status={s.status} data-testid={`settlement-review-txn-${s.id}`}>
                 <TransactionFlow>
@@ -1478,6 +1481,11 @@ export default function EventDetailPage() {
                     <ArrowIcon>→</ArrowIcon>
                     <span>{getEntityName(s.toEntityId, s.toEntityType)}</span>
                   </TransactionNames>
+                  {poolLegLabel(s) && (
+                    <TransactionMeta data-testid={`settlement-review-kind-${s.id}`}>
+                      {poolLegLabel(s)} · {s.status === 'completed' ? 'already paid' : 'paid on its own'}
+                    </TransactionMeta>
+                  )}
                 </TransactionFlow>
                 <TransactionAmount>
                   {currSym}{s.amount.toFixed(2)}
@@ -1560,6 +1568,9 @@ export default function EventDetailPage() {
               </SummaryCard>
             </SummaryGrid>
 
+            {settlements.some(isPoolSideLeg) && (
+              <p style={{ fontSize: 12, opacity: 0.75, margin: '0 0 8px' }} data-testid="settlement-pool-note">{POOL_LEGS_PAID_SEPARATELY_NOTE}</p>
+            )}
             {settlements.map((s) => {
               const settlementStatus = s.status as string;
               const payerUserId =
@@ -1588,6 +1599,7 @@ export default function EventDetailPage() {
                       {settlementStatus === 'initiated' && 'Marked paid — awaiting payee confirmation'}
                       {settlementStatus === 'failed' && 'Payment failed/rejected — payer should resubmit'}
                       {settlementStatus === 'completed' && 'Payment confirmed ✓'}
+                      {poolLegLabel(s) && ` · ${poolLegLabel(s)}, paid on its own`}
                       {s.fromEntityType === 'group' && ` · Payer: ${getUserName(payerUserId)}`}
                       {s.toEntityType === 'group' && ` · Recipient: ${getUserName(payeeUserId)}`}
                     </TransactionMeta>

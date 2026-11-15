@@ -461,4 +461,30 @@ describe('PoolTab — money owed back in a sponsor pool', () => {
     expect(mockPoolApi.topUp).toHaveBeenCalledWith('e1', { amountMinor: 25000, gift: true });
     expect(mockPoolApi.markPaid).toHaveBeenCalledWith('tu1', { amountMinor: 25000 });
   });
+
+  it('lists open pool payments as paid separately in the finish preview (not netted)', async () => {
+    mockPoolApi.previewClose.mockResolvedValue({
+      success: true,
+      data: {
+        openingBalanceMinor: 0, confirmedContributionsMinor: 1000000, poolSpendMinor: 0, reimbursementsMinor: 0,
+        preCoverBalanceMinor: 1000000, closingBalanceMinor: 1000000, uncoveredDeficitMinor: 0, coverNeededMinor: 0, overdraftCoverMinor: 0,
+        outcome: 'surplus', shareBasis: 'custodian', disposition: 'settle', entityShares: [],
+        settlementBalances: {}, pendingDraws: 0, cycleId: 'c1',
+      },
+    });
+    const legs = [
+      { id: 'rep1', kind: 'pool_repayment', fromUserId: BOB, toUserId: ALICE, amount: 500, currency: 'INR', status: 'pending' },
+      { id: 'rep2', kind: 'pool_repayment', fromUserId: BOB, toUserId: ALICE, amount: 300, currency: 'INR', status: 'initiated' },
+      { id: 'reim1', kind: 'pool_reimbursement', fromUserId: ALICE, toUserId: BOB, amount: 800, currency: 'INR', status: 'completed' },
+    ] as any;
+    await render(<PoolTab event={sponsorEvent} currentUserId={ALICE} participants={people} groups={[]} settlements={legs} refreshKey={0} onChanged={jest.fn()} />);
+    await click(q('pool-settle-up'));
+    expect(q('reconcile-shares')!.textContent).toMatch(/Nothing to pay out of the budget — ₹10,000\.00 stays with the sponsor\./);
+    const separate = q('reconcile-separate')!.textContent!;
+    expect(separate).toMatch(/Bob → You · Repayment \(spend not approved\).*₹500\.00/);
+    expect(separate).toMatch(/₹300\.00/);
+    expect(separate).toMatch(/sent, awaiting confirmation/);
+    expect(separate).not.toMatch(/₹800\.00/); // already paid
+    expect(q('pool-reconcile-modal')!.textContent).toMatch(/paid on their own/);
+  });
 });

@@ -22,7 +22,7 @@ import {
   Select,
   useToast,
 } from '@traxettle/ui';
-import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, canApproveDraw, entityKey, fromMinor, isPoolSideLeg, lentTopUps, reimbursementStatus, repaymentStatus, toMinor } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, canApproveDraw, entityKey, fromMinor, isPoolSideLeg, lentTopUps, openPoolSideLegs, poolLegLabel, reimbursementStatus, repaymentStatus, toMinor } from '@traxettle/shared';
 import type {
   Event as TraxettleEvent,
   EventParticipant,
@@ -537,6 +537,7 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
         <ReconcileModal eventId={event.id} mode={modal.kind} currency={currency} noun={noun} busy={busy} nameOf={nameOf}
           custodianKey={entityKey('user', config.custodianUserId)}
           rosterKeys={cycle.roster.map((r) => entityKey(r.entityType, r.entityId))}
+          separateLegs={openPoolSideLegs(settlements)}
           onClose={() => setModal({ kind: 'none' })}
           onSubmit={(cover) => run(modal.kind === 'close' ? 'Cycle closed' : 'Settling up',
             () => (modal.kind === 'close' ? poolApi.closeCycle(event.id, { cover }) : poolApi.dissolve(event.id, { cover })),
@@ -773,6 +774,8 @@ function AmountsModal(props: {
 function ReconcileModal(props: {
   eventId: string; mode: 'close' | 'settle'; currency: string; noun: string; busy: boolean;
   custodianKey: string; rosterKeys: string[];
+  /** Pool payments still open. They aren't netted into the final settlement (design doc §11). */
+  separateLegs: Settlement[];
   nameOf: (t: 'user' | 'group', id: string) => string;
   onClose: () => void; onSubmit: (cover?: CoverEntry[]) => void;
 }) {
@@ -817,6 +820,8 @@ function ReconcileModal(props: {
     return props.nameOf(type as 'user' | 'group', rest.join(':'));
   };
   const money = (v: number) => formatMinor(v, props.currency);
+  // Only the final settle-up lists them: closing a cycle moves no money now.
+  const separate = props.mode === 'settle' ? props.separateLegs : [];
 
   return (
     <Modal open onClose={props.onClose} dataTestId="pool-reconcile-modal">
@@ -864,10 +869,32 @@ function ReconcileModal(props: {
                     <tr key={k}><td>{keyName(k)}</td><td>{v > 0 ? `gets back ${money(v)}` : `pays ${money(-v)}`}</td></tr>
                   ))}
                 {preview.disposition === 'settle' && Object.keys(preview.settlementBalances).length === 0 && (
-                  <tr><td colSpan={2}>Nobody owes anybody anything{preview.shareBasis === 'custodian' && preview.closingBalanceMinor > 0 ? ` — ${money(preview.closingBalanceMinor)} stays with the sponsor` : ''}.</td></tr>
+                  <tr><td colSpan={2}>
+                    {separate.length > 0 ? `Nothing to pay out of the ${props.noun.toLowerCase()}` : 'Nobody owes anybody anything'}
+                    {preview.shareBasis === 'custodian' && preview.closingBalanceMinor > 0 ? ` — ${money(preview.closingBalanceMinor)} stays with the sponsor` : ''}.
+                  </td></tr>
                 )}
               </tbody>
             </Table>
+            {separate.length > 0 && (
+              <>
+                <div style={{ marginTop: 12, fontSize: 13, fontWeight: 600 }}>Paid separately</div>
+                <Table data-testid="reconcile-separate">
+                  <tbody>
+                    {separate.map((leg) => (
+                      <tr key={leg.id}>
+                        <td>
+                          {props.nameOf('user', leg.fromUserId)} → {props.nameOf('user', leg.toUserId)} · {poolLegLabel(leg)}
+                          {leg.status === 'initiated' ? ' · sent, awaiting confirmation' : ''}
+                        </td>
+                        <td>{money(toMinor(leg.amount, props.currency))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+                <ItemMeta>These stay as they are and are paid on their own. They aren&apos;t combined with the amounts above.</ItemMeta>
+              </>
+            )}
             <ItemMeta style={{ marginTop: 8 }}>
               {props.mode === 'settle'
                 ? 'Everyone approves the payments, pays outside the app, and confirms — just like a normal settlement.'

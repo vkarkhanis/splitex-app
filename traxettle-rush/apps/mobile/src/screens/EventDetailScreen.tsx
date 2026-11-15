@@ -39,8 +39,11 @@ import { useFeedback } from '../context/FeedbackContext';
 import {
   REIMBURSEMENT_STATUS,
   REPAYMENT_STATUS,
+  POOL_LEGS_PAID_SEPARATELY_NOTE,
   isPoolFundedEvent,
   isPoolFundedExpense,
+  isPoolSideLeg,
+  poolLegLabel,
   poolNoun,
   poolPaymentActions,
   poolPaymentActionsText,
@@ -878,6 +881,11 @@ export default function EventDetailScreen({ route, navigation }: any) {
                 ))}
 
                 {/* Settlement transactions preview */}
+                {settlements.some(isPoolSideLeg) && (
+                  <Text style={[styles.fxAmount, { color: colors.muted, marginBottom: spacing.xs }]} testID="settlement-review-pool-note">
+                    {POOL_LEGS_PAID_SEPARATELY_NOTE}
+                  </Text>
+                )}
                 {settlements.filter(s => s.amount > 0.01).map(s => (
                   <View key={s.id} style={[styles.settlementCard, { backgroundColor: colors.surface, borderLeftColor: colors.primary }]}>
                     <View style={styles.settlementRow}>
@@ -887,6 +895,11 @@ export default function EventDetailScreen({ route, navigation }: any) {
                       </Text>
                       <Text style={[styles.settlementAmount, { color: colors.text }]}>{currSym}{s.amount.toFixed(2)}</Text>
                     </View>
+                    {poolLegLabel(s) && (
+                      <Text style={[styles.fxAmount, { color: colors.muted }]}>
+                        {poolLegLabel(s)} · {s.status === 'completed' ? 'already paid' : 'paid on its own'}
+                      </Text>
+                    )}
                     {s.settlementAmount && s.settlementCurrency && s.settlementCurrency !== s.currency && (
                       <Text style={[styles.fxAmount, { color: colors.muted }]}>
                         ≈ {CURRENCY_SYMBOLS[s.settlementCurrency] || s.settlementCurrency}{s.settlementAmount.toFixed(2)}
@@ -935,6 +948,11 @@ export default function EventDetailScreen({ route, navigation }: any) {
               <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
                 <View style={[styles.progressFill, { width: `${settlementPct}%`, backgroundColor: colors.success }]} />
               </View>
+              {settlements.some(isPoolSideLeg) && (
+                <Text style={[styles.fxAmount, { color: colors.muted, marginBottom: spacing.xs }]} testID="settlement-pool-note">
+                  {POOL_LEGS_PAID_SEPARATELY_NOTE}
+                </Text>
+              )}
               {settlements.map(s => {
                 const settlementStatus = s.status as string;
                 const isPayer = currentUserId === s.fromUserId;
@@ -958,6 +976,9 @@ export default function EventDetailScreen({ route, navigation }: any) {
                       </Text>
                       <Text style={[styles.settlementAmount, { color: colors.text }]}>{currSym}{s.amount.toFixed(2)}</Text>
                     </View>
+                    {poolLegLabel(s) && (
+                      <Text style={[styles.fxAmount, { color: colors.muted }]}>{poolLegLabel(s)}, paid on its own</Text>
+                    )}
                     {hasFx && (
                       <Text style={[styles.fxAmount, { color: colors.muted }]}>
                         Pay/Receive {settlementSym}{s.settlementAmount!.toFixed(2)}

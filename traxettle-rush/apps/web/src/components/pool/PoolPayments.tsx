@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
 import { Badge, Button, Card, CardBody, CardHeader, CardSubtitle, CardTitle, Field, Input, Label, Modal, ModalBody, ModalFooter, ModalHeader, ModalTitle, useToast } from '@traxettle/ui';
-import { toMinor } from '@traxettle/shared';
+import { poolLegLabel, toMinor } from '@traxettle/shared';
 import type { Settlement } from '@traxettle/shared';
 import { api } from '../../utils/api';
 import { formatMinor, toPoolError } from './poolFormat';
@@ -29,13 +29,6 @@ const Meta = styled.div`
   font-size: 12px;
   color: ${(p) => p.theme.colors.muted};
 `;
-
-const KIND_LABEL: Record<string, string> = {
-  pool_reimbursement: 'Reimbursement',
-  pool_repayment: 'Repayment (spend not approved)',
-  pool_member_exit: 'Leaving settlement',
-  pool_cycle: 'Cycle refund',
-};
 
 const STATUS: Record<string, { label: string; tone: 'default' | 'success' | 'warning' | 'info' | 'error' }> = {
   pending: { label: 'To pay', tone: 'warning' },
@@ -98,7 +91,7 @@ export function PoolPayments({ legs, currentUserId, nameOf, onChanged }: Props) 
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>
                     {nameOf('user', leg.fromUserId)} → {nameOf('user', leg.toUserId)}{' '}
-                    <Badge>{KIND_LABEL[leg.kind || ''] || 'Payment'}</Badge> <Badge $variant={status.tone}>{status.label}</Badge>
+                    <Badge>{poolLegLabel(leg) || 'Payment'}</Badge> <Badge $variant={status.tone}>{status.label}</Badge>
                   </div>
                   {note && <Meta>{note}</Meta>}
                 </div>

@@ -21,7 +21,9 @@ import {
   fromMinor,
   isPoolSideLeg,
   lentTopUps,
+  openPoolSideLegs,
   poolErrorText,
+  poolLegLabel,
   poolNoun,
   poolPaymentActions,
   poolPaymentActionsText,
@@ -232,7 +234,7 @@ export default function PoolScreen({ route, navigation }: any) {
               <View key={leg.id} style={[st.row, { borderColor: colors.border }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[st.rowTitle, { color: colors.text }]}>{nameOf('user', leg.fromUserId)} → {nameOf('user', leg.toUserId)}</Text>
-                  <Text style={meta}>{leg.kind === 'pool_reimbursement' ? 'Reimbursement' : leg.kind === 'pool_repayment' ? 'Repayment (spend not approved)' : leg.kind === 'pool_member_exit' ? 'Leaving settlement' : 'Cycle refund'} · {leg.status === 'completed' ? 'Done' : leg.status === 'initiated' ? 'Paid — awaiting confirmation' : 'To pay'}</Text>
+                  <Text style={meta}>{poolLegLabel(leg) || 'Payment'} · {leg.status === 'completed' ? 'Done' : leg.status === 'initiated' ? 'Paid — awaiting confirmation' : 'To pay'}</Text>
                 </View>
                 <Text style={[st.amount, { color: colors.text }]}>{money(toMinor(leg.amount, currency))}</Text>
                 {me === leg.fromUserId && (leg.status === 'pending' || leg.status === 'failed') && (
@@ -421,6 +423,7 @@ export default function PoolScreen({ route, navigation }: any) {
       {sheet.kind === 'reconcile' && (
         <ReconcileSheet eventId={eventId} mode={sheet.mode} currency={currency} noun={noun} busy={busy} nameOf={nameOf}
           custodianKey={entityKey('user', config.custodianUserId)}
+          separateLegs={openPoolSideLegs(legs)}
           onClose={() => setSheet({ kind: 'none' })}
           onSubmit={(cover) => run(sheet.mode === 'close' ? 'Close cycle' : 'Settle up',
             () => (sheet.mode === 'close' ? poolService.closeCycle(eventId, { cover }) : poolService.dissolve(eventId, { cover })))} />
@@ -578,9 +581,13 @@ function AmountsSheet(props: {
 
 function ReconcileSheet(props: {
   eventId: string; mode: 'close' | 'settle'; currency: string; noun: string; busy: boolean; custodianKey: string;
+  /** Pool payments still open. They aren't netted into the final settlement (design doc §11). */
+  separateLegs: Settlement[];
   nameOf: (t: 'user' | 'group', id: string) => string; onClose: () => void; onSubmit: (cover?: CoverEntry[]) => void;
 }) {
   const { colors } = useTheme().theme;
+  // Only the final settle-up lists them: closing a cycle moves no money now.
+  const separate = props.mode === 'settle' ? props.separateLegs : [];
   const [preview, setPreview] = useState<ClosePreview | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -629,7 +636,23 @@ function ReconcileSheet(props: {
               <Text key={k} style={{ color: colors.text }}>{keyName(k)}: {v > 0 ? `gets back ${money(v)}` : `pays ${money(-v)}`}</Text>
             ))}
           {preview.disposition === 'settle' && Object.keys(preview.settlementBalances).length === 0 && (
-            <Text style={{ color: colors.text }}>Nobody owes anybody anything.</Text>
+            <Text style={{ color: colors.text }}>
+              {separate.length > 0 ? `Nothing to pay out of the ${props.noun.toLowerCase()}.` : 'Nobody owes anybody anything.'}
+            </Text>
+          )}
+          {separate.length > 0 && (
+            <View testID="reconcile-separate">
+              <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.md }}>Paid separately</Text>
+              {separate.map((leg) => (
+                <Text key={leg.id} style={{ color: colors.text }}>
+                  {props.nameOf('user', leg.fromUserId)} → {props.nameOf('user', leg.toUserId)}: {money(toMinor(leg.amount, props.currency))} · {poolLegLabel(leg)}
+                  {leg.status === 'initiated' ? ' · sent, awaiting confirmation' : ''}
+                </Text>
+              ))}
+              <Text style={{ color: colors.textSecondary, marginTop: spacing.xs }}>
+                These stay as they are and are paid on their own. They aren't combined with the amounts above.
+              </Text>
+            </View>
           )}
         </View>
       )}
