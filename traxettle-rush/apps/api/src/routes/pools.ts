@@ -8,10 +8,12 @@ import { PoolError, PoolService } from '../services/pool.service';
 import { SettlementService } from '../services/settlement.service';
 import { EventAccessError, requireEventAccess } from '../utils/event-access';
 import {
+  advanceCreateSchema,
   closePreviewSchema,
   closeSchema,
   confirmSchema,
   dissolveSchema,
+  emptySchema,
   markPaidSchema,
   poolConfigPatchSchema,
   poolCreateSchema,
@@ -54,6 +56,12 @@ function fail(res: Response, err: any, label: string) {
 async function eventIdOfContribution(id: string): Promise<string> {
   const snap = await db.collection('poolContributions').doc(id).get();
   if (!snap.exists) throw new PoolError(404, 'Contribution not found');
+  return snap.data()!.eventId;
+}
+
+async function eventIdOfAdvance(id: string): Promise<string> {
+  const snap = await db.collection('poolAdvances').doc(id).get();
+  if (!snap.exists) throw new PoolError(404, 'Hand-over not found');
   return snap.data()!.eventId;
 }
 
@@ -178,6 +186,44 @@ contributionAction('mark-paid', markPaidSchema, (id, uid, b) => poolService.mark
 contributionAction('confirm', confirmSchema, (id, uid, b) => poolService.confirmContribution(id, uid, b));
 contributionAction('reject', reasonSchema, (id, uid, b) => poolService.rejectContribution(id, uid, b.reason));
 contributionAction('waive', reasonSchema, (id, uid, b) => poolService.waiveContribution(id, uid, b.reason));
+
+// ── Hand-overs: advances, returns, early repayments (§9.3, §10.6) ───────
+
+router.post('/event/:eventId/advances', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const body = parse(advanceCreateSchema, req.body, res);
+  if (!body) return;
+  try {
+    await requireEventAccess(req.params.eventId, req.user!.uid);
+    const advance = await poolService.recordAdvance(req.params.eventId, req.user!.uid, body);
+    announce(req.params.eventId, 'advance', { advanceId: advance.id });
+    return res.status(201).json({ success: true, data: advance } as ApiResponse);
+  } catch (err) {
+    return fail(res, err, 'POST /pools/event/:eventId/advances');
+  }
+});
+
+const advanceAction = (
+  path: string,
+  schema: ZodSchema<any>,
+  run: (id: string, uid: string, body: any) => Promise<unknown>,
+) =>
+  router.post(`/advances/:advanceId/${path}`, requireAuth, async (req: AuthenticatedRequest, res) => {
+    const body = parse(schema, req.body, res);
+    if (!body) return;
+    try {
+      const eventId = await eventIdOfAdvance(req.params.advanceId);
+      await requireEventAccess(eventId, req.user!.uid);
+      const data = await run(req.params.advanceId, req.user!.uid, body);
+      announce(eventId, `advance_${path}`, { advanceId: req.params.advanceId });
+      return res.json({ success: true, data } as ApiResponse);
+    } catch (err) {
+      return fail(res, err, `POST /pools/advances/:id/${path}`);
+    }
+  });
+
+advanceAction('confirm', emptySchema, (id, uid) => poolService.confirmAdvance(id, uid));
+advanceAction('reject', reasonSchema, (id, uid, b) => poolService.rejectAdvance(id, uid, b.reason));
+advanceAction('cancel', emptySchema, (id, uid) => poolService.cancelAdvance(id, uid));
 
 // ── Draw approvals ──────────────────────────────────────────────────────
 

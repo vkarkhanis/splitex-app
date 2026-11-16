@@ -734,3 +734,12 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
 - **`PRO_FEATURE_CODES.contributorPools`** is added in WP1, not WP5. The API needs it to compile once the capability exists. Nothing checks the capability until WP5.
 - **"Paid with" titles use the pool's own word and the custodian's name:** *"Budget money I'm holding"* (or *"Kitty money…"*) and *"Anita's card or UPI"* (*"The custodian's card or UPI"* when the name isn't known).
 - **New shared helper `paidWithChoiceFor`** picks the right option when editing a saved spend. Spends saved before Phase 2 (no method) count as the custodian's own spend, or as a spend on the custodian's card for anyone else.
+
+**WP2 (2026-11-16)**
+- **Membership changes in rolling funds:** if anything is still waiting (a pending spend, an unconfirmed top-up or an unconfirmed hand-over), the pool now just updates the member list instead of closing the cycle. Before, only pending spends were handled this way. An unconfirmed top-up made the close fail inside the membership update, which ignored the error, so even the member list wasn't updated.
+- **Leaving (D7):** only someone counted on their own is checked. A member of an event group isn't, because the group keeps the money when one member leaves.
+- **Ledger:**
+  - spender rows show `heldMinor` only when it isn't 0, and people holding money who haven't spent yet get a row;
+  - the entries list shows hand-overs that are waiting or confirmed; the new `advances` list has every one, including rejected and cancelled.
+- **Confirm and cancel** take an empty body (new `emptySchema`).
+- **Until WP3,** the API tests write `paidFrom` onto the expense directly. WP3 replaces that with the expense form's field.

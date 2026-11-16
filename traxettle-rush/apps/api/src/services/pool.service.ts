@@ -1,4 +1,6 @@
 import {
+  ADVANCE_KIND_LABEL,
+  AdvanceLike,
   Balance,
   ContributionLike,
   CreatePoolConfigDto,
@@ -6,6 +8,9 @@ import {
   Expense,
   ExpenseFundingSource,
   Group,
+  HoldingDrawLike,
+  PoolAdvance,
+  PoolAdvanceKind,
   PoolAuditEntry,
   PoolConfig,
   PoolContribution,
@@ -15,6 +20,7 @@ import {
   PoolDrawState,
   PoolEntityRef,
   PoolExpenseFlag,
+  PoolHoldings,
   PoolLedger,
   PoolLedgerEntry,
   PoolReconciliation,
@@ -27,11 +33,14 @@ import {
   computeArrears,
   computeCycleTotals,
   computeFundingState,
+  computeHoldings,
   computeOverdraftState,
   entityKey,
   evaluateDraw,
+  formatMinor,
   fromMinor,
   nextOverdraftLatch,
+  outstandingLoans,
   parseEntityKey,
   reconcileCycle,
   resolveFundingModel,
@@ -44,6 +53,7 @@ import { GroupService } from './group.service';
 
 const CYCLES = 'poolCycles';
 const CONTRIBUTIONS = 'poolContributions';
+const ADVANCES = 'poolAdvances';
 const SETTLEMENTS = 'settlements';
 
 export class PoolError extends Error {
@@ -219,6 +229,7 @@ export class PoolService {
       currency: d.currency,
       openingBalanceMinor: d.openingBalanceMinor || 0,
       openingCredits: d.openingCredits || {},
+      ...(d.openingHeld && Object.keys(d.openingHeld).length > 0 ? { openingHeld: d.openingHeld } : {}),
       roster: Array.isArray(d.roster) ? d.roster : [],
       overdraftLatchedAt: d.overdraftLatchedAt ?? null,
       closeReason: d.closeReason ?? null,
@@ -259,6 +270,28 @@ export class PoolService {
     };
   }
 
+  private mapAdvance(id: string, d: Record<string, any>): PoolAdvance {
+    return {
+      id,
+      eventId: d.eventId,
+      cycleId: d.cycleId,
+      kind: d.kind,
+      fromUserId: d.fromUserId,
+      toUserId: d.toUserId,
+      amountMinor: d.amountMinor || 0,
+      currency: d.currency,
+      status: d.status || 'initiated',
+      note: d.note ?? null,
+      proofUrl: d.proofUrl ?? null,
+      rejectionReason: d.rejectionReason ?? null,
+      createdBy: d.createdBy,
+      createdAt: d.createdAt,
+      confirmedAt: d.confirmedAt ?? null,
+      updatedAt: d.updatedAt,
+      auditTrail: Array.isArray(d.auditTrail) ? d.auditTrail : [],
+    };
+  }
+
   async listCycles(eventId: string): Promise<PoolCycle[]> {
     const snap = await db.collection(CYCLES).where('eventId', '==', eventId).get();
     return snap.docs.map((d: any) => this.mapCycle(d.id, d.data())).sort((a: PoolCycle, b: PoolCycle) => a.sequence - b.sequence);
@@ -296,6 +329,14 @@ export class PoolService {
       .sort((a: PoolContribution, b: PoolContribution) => String(a.createdAt).localeCompare(String(b.createdAt)));
   }
 
+  /** Hand-overs (advances, returns, early repayments) recorded in a cycle. */
+  async listAdvances(cycleId: string): Promise<PoolAdvance[]> {
+    const snap = await db.collection(ADVANCES).where('cycleId', '==', cycleId).get();
+    return snap.docs
+      .map((d: any) => this.mapAdvance(d.id, d.data()))
+      .sort((a: PoolAdvance, b: PoolAdvance) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  }
+
   private async listCycleDraws(eventId: string, cycleId: string): Promise<Array<Record<string, any> & { id: string }>> {
     const snap = await db.collection('expenses').where('eventId', '==', eventId).get();
     return snap.docs
@@ -330,18 +371,58 @@ export class PoolService {
     };
   }
 
+  /** The entity key a user is measured under in this event (their group's, if they're in one). */
+  private userKey(userId: string, groups: Group[]): string {
+    const ref = this.entityForUser(userId, groups);
+    return entityKey(ref.entityType, ref.entityId);
+  }
+
+  private toAdvanceLike(a: PoolAdvance, groups: Group[]): AdvanceLike {
+    return { kind: a.kind, status: a.status, fromKey: this.userKey(a.fromUserId, groups), toKey: this.userKey(a.toUserId, groups), amountMinor: a.amountMinor };
+  }
+
+  private toHoldingDrawLike(e: Record<string, any>, currency: string, groups: Group[]): HoldingDrawLike {
+    return {
+      payerKey: this.userKey(e.paidBy, groups),
+      amountMinor: toMinor(Number(e.amount) || 0, currency),
+      status: e.poolDraw?.status || 'pending',
+      fundingSource: e.fundingSource,
+      ...(e.poolDraw?.paidFrom ? { paidFrom: e.poolDraw.paidFrom } : {}),
+    };
+  }
+
+  /** Confirmed early repayments (§10.6): money that has left the pool. */
+  private confirmedRepaymentsMinor(advances: PoolAdvance[]): number {
+    return advances.filter((a) => a.kind === 'repayment' && a.status === 'confirmed').reduce((s, a) => s + a.amountMinor, 0);
+  }
+
   /** Live, derived view of a cycle. The balance is never stored — always recomputed. */
-  async buildSummary(event: EventRecord, cycle: PoolCycle): Promise<PoolCycleSummary & { _draws: Array<Record<string, any> & { id: string }>; _contributions: PoolContribution[]; _groups: Group[] }> {
+  async buildSummary(event: EventRecord, cycle: PoolCycle): Promise<PoolCycleSummary & {
+    holdings: PoolHoldings;
+    _draws: Array<Record<string, any> & { id: string }>;
+    _contributions: PoolContribution[];
+    _advances: PoolAdvance[];
+    _groups: Group[];
+  }> {
     const config = this.requirePoolConfig(event);
-    const [contributions, draws, groups] = await Promise.all([
+    const [contributions, draws, advances, groups] = await Promise.all([
       this.listContributions(cycle.id),
       this.listCycleDraws(event.id, cycle.id),
+      this.listAdvances(cycle.id),
       this.getGroups(event.id),
     ]);
     const totals = computeCycleTotals({
       openingBalanceMinor: cycle.openingBalanceMinor,
       contributions: contributions.map((c) => this.toContributionLike(c)),
       draws: draws.map((d) => this.toDrawLike(d, cycle.currency, groups)),
+      earlyRepaymentsMinor: this.confirmedRepaymentsMinor(advances),
+    });
+    const holdings = computeHoldings({
+      custodianEntityKey: this.custodianKey(config, groups),
+      balanceMinor: totals.balanceMinor,
+      openingHeld: cycle.openingHeld,
+      advances: advances.map((a) => this.toAdvanceLike(a, groups)),
+      draws: draws.map((d) => this.toHoldingDrawLike(d, cycle.currency, groups)),
     });
     return {
       cycle,
@@ -349,8 +430,10 @@ export class PoolService {
       overdraft: computeOverdraftState(config, cycle.openingBalanceMinor, totals, cycle.overdraftLatchedAt),
       funding: computeFundingState(config, cycle.openingBalanceMinor, totals),
       arrears: computeArrears(contributions.map((c) => this.toContributionLike(c))),
+      holdings,
       _draws: draws,
       _contributions: contributions,
+      _advances: advances,
       _groups: groups,
     };
   }
@@ -360,7 +443,7 @@ export class PoolService {
     this.requirePoolConfig(event);
     const cycle = cycleId ? await this.getCycle(cycleId) : await this.getCurrentCycle(eventId, event);
     if (!cycle || cycle.eventId !== eventId) throw new PoolError(404, 'Cycle not found');
-    const { _draws, _contributions, _groups, ...summary } = await this.buildSummary(event, cycle);
+    const { _draws, _contributions, _advances, _groups, ...summary } = await this.buildSummary(event, cycle);
     return summary;
   }
 
@@ -448,12 +531,15 @@ export class PoolService {
 
   private async createCycle(
     event: EventRecord,
-    fields: Pick<PoolCycle, 'sequence' | 'label' | 'startDate' | 'endDate' | 'openingBalanceMinor' | 'openingCredits' | 'roster'>,
+    fields: Pick<PoolCycle, 'sequence' | 'label' | 'startDate' | 'endDate' | 'openingBalanceMinor' | 'openingCredits' | 'roster'> & { openingHeld?: Record<string, number> },
   ): Promise<PoolCycle> {
     const now = nowIso();
+    const { openingHeld, ...rest } = fields;
     const data = {
       eventId: event.id,
-      ...fields,
+      ...rest,
+      // Stored only when someone carries held money in, so other cycles look exactly as before.
+      ...(openingHeld && Object.keys(openingHeld).length > 0 ? { openingHeld } : {}),
       status: 'open',
       currency: event.data.currency,
       overdraftLatchedAt: null,
@@ -721,6 +807,179 @@ export class PoolService {
     return (await this.loadContribution(contributionId)).contribution;
   }
 
+  // ── Hand-overs: advances, returns and early repayments (§9.3, §10.6) ──
+
+  /** Money only changes hands while the event is active and its cycle is open. */
+  private assertHandOverWritable(event: EventRecord, cycle: PoolCycle) {
+    if (event.data.status !== 'active') {
+      throw new PoolError(409, 'Money can only be handed over while the event is active', 'POOL_EVENT_NOT_ACTIVE');
+    }
+    if (cycle.status !== 'open') throw new PoolError(409, `Cannot hand over money in a ${cycle.status} cycle`, 'POOL_CYCLE_NOT_OPEN');
+  }
+
+  /**
+   * Record money handed between the custodian and someone else.
+   * - advance: the custodian gives a spender pool money. Refused while spending is paused or the
+   *   pool is empty, and beyond what the custodian holds (less advances still waiting).
+   * - return: a holder gives money back. Recorded by the holder (the custodian confirms) or by the
+   *   custodian (confirmed at once: they're the one receiving it). At most what they hold.
+   * - repayment: the custodian pays a lender back early, up to what they're still owed. Allowed
+   *   even while spending is paused; the apps warn first (§10.6).
+   * Anything not recorded by the receiver waits for them to confirm it.
+   */
+  async recordAdvance(
+    eventId: string,
+    actorId: string,
+    input: { kind: PoolAdvanceKind; userId?: string; amountMinor: number; note?: string; proofUrl?: string },
+  ): Promise<PoolAdvance> {
+    const event = await this.getEvent(eventId);
+    const config = this.requirePoolConfig(event);
+    const cycle = await this.getCurrentCycle(eventId, event);
+    this.assertHandOverWritable(event, cycle);
+    if (!(input.amountMinor > 0)) throw new PoolError(400, 'Amount must be greater than zero');
+    const built = await this.buildSummary(event, cycle);
+    const groups = built._groups;
+    const custodian = config.custodianUserId;
+    const amount = input.amountMinor;
+
+    let fromUserId: string;
+    let toUserId: string;
+    let status: 'initiated' | 'confirmed' = 'initiated';
+    if (input.kind === 'advance') {
+      if (actorId !== custodian) throw new PoolError(403, 'Forbidden: Only the custodian can hand out pool money');
+      if (!input.userId) throw new PoolError(400, 'Choose who receives the money', 'POOL_RECIPIENT_REQUIRED');
+      if (input.userId === custodian) throw new PoolError(400, 'The custodian already holds the pool money', 'POOL_RECIPIENT_INVALID');
+      if (!(await this.canDraw(event, config, input.userId, groups))) {
+        throw new PoolError(400, "That person can't spend from this pool", 'POOL_RECIPIENT_INVALID');
+      }
+      if (built.overdraft.latched || built.overdraft.balanceMinor <= 0) {
+        throw new PoolError(409, "There's no pool money to hand out: spending is paused or the pool is empty", 'POOL_ADVANCE_NOT_AVAILABLE');
+      }
+      const availableMinor = built.holdings.withCustodianMinor - built.holdings.pendingOutMinor;
+      if (amount > availableMinor) {
+        throw new PoolError(409, 'That is more than you hold of the pool money', 'POOL_ADVANCE_EXCEEDS_CUSTODIAN', { availableMinor: Math.max(0, availableMinor) });
+      }
+      fromUserId = custodian;
+      toUserId = input.userId;
+    } else if (input.kind === 'return') {
+      let holderId: string;
+      if (actorId === custodian) {
+        if (!input.userId || input.userId === custodian) throw new PoolError(400, 'Choose who returned the money', 'POOL_RECIPIENT_REQUIRED');
+        holderId = input.userId;
+        status = 'confirmed';
+      } else {
+        if (input.userId && input.userId !== actorId && input.userId !== custodian) {
+          throw new PoolError(400, 'You can only return money you hold', 'POOL_RECIPIENT_INVALID');
+        }
+        holderId = actorId;
+      }
+      const holderKey = this.userKey(holderId, groups);
+      const waiting = built._advances
+        .filter((a) => a.kind === 'return' && a.status === 'initiated' && this.userKey(a.fromUserId, groups) === holderKey)
+        .reduce((sum, a) => sum + a.amountMinor, 0);
+      const heldMinor = (built.holdings.heldBy[holderKey] || 0) - waiting;
+      if (amount > heldMinor) {
+        throw new PoolError(409, 'That is more than they hold of the pool money', 'POOL_RETURN_EXCEEDS_HELD', { heldMinor: Math.max(0, heldMinor) });
+      }
+      fromUserId = holderId;
+      toUserId = custodian;
+    } else {
+      if (actorId !== custodian) throw new PoolError(403, 'Forbidden: Only the custodian can pay money back early');
+      if (!input.userId || input.userId === custodian) throw new PoolError(400, 'Choose who to pay back', 'POOL_RECIPIENT_REQUIRED');
+      const outstandingMinor = outstandingLoans(built._contributions, built._advances, custodian).byUser[input.userId] || 0;
+      if (amount > outstandingMinor) {
+        throw new PoolError(409, 'That is more than they lent and are still owed', 'POOL_REPAYMENT_EXCEEDS_LOAN', { outstandingMinor });
+      }
+      fromUserId = custodian;
+      toUserId = input.userId;
+    }
+
+    const now = nowIso();
+    const data = {
+      eventId,
+      cycleId: cycle.id,
+      kind: input.kind,
+      fromUserId,
+      toUserId,
+      amountMinor: amount,
+      currency: cycle.currency,
+      status,
+      note: input.note ?? null,
+      proofUrl: input.proofUrl ?? null,
+      rejectionReason: null,
+      createdBy: actorId,
+      createdAt: now,
+      confirmedAt: status === 'confirmed' ? now : null,
+      updatedAt: now,
+      auditTrail: [auditEntry('created', actorId, { amountMinor: amount, note: input.note, proofUrl: input.proofUrl, statusTo: status })],
+    };
+    const ref = await db.collection(ADVANCES).add(data);
+    return this.mapAdvance(ref.id, data);
+  }
+
+  private async loadAdvance(advanceId: string): Promise<{ advance: PoolAdvance; event: EventRecord; cycle: PoolCycle }> {
+    const snap = await db.collection(ADVANCES).doc(advanceId).get();
+    if (!snap.exists) throw new PoolError(404, 'Hand-over not found');
+    const advance = this.mapAdvance(advanceId, snap.data()!);
+    const event = await this.getEvent(advance.eventId);
+    this.requirePoolConfig(event);
+    const cycle = await this.getCycle(advance.cycleId);
+    if (!cycle) throw new PoolError(404, 'Cycle not found');
+    return { advance, event, cycle };
+  }
+
+  private async decideAdvance(
+    advanceId: string,
+    actorId: string,
+    who: 'receiver' | 'recorder',
+    statusTo: 'confirmed' | 'rejected' | 'cancelled',
+    reason?: string,
+  ): Promise<PoolAdvance> {
+    const { advance, event, cycle } = await this.loadAdvance(advanceId);
+    this.assertHandOverWritable(event, cycle);
+    if (who === 'receiver' && advance.toUserId !== actorId) {
+      throw new PoolError(403, 'Forbidden: Only the person receiving the money can confirm it or say it never arrived');
+    }
+    if (who === 'recorder' && advance.createdBy !== actorId) {
+      throw new PoolError(403, 'Forbidden: Only the person who recorded it can cancel it');
+    }
+    if (advance.status !== 'initiated') throw new PoolError(409, `This hand-over is already ${advance.status}`, 'POOL_HANDOVER_DECIDED');
+    const now = nowIso();
+    const rejectionReason = statusTo === 'rejected' ? (reason || 'Not received').trim() : null;
+    await db.collection(ADVANCES).doc(advanceId).set({
+      status: statusTo,
+      ...(statusTo === 'confirmed' ? { confirmedAt: now } : {}),
+      ...(rejectionReason ? { rejectionReason } : {}),
+      updatedAt: now,
+      auditTrail: appendAudit(advance.auditTrail, auditEntry(statusTo, actorId, { note: rejectionReason ?? undefined, statusFrom: 'initiated', statusTo })),
+    }, { merge: true });
+    // A confirmed early repayment lowers the balance, which can pause spending.
+    if (statusTo === 'confirmed' && advance.kind === 'repayment') await this.refreshOverdraftLatch(advance.eventId, advance.cycleId);
+    return (await this.loadAdvance(advanceId)).advance;
+  }
+
+  /** The receiver confirms the money arrived. */
+  confirmAdvance(advanceId: string, actorId: string): Promise<PoolAdvance> {
+    return this.decideAdvance(advanceId, actorId, 'receiver', 'confirmed');
+  }
+
+  /** The receiver says it never arrived. Final: the giver records it again if needed. */
+  rejectAdvance(advanceId: string, actorId: string, reason?: string): Promise<PoolAdvance> {
+    return this.decideAdvance(advanceId, actorId, 'receiver', 'rejected', reason);
+  }
+
+  /** Whoever recorded it withdraws it before the receiver has answered. */
+  cancelAdvance(advanceId: string, actorId: string): Promise<PoolAdvance> {
+    return this.decideAdvance(advanceId, actorId, 'recorder', 'cancelled');
+  }
+
+  private assertNoUnconfirmedAdvances(advances: PoolAdvance[]): void {
+    const waiting = advances.filter((a) => a.status === 'initiated');
+    if (waiting.length > 0) {
+      throw new PoolError(409, 'Confirm, reject or cancel the money handed over before closing', 'POOL_UNCONFIRMED_MOVEMENTS', { count: waiting.length });
+    }
+  }
+
   // ── Draws (pool-funded expenses) ──────────────────────────────────────
 
   private async canDraw(event: EventRecord, config: PoolConfig, userId: string, groups: Group[]): Promise<boolean> {
@@ -960,11 +1219,15 @@ export class PoolService {
     return { ...expense, poolDraw: settlementId ? { ...poolDraw, settlementId } : poolDraw };
   }
 
-  /** A pool spend already paid with the pool's money, then rejected: the spender owes it back (§9.2). */
+  /**
+   * A pool spend already paid with the pool's money, then rejected: the spender owes it back (§9.2).
+   * Not when it was paid from money they hold: that stays in what they hold instead (§9.3).
+   */
   private owesRepayment(expense: Record<string, any>, config: PoolConfig): boolean {
     return expense.fundingSource === 'pool'
       && expense.poolDraw?.status === 'rejected'
       && expense.poolDraw?.alreadyIncurred === true
+      && expense.poolDraw?.paidFrom !== 'advance'
       && expense.paidBy !== config.custodianUserId;
   }
 
@@ -1083,7 +1346,7 @@ export class PoolService {
     const cycle = cycleId ? await this.getCycle(cycleId) : await this.getCurrentCycle(eventId, event);
     if (!cycle || cycle.eventId !== eventId) throw new PoolError(404, 'Cycle not found');
     const built = await this.buildSummary(event, cycle);
-    const { _draws, _contributions, _groups, ...summary } = built;
+    const { _draws, _contributions, _advances, _groups, ...summary } = built;
     const currency = cycle.currency;
 
     const legIds = _draws.map((d) => d.poolDraw?.settlementId).filter(Boolean) as string[];
@@ -1124,8 +1387,27 @@ export class PoolService {
         receiptUrls: Array.isArray(d.attachments) ? d.attachments : [],
         flags: Array.isArray(d.poolFlags) && d.poolFlags.length > 0 ? d.poolFlags : undefined,
         ...(d.fundingSource === 'pool' ? { alreadyIncurred: d.poolDraw?.alreadyIncurred === true } : {}),
+        ...(d.poolDraw?.paidFrom ? { paidFrom: d.poolDraw.paidFrom } : {}),
         settlementStatus: d.poolDraw?.selfReimbursed ? 'completed' : (d.poolDraw?.settlementId ? legStatus.get(d.poolDraw.settlementId) ?? null : null),
         counted: d.poolDraw?.status === 'approved',
+      });
+    }
+    for (const a of _advances) {
+      if (a.status !== 'initiated' && a.status !== 'confirmed') continue;
+      entries.push({
+        id: a.id,
+        type: 'advance',
+        at: a.confirmedAt || a.createdAt,
+        title: ADVANCE_KIND_LABEL[a.kind],
+        // Advances and returns move money between holders; only an early repayment leaves the pool.
+        amountMinor: a.kind === 'repayment' ? -a.amountMinor : a.amountMinor,
+        status: a.status,
+        actorUserId: a.fromUserId,
+        advanceKind: a.kind,
+        fromUserId: a.fromUserId,
+        toUserId: a.toUserId,
+        receiptUrls: a.proofUrl ? [a.proofUrl] : [],
+        counted: a.kind === 'repayment' && a.status === 'confirmed',
       });
     }
     entries.sort((a, b) => String(b.at).localeCompare(String(a.at)));
@@ -1141,12 +1423,27 @@ export class PoolService {
       spenderMap.set(key, row);
     }
 
+    // What each spender holds (§9.3), shown on their row; holders who haven't spent yet get a row too.
+    const heldBy = { ...built.holdings.heldBy };
+    for (const row of spenderMap.values()) {
+      const key = row.spenderType === 'group' ? entityKey('group', row.spenderId) : this.userKey(row.spenderId, _groups);
+      if (heldBy[key]) {
+        row.heldMinor = heldBy[key];
+        delete heldBy[key];
+      }
+    }
+    for (const [key, heldMinor] of Object.entries(heldBy)) {
+      const ref = parseEntityKey(key);
+      spenderMap.set(key, { spenderId: ref.entityId, spenderType: ref.entityType, spentMinor: 0, pendingMinor: 0, capMinor: config.spenderCapsMinor?.[ref.entityId] ?? null, heldMinor });
+    }
+
     return {
       summary,
       contributions: _contributions,
       entries,
       spenders: [...spenderMap.values()].sort((a, b) => b.spentMinor - a.spentMinor),
       cycles: await this.listCycles(eventId),
+      advances: _advances,
     };
   }
 
@@ -1163,6 +1460,10 @@ export class PoolService {
       deficitPolicy: config.deficitPolicy,
       forDissolution: opts.forDissolution,
       extraCover: opts.extraCover,
+      repayments: built._advances
+        .filter((a) => a.kind === 'repayment' && a.status === 'confirmed')
+        .map((a) => ({ entityKey: this.userKey(a.toUserId, built._groups), amountMinor: a.amountMinor })),
+      held: built.holdings.heldBy,
     };
   }
 
@@ -1215,6 +1516,8 @@ export class PoolService {
       disposition: result.disposition,
       entityShares: result.entityShares,
       settlementIds,
+      ...(result.earlyRepaymentsMinor > 0 ? { earlyRepaymentsMinor: result.earlyRepaymentsMinor } : {}),
+      ...(Object.keys(result.heldBy).length > 0 ? { heldBy: result.heldBy } : {}),
       generatedAt: nowIso(),
       generatedBy: actorId,
     };
@@ -1321,6 +1624,7 @@ export class PoolService {
       throw new PoolError(409, 'Approve or reject pending pool expenses before closing the cycle', 'POOL_PENDING_DRAWS');
     }
     this.assertNoUnconfirmedTopUps(built._contributions);
+    this.assertNoUnconfirmedAdvances(built._advances);
 
     const raw = reconcileCycle(this.reconcileInput(config, cycle, built, {}));
     const cover = this.normalizeCover(config, built._groups, raw.uncoveredDeficitMinor, opts.cover);
@@ -1340,15 +1644,19 @@ export class PoolService {
     let settlementIds: string[] = [];
     let carryCredits: Record<string, number> = {};
     let carryOpening = 0;
+    // Money spenders hold carries into the next cycle; a settling close collects it (§9.3).
+    let carryHeld: Record<string, number> = {};
     if (result.disposition === 'carry_forward') {
       if (leavingKeys.length > 0) {
         const split = splitForMembershipChange(result, leavingKeys, custodianKey);
         settlementIds = await this.writePoolLegs(event, cycle, groups, split.exitBalances, 'pool_member_exit', actorId, planner);
         carryCredits = split.carryCredits;
         carryOpening = split.carryOpeningBalanceMinor;
+        carryHeld = split.carryHeld;
       } else {
         for (const e of result.entityShares) if (e.netMinor !== 0) carryCredits[entityKey(e.entityType, e.entityId)] = e.netMinor;
         carryOpening = result.closingBalanceMinor;
+        carryHeld = result.heldBy;
       }
     } else {
       settlementIds = await this.writePoolLegs(event, cycle, groups, result.settlementBalances, 'pool_cycle', actorId, planner);
@@ -1370,7 +1678,7 @@ export class PoolService {
     let next: PoolCycle | null = null;
     const shouldOpenNext = opts.openNext ?? config.cycleMode === 'recurring';
     if (shouldOpenNext) {
-      next = await this.openNextCycle(event, config, closed, opts.reason, carryOpening, carryCredits, leavingKeys, actorId);
+      next = await this.openNextCycle(event, config, closed, opts.reason, carryOpening, carryCredits, leavingKeys, actorId, carryHeld);
     }
     return { closed, next, settlementIds };
   }
@@ -1384,6 +1692,7 @@ export class PoolService {
     openingCredits: Record<string, number>,
     leavingKeys: string[],
     actorId: string,
+    openingHeld: Record<string, number> = {},
   ): Promise<PoolCycle> {
     const groups = await this.getGroups(event.id);
     const leaving = new Set(leavingKeys);
@@ -1409,6 +1718,7 @@ export class PoolService {
       endDate: period.endDate,
       openingBalanceMinor,
       openingCredits,
+      openingHeld,
       roster,
     });
     // Mid-period rollovers start with no new expectations: this period's money is already in.
@@ -1444,6 +1754,7 @@ export class PoolService {
       throw new PoolError(409, 'Approve or reject pending pool expenses before settling up', 'POOL_PENDING_DRAWS');
     }
     this.assertNoUnconfirmedTopUps(built._contributions);
+    this.assertNoUnconfirmedAdvances(built._advances);
     // Settling with an approved claim (or a rejected, already-paid spend) that has no leg would
     // close the event without the money being paid back.
     for (const draw of built._draws) {
@@ -1512,7 +1823,23 @@ export class PoolService {
 
   // ── Membership & configuration ────────────────────────────────────────
 
-  /** The custodian holds the money: they must hand over before leaving. */
+  /** A recurring pool that squares a leaver up by closing the cycle when membership changes. */
+  private squaresUpLeavers(config: PoolConfig): boolean {
+    return config.funderMode === 'contributors' && config.cycleMode === 'recurring' && Boolean(config.membershipChangeClosesCycle);
+  }
+
+  /** Nothing waits for a decision, so the cycle can be closed now. */
+  private canCloseNow(built: Awaited<ReturnType<PoolService['buildSummary']>>): boolean {
+    return !built._draws.some((d) => d.poolDraw?.status === 'pending')
+      && !built._contributions.some((c) => c.kind === 'top_up' && c.status === 'initiated')
+      && !built._advances.some((a) => a.status === 'initiated');
+  }
+
+  /**
+   * The custodian holds the money: they must hand over before leaving. Someone holding pool money,
+   * owed money for spends beyond it, or waiting on a hand-over, settles that first (decision D7),
+   * unless the pool squares them up itself by closing the cycle now.
+   */
   async assertCanLeave(eventId: string, userId: string): Promise<void> {
     const snap = await db.collection('events').doc(eventId).get();
     if (!snap.exists) return;
@@ -1521,6 +1848,25 @@ export class PoolService {
     if (data.poolConfig?.custodianUserId === userId && data.status !== 'closed' && data.status !== 'settled') {
       throw new PoolError(409, 'The pool custodian cannot leave. Assign a new custodian first.', 'POOL_CUSTODIAN_LEAVING');
     }
+    if (!data.poolConfig || data.status !== 'active') return;
+    const event: EventRecord = { id: eventId, data };
+    const config = data.poolConfig as PoolConfig;
+    const cycle = await this.getCurrentCycle(eventId, event).catch(() => null);
+    if (!cycle || cycle.status !== 'open') return;
+    const built = await this.buildSummary(event, cycle);
+    const ref = this.entityForUser(userId, built._groups);
+    // Leaving a group doesn't take the group's money with them.
+    const heldMinor = ref.entityType === 'user' ? built.holdings.heldBy[entityKey('user', userId)] || 0 : 0;
+    const waiting = built._advances.some((a) => a.status === 'initiated' && (a.fromUserId === userId || a.toUserId === userId));
+    if (heldMinor === 0 && !waiting) return;
+    if (this.squaresUpLeavers(config) && this.canCloseNow(built)) return;
+    const currency = cycle.currency;
+    const message = waiting
+      ? 'Money handed over to or by this person is waiting for confirmation. Confirm, reject or cancel it first.'
+      : heldMinor > 0
+        ? `This person still holds ${formatMinor(heldMinor, currency)} of pool money. It needs to be returned first.`
+        : `The pool owes this person ${formatMinor(-heldMinor, currency)} for spends beyond the money they held. Give them that amount first.`;
+    throw new PoolError(409, message, 'POOL_HOLDER_LEAVING', { heldMinor, waiting });
   }
 
   /**
@@ -1562,8 +1908,8 @@ export class PoolService {
         await this.syncRoster(event, config, cycle, change.joinedUserIds || [], { replace: true });
         return { action: 'roster_updated' };
       }
-      if (built._draws.some((d) => d.poolDraw?.status === 'pending')) {
-        // Can't reconcile with undecided draws; fall back to a roster update.
+      if (!this.canCloseNow(built)) {
+        // Can't reconcile with undecided draws, top-ups or hand-overs; fall back to a roster update.
         await this.syncRoster(event, config, cycle);
         return { action: 'roster_updated' };
       }
@@ -1626,6 +1972,14 @@ export class PoolService {
     if (patch.custodianUserId && patch.custodianUserId !== config.custodianUserId) {
       const participant = await db.collection('events').doc(eventId).collection('participants').doc(patch.custodianUserId).get();
       if (!participant.exists) throw new PoolError(400, 'The new custodian must be a participant of the event');
+      // Held money and pending hand-overs are with or owed by the current custodian (decision D8).
+      const cycle = await this.getCurrentCycle(eventId, event).catch(() => null);
+      if (cycle && cycle.status !== 'closed') {
+        const built = await this.buildSummary(event, cycle);
+        if (Object.keys(built.holdings.heldBy).length > 0 || built._advances.some((a) => a.status === 'initiated')) {
+          throw new PoolError(409, 'Spenders still hold pool money, or a hand-over is waiting. Settle that before changing the custodian.', 'POOL_CUSTODIAN_CHANGE_BLOCKED');
+        }
+      }
     }
     const next: PoolConfig = { ...config, ...patch, funderMode: config.funderMode, cycleMode: config.cycleMode, preset: config.preset };
     // update() replaces the whole map; a merge would keep removed keys such as a cleared spender cap.

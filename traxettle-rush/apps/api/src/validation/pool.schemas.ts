@@ -29,6 +29,7 @@ export const poolConfigPatchSchema = z
     expenseApproval: z.enum(['none', 'above_threshold', 'always']),
     approvalThresholdMinor: minor.nullable(),
     membershipChangeClosesCycle: z.boolean(),
+    allowSponsorCardSpends: z.boolean(),
   })
   .partial()
   .strict();
@@ -71,6 +72,16 @@ export const topUpSchema = z.object({
   entityType: entityType.optional(),
 }).strict();
 
+/** Money handed between the custodian and someone else (design doc §9.3, §10.6). */
+export const advanceCreateSchema = z.object({
+  kind: z.enum(['advance', 'return', 'repayment']),
+  /** The other person. Omitted when a holder records their own return. */
+  userId: z.string().min(1).optional(),
+  amountMinor: positiveMinor,
+  note: z.string().max(500).optional(),
+  proofUrl: z.string().max(2000).optional(),
+}).strict();
+
 export const markPaidSchema = z.object({
   amountMinor: positiveMinor.optional(),
   reference: z.string().max(200).optional(),
@@ -79,6 +90,8 @@ export const markPaidSchema = z.object({
 }).strict();
 
 export const confirmSchema = z.object({ receivedMinor: positiveMinor.optional() }).strict();
+/** Actions that take no body. */
+export const emptySchema = z.object({}).strict();
 export const reasonSchema = z.object({ reason: z.string().max(500).optional() }).strict();
 
 export const closePreviewSchema = z.object({ forDissolution: z.boolean().optional(), cover: coverSchema }).strict();
