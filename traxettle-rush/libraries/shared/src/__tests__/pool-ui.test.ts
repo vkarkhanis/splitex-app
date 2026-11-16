@@ -1,4 +1,13 @@
 import {
+  ADVANCE_KIND_LABEL,
+  advanceStatusText,
+  GROUP_POOLS_PRO_FEATURE,
+  paidWithChoiceFor,
+  paidWithOptions,
+  paidWithPayload,
+  POOL_LEGS_NETTED_NOTE,
+  proRequiredMessage,
+  REPAYMENT_STATUS,
   buildFundingPayload,
   canRecordAnyway,
   choosePool,
@@ -303,5 +312,118 @@ describe('repaymentStatus (§9.2)', () => {
     expect(repaymentStatus('rejected', undefined)).toBeNull();
     expect(repaymentStatus('approved', 'pending')).toBeNull();
     expect(repaymentStatus('pending', 'pending')).toBeNull();
+  });
+});
+
+// ── Phase 2 (§9.3, §10.6, §11, §12) ───────────────────────────────────────
+
+describe('pool payments folded into the final settlement (§11)', () => {
+  it('a netted claim reads "In final settlement" until the event is settled', () => {
+    expect(reimbursementStatus({ status: 'approved' }, 'netted', 'review')).toBe('in_settlement');
+    expect(reimbursementStatus({ status: 'approved' }, 'netted', 'payment')).toBe('in_settlement');
+    expect(reimbursementStatus({ status: 'approved' }, 'netted', 'settled')).toBe('reimbursed');
+    expect(reimbursementStatus({ status: 'approved' }, 'netted')).toBe('in_settlement');
+    expect(REIMBURSEMENT_STATUS.in_settlement.label).toBe('In final settlement');
+  });
+
+  it('a netted repayment reads "In final settlement" until the event is settled', () => {
+    expect(repaymentStatus('rejected', 'netted', 'review')).toBe('in_settlement');
+    expect(repaymentStatus('rejected', 'netted', 'closed')).toBe('repaid');
+    expect(REPAYMENT_STATUS.in_settlement.label).toBe('In final settlement');
+  });
+
+  it('netted rows are not open pool payments', () => {
+    const legs = [
+      { id: 'a', kind: 'pool_repayment' as const, status: 'netted' },
+      { id: 'b', kind: 'pool_reimbursement' as const, status: 'pending' },
+    ];
+    expect(openPoolSideLegs(legs).map((l) => l.id)).toEqual(['b']);
+    expect(POOL_LEGS_NETTED_NOTE).toBe('Repayments and unpaid claims are included in the payments above.');
+  });
+});
+
+describe('hand-overs (§9.3, §10.6)', () => {
+  const nameOf = (id: string) => ({ ravi: 'Ravi', anita: 'Anita' }[id] || id);
+
+  it('labels each kind', () => {
+    expect(ADVANCE_KIND_LABEL).toEqual({ advance: 'Advance', return: 'Returned', repayment: 'Paid back early' });
+  });
+
+  it('describes the status from the viewer\'s side', () => {
+    expect(advanceStatusText({ status: 'initiated', toUserId: 'ravi' }, 'anita', nameOf)).toBe('Waiting for Ravi to confirm');
+    expect(advanceStatusText({ status: 'initiated', toUserId: 'ravi' }, 'ravi', nameOf)).toBe('Waiting for you to confirm');
+    expect(advanceStatusText({ status: 'confirmed', toUserId: 'ravi' }, 'anita', nameOf)).toBe('Confirmed');
+    expect(advanceStatusText({ status: 'rejected', toUserId: 'ravi' }, 'anita', nameOf)).toBe('Not received');
+    expect(advanceStatusText({ status: 'cancelled', toUserId: 'ravi' }, 'anita', nameOf)).toBe('Cancelled');
+  });
+});
+
+describe('"Paid with" options (§9.3, D1)', () => {
+  const base = { model: 'pool' as const, currency: 'INR', noun: 'Budget', allowCardSpends: true, custodianName: 'Anita' };
+  const values = (opts: ReturnType<typeof paidWithOptions>) => opts.map((o) => o.value);
+
+  it('the custodian pays from the pool directly', () => {
+    expect(values(paidWithOptions({ ...base, isCustodian: true }))).toEqual(['pool', 'pool_reimbursement']);
+  });
+
+  it("a spender who hasn't been handed money picks the custodian's card or their own money", () => {
+    const opts = paidWithOptions({ ...base, isCustodian: false });
+    expect(values(opts)).toEqual(['pool_card', 'pool_reimbursement']);
+    expect(opts[0].title).toBe("Anita's card or UPI");
+    expect(opts[0]).toMatchObject({ fundingSource: 'pool', paidFrom: 'sponsor_card' });
+  });
+
+  it('a spender holding money also sees what they have left', () => {
+    const opts = paidWithOptions({ ...base, isCustodian: false, heldMinor: 500000, hasAdvances: true });
+    expect(values(opts)).toEqual(['pool_held', 'pool_card', 'pool_reimbursement']);
+    expect(opts[0]).toMatchObject({ title: "Budget money I'm holding", text: `${formatMinor(500000, 'INR')} left.`, paidFrom: 'advance' });
+  });
+
+  it('keeps the held option once it is all spent, saying the rest is paid back to them', () => {
+    const opts = paidWithOptions({ ...base, isCustodian: false, heldMinor: 0, hasAdvances: true });
+    expect(opts[0].value).toBe('pool_held');
+    expect(opts[0].text).toMatch(/paid back to you/);
+  });
+
+  it('hides the card option when the budget turns it off', () => {
+    expect(values(paidWithOptions({ ...base, allowCardSpends: false, isCustodian: false }))).toEqual(['pool_reimbursement']);
+    expect(values(paidWithOptions({ ...base, allowCardSpends: false, isCustodian: false, heldMinor: 100, hasAdvances: true }))).toEqual(['pool_held', 'pool_reimbursement']);
+  });
+
+  it('hybrid events add the regular split; a preferred option is listed first and marked', () => {
+    const opts = paidWithOptions({ ...base, model: 'hybrid', isCustodian: false, preferred: 'pool_reimbursement' });
+    expect(values(opts)).toEqual(['pool_reimbursement', 'pool_card', 'self']);
+    expect(opts.filter((o) => o.suggested).map((o) => o.value)).toEqual(['pool_reimbursement']);
+  });
+
+  it('names the custodian generically when no name is known', () => {
+    expect(paidWithOptions({ ...base, custodianName: undefined, isCustodian: false })[0].title).toBe("The custodian's card or UPI");
+  });
+
+  it('maps a choice to what the API expects, and back for the edit form', () => {
+    expect(paidWithPayload('pool_held')).toEqual({ fundingSource: 'pool', paidFrom: 'advance' });
+    expect(paidWithPayload('pool_card')).toEqual({ fundingSource: 'pool', paidFrom: 'sponsor_card' });
+    expect(paidWithPayload('pool')).toEqual({ fundingSource: 'pool' });
+    expect(paidWithPayload('pool_reimbursement')).toEqual({ fundingSource: 'pool_reimbursement' });
+    expect(paidWithChoiceFor({ fundingSource: 'pool', poolDraw: { paidFrom: 'advance' } }, false)).toBe('pool_held');
+    expect(paidWithChoiceFor({ fundingSource: 'pool', poolDraw: { paidFrom: 'sponsor_card' } }, false)).toBe('pool_card');
+    // Saved before Phase 2 (no method): the custodian's own spend, or a spend on their card.
+    expect(paidWithChoiceFor({ fundingSource: 'pool', poolDraw: {} }, true)).toBe('pool');
+    expect(paidWithChoiceFor({ fundingSource: 'pool' }, false)).toBe('pool_card');
+    expect(paidWithChoiceFor({ fundingSource: 'pool_reimbursement' }, false)).toBe('pool_reimbursement');
+    expect(paidWithChoiceFor({}, false)).toBe('self');
+  });
+});
+
+describe('"Several of us" as Pro (§12)', () => {
+  it('explains a refusal by its feature code', () => {
+    expect(proRequiredMessage('contributor_pools')).toBe('Group pools ("Several of us") are a Pro feature.');
+    expect(proRequiredMessage('multi_currency_settlement')).toBe('Multi-currency settlement requires Pro.');
+    expect(proRequiredMessage(undefined)).toBe('Multi-currency settlement requires Pro.');
+  });
+
+  it('has the entry for the Pro lists', () => {
+    expect(GROUP_POOLS_PRO_FEATURE.title).toBe('Group pools');
+    expect(GROUP_POOLS_PRO_FEATURE.desc).toMatch(/trip kitty, shared fund, club treasury or collection/);
   });
 });

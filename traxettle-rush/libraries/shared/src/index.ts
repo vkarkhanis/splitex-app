@@ -9,6 +9,7 @@ import type {
   PoolConfig,
   PoolDrawState,
   PoolExpenseFlag,
+  PoolPaidFrom,
 } from './pool';
 
 // User Types
@@ -36,6 +37,8 @@ export type EntitlementSource = 'revenuecat' | 'manual_override' | 'system';
 
 export interface UserCapabilities {
   multiCurrencySettlement: boolean;
+  /** Create "Several of us" (group) pools (design doc §12). Absent from servers before Phase 2 ⇒ false. */
+  contributorPools?: boolean;
 }
 
 /**
@@ -285,6 +288,8 @@ export interface CreateExpenseDto {
    * always recorded (and flagged) even past the overdraft limit.
    */
   alreadyIncurred?: boolean;
+  /** Pool spends by anyone but the custodian: paid from pool money they hold, or with the custodian's card/UPI (§9.3). */
+  paidFrom?: PoolPaidFrom;
   /** Date the expense occurred (YYYY-MM-DD). Defaults to the current date if omitted. */
   date?: string;
 }
@@ -316,7 +321,11 @@ export interface Settlement {
   settlementCurrency?: string;
   /** FX rate used for conversion (expenseCurrency → settlementCurrency) */
   fxRate?: number;
-  status: 'pending' | 'initiated' | 'failed' | 'completed';
+  /**
+   * `netted`: a pool repayment or unpaid claim folded into the event's final settlement plan
+   * (design doc §11). It counts as done and can't be paid on its own.
+   */
+  status: 'pending' | 'initiated' | 'failed' | 'completed' | 'netted';
   paymentMethod?: string;
   paymentId?: string;
   paymentReference?: string;
@@ -339,6 +348,10 @@ export interface Settlement {
   poolCycleId?: string;
   /** pool_reimbursement: the expense being reimbursed. */
   expenseId?: string;
+  /** status 'netted': when it was folded in. */
+  nettedAt?: string | null;
+  /** status 'netted': the plan it was folded into (the event's `lastSettlementGeneratedAt` then). */
+  nettedPlanAt?: string | null;
   initiatedAt?: Date;
   createdAt: Date;
   failedAt?: Date;
@@ -381,17 +394,19 @@ export function poolLegLabel(settlement: { kind?: SettlementKind | null } | null
 }
 
 /**
- * Pool payments not yet done. At settle-up they stay as they are and are paid on their own:
- * the final settlement isn't netted against them. Netting is planned for Phase 2
- * (MONEY_POOLING_DESIGN.md §11).
+ * Pool payments not yet done and still paid on their own. Rows folded into the final settlement
+ * (`netted`, MONEY_POOLING_DESIGN.md §11) count as done and are left out.
  */
 export function openPoolSideLegs<T extends { kind?: SettlementKind | null; status?: string | null }>(settlements: T[]): T[] {
-  return settlements.filter((s) => isPoolSideLeg(s) && s.status !== 'completed' && s.status !== 'terminated');
+  return settlements.filter((s) => isPoolSideLeg(s) && s.status !== 'completed' && s.status !== 'terminated' && s.status !== 'netted');
 }
 
 /** Shown wherever the final settlement lists pool payments next to its own payments. */
 export const POOL_LEGS_PAID_SEPARATELY_NOTE =
   "Pool payments (reimbursements and repayments) are paid on their own. They aren't combined with the other payments.";
+
+/** Shown above pool repayments and claims folded into the final settlement plan (design doc §11). */
+export const POOL_LEGS_NETTED_NOTE = 'Repayments and unpaid claims are included in the payments above.';
 
 type PoolLegLike = Pick<Settlement, 'kind' | 'status' | 'fromUserId' | 'toUserId'>;
 
@@ -583,6 +598,8 @@ export interface UpdateExpenseDto {
   paidOnBehalfOf?: OnBehalfOfEntry[] | null;
   /** Pool draws: see CreateExpenseDto.alreadyIncurred. */
   alreadyIncurred?: boolean;
+  /** Pool draws: see CreateExpenseDto.paidFrom. */
+  paidFrom?: PoolPaidFrom;
   /** Date the expense occurred (YYYY-MM-DD). */
   date?: string;
 }

@@ -78,6 +78,11 @@ export interface PoolConfig {
   approvalThresholdMinor?: number | null;
   /** Recurring pools: a member joining/leaving closes the current cycle. */
   membershipChangeClosesCycle?: boolean;
+  /**
+   * Spenders may record a spend paid with the custodian's card or UPI (§9.3). Absent ⇒ true.
+   * Off: the option isn't offered and the API refuses `paidFrom: 'sponsor_card'`.
+   */
+  allowSponsorCardSpends?: boolean;
 }
 
 /** Fields a client may send when creating a pool event. */
@@ -112,6 +117,11 @@ export interface PoolCycle {
   openingBalanceMinor: number;
   /** Per-entity carried credit (entity key → minor). Sums to openingBalanceMinor. */
   openingCredits: Record<string, number>;
+  /**
+   * Pool money each spender still held when the previous cycle closed and carried forward
+   * (entity key → minor; < 0 ⇒ the pool owed them). Absent ⇒ nobody held anything (§9.3).
+   */
+  openingHeld?: Record<string, number>;
   /** Entities that share this cycle's spending. */
   roster: PoolEntityRef[];
   /** Set while pre-authorised draws are paused by the graduated overdraft. */
@@ -137,7 +147,8 @@ export type PoolAuditAction =
   | 'partially_confirmed'
   | 'rejected'
   | 'waived'
-  | 'amount_changed';
+  | 'amount_changed'
+  | 'cancelled';
 
 export interface PoolAuditEntry {
   id: string;
@@ -187,6 +198,56 @@ export interface PoolContribution {
   updatedAt: string;
 }
 
+/**
+ * Money handed between the custodian and someone else (design doc §9.3, §10.6):
+ * - `advance`: custodian → spender. Moves money between holders; the pool's remaining amount is unchanged.
+ * - `return`: spender → custodian. The same, the other way.
+ * - `repayment`: custodian → lender, paying a top-up back early. Lowers the remaining amount.
+ */
+export type PoolAdvanceKind = 'advance' | 'return' | 'repayment';
+/** Recorded (`initiated`) → the receiver confirms, or says it never arrived (`rejected`); the recorder may cancel it while waiting. */
+export type PoolAdvanceStatus = 'initiated' | 'confirmed' | 'rejected' | 'cancelled';
+
+export interface PoolAdvance {
+  id: string;
+  eventId: string;
+  cycleId: string;
+  kind: PoolAdvanceKind;
+  /** advance / repayment: the custodian. return: the holder. */
+  fromUserId: string;
+  /** advance: the spender. return: the custodian. repayment: the lender. */
+  toUserId: string;
+  amountMinor: number;
+  currency: string;
+  status: PoolAdvanceStatus;
+  note?: string | null;
+  /** Optional proof of the hand-over (photo or PDF), as on contributions. */
+  proofUrl?: string | null;
+  rejectionReason?: string | null;
+  createdBy: string;
+  createdAt: string;
+  confirmedAt?: string | null;
+  updatedAt: string;
+  auditTrail: PoolAuditEntry[];
+}
+
+/**
+ * Who holds the pool's remaining money (§9.3). Derived, never stored:
+ * `withCustodianMinor + withSpendersMinor = remaining (the cycle balance)`.
+ */
+export interface PoolHoldings {
+  withCustodianMinor: number;
+  /** Σ held by everyone but the custodian. Negative when the pool owes spenders more than they hold. */
+  withSpendersMinor: number;
+  /** Entity key → held. > 0: holds pool money · < 0: the pool owes them. Zeros omitted. */
+  heldBy: Record<string, number>;
+  /** Advances recorded but not yet confirmed: not available to hand out again. */
+  pendingOutMinor: number;
+}
+
+/** How a spender other than the custodian paid a pool spend (§9.3). Absent ⇒ as built in Phase 1. */
+export type PoolPaidFrom = 'advance' | 'sponsor_card';
+
 export type PoolDrawStatus = 'pending' | 'approved' | 'rejected';
 export type PoolExpenseFlag = 'exceeds_tolerance' | 'exceeds_spender_cap' | 'underfunded';
 
@@ -211,12 +272,18 @@ export interface PoolDrawState {
    * For a pool spend: "I've already paid with the pool's money", as opposed to asking first.
    */
   alreadyIncurred?: boolean;
+  /**
+   * Pool spend by someone other than the custodian: paid from pool money they hold (`advance`)
+   * or with the custodian's card/UPI (`sponsor_card`). A rejected, already-paid spend from held
+   * money stays in what they hold; one on the card is owed back through a `pool_repayment` leg.
+   */
+  paidFrom?: PoolPaidFrom;
 }
 
 export interface PoolLedgerEntry {
-  /** Contribution id or expense id. */
+  /** Contribution, expense or advance id. */
   id: string;
-  type: 'contribution' | 'draw';
+  type: 'contribution' | 'draw' | 'advance';
   at: string;
   title: string;
   /** Signed: money in is positive, money out negative. */
@@ -229,6 +296,12 @@ export interface PoolLedgerEntry {
   fundingSource?: 'pool' | 'pool_reimbursement';
   /** Pool spends: already paid with the pool's money (true) or asking before spending (false). */
   alreadyIncurred?: boolean;
+  /** Pool spends by someone other than the custodian: how they paid. */
+  paidFrom?: PoolPaidFrom;
+  /** type 'advance': which kind of hand-over, and between whom. */
+  advanceKind?: PoolAdvanceKind;
+  fromUserId?: string;
+  toUserId?: string;
   receiptUrls: string[];
   flags?: PoolExpenseFlag[];
   /** pool_reimbursement: status of the leg paying the claimant back. A rejected, already-paid pool spend: of its repayment leg. */
@@ -244,6 +317,8 @@ export interface PoolSpenderSummary {
   spentMinor: number;
   pendingMinor: number;
   capMinor: number | null;
+  /** Pool money they hold (< 0: the pool owes them). Absent from servers before Phase 2. */
+  heldMinor?: number;
 }
 
 export interface PoolLedger {
@@ -252,6 +327,8 @@ export interface PoolLedger {
   entries: PoolLedgerEntry[];
   spenders: PoolSpenderSummary[];
   cycles: PoolCycle[];
+  /** Hand-overs in this cycle (§9.3, §10.6). Absent from servers before Phase 2. */
+  advances?: PoolAdvance[];
 }
 
 export interface PoolEntityShare {
@@ -268,7 +345,11 @@ export interface PoolEntityShare {
   commitmentMinor: number;
   /** This entity's fair share of the cycle's spending. */
   fairShareMinor: number;
-  /** opening + contributed − gifted − fairShare + cover. > 0 ⇒ owed · < 0 ⇒ owes. */
+  /** Top-ups already paid back early (§10.6). */
+  repaidMinor?: number;
+  /** Pool money they still hold at close (§9.3); settled through the pay-out, not `net`. */
+  heldMinor?: number;
+  /** opening + contributed − gifted − repaid − fairShare + cover. > 0 ⇒ owed · < 0 ⇒ owes. */
   netMinor: number;
 }
 
@@ -291,6 +372,12 @@ export interface PoolReconciliation {
   disposition: 'carry_forward' | 'settle';
   entityShares: PoolEntityShare[];
   settlementIds: string[];
+  /** Top-ups paid back early during the cycle (§10.6). */
+  earlyRepaymentsMinor?: number;
+  /** Pool money each spender held at close (§9.3). */
+  heldBy?: Record<string, number>;
+  /** Repayments and unpaid claims folded into the final settlement (§11). */
+  nettedLegIds?: string[];
   generatedAt: string;
   generatedBy: string;
 }
@@ -321,6 +408,8 @@ export interface PoolCycleTotals {
   poolSpendMinor: number;
   reimbursementsMinor: number;
   pendingDrawsMinor: number;
+  /** Confirmed early repayments to lenders (§10.6): money leaving, not spending. */
+  earlyRepaymentsMinor?: number;
   balanceMinor: number;
 }
 
@@ -342,6 +431,8 @@ export interface PoolCycleSummary {
   overdraft: PoolOverdraftState;
   funding: PoolFundingState;
   arrears: PoolArrear[];
+  /** Who holds the remaining money (§9.3). Absent from servers before Phase 2. */
+  holdings?: PoolHoldings;
 }
 
 export type PoolRefusalCode = 'POOL_OVERDRAFT_BLOCKED' | 'POOL_INSUFFICIENT_FUNDS' | 'POOL_UNDERFUNDED';

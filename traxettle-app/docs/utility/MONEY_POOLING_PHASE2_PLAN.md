@@ -720,3 +720,17 @@ Done when "Several of us" is released, after App Review and after Phase 2 is in 
 | WP9 tests | Large (spread across the packages) |
 | WP10 docs | Medium |
 | WP11 free trial | Small (plus about an hour of store setup and release-day testing) |
+
+---
+
+## 16. Implementation notes (as built)
+
+Small differences from the plan, recorded as each package is built. WP10 copies them into the design doc's §0.
+
+**WP1 (2026-11-16)**
+- **Optional fields, so older servers and existing data keep working:**
+  - `PoolCycleTotals.earlyRepaymentsMinor` is left out when it's 0, so pools without early repayments report exactly as before;
+  - `PoolCycleSummary.holdings`, `PoolLedger.advances`, `PoolSpenderSummary.heldMinor` and `UserCapabilities.contributorPools` are optional (the plan listed them as required). Clients treat a missing value as none or false.
+- **`PRO_FEATURE_CODES.contributorPools`** is added in WP1, not WP5. The API needs it to compile once the capability exists. Nothing checks the capability until WP5.
+- **"Paid with" titles use the pool's own word and the custodian's name:** *"Budget money I'm holding"* (or *"Kitty money…"*) and *"Anita's card or UPI"* (*"The custodian's card or UPI"* when the name isn't known).
+- **New shared helper `paidWithChoiceFor`** picks the right option when editing a saved spend. Spends saved before Phase 2 (no method) count as the custodian's own spend, or as a spend on the custodian's card for anyone else.

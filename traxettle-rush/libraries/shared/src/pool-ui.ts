@@ -4,16 +4,20 @@
  * rule (mirrors the API), the create-event funding choice, and the balance
  * meter geometry. Keeping these here means both clients always agree.
  */
-import { POOL_PRESETS, currencyExponent, fromMinor, toMinor } from './pool';
+import { POOL_PRESETS, allowedFundingSources, currencyExponent, fromMinor, toMinor } from './pool';
 import type {
   CreatePoolConfigDto,
   EventFundingModel,
+  ExpenseFundingSource,
+  PoolAdvance,
+  PoolAdvanceKind,
   PoolBalanceZone,
   PoolConfig,
   PoolContributionStatus,
   PoolDrawState,
   PoolExpenseApprovalMode,
   PoolOverdraftState,
+  PoolPaidFrom,
   PoolPreset,
   PoolRefusalDetails,
 } from './pool';
@@ -72,24 +76,33 @@ export function poolPaymentActionsText(toConfirm: number, toPay: number): string
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-export type ReimbursementStatus = 'to_reimburse' | 'sent' | 'reimbursed';
+export type ReimbursementStatus = 'to_reimburse' | 'sent' | 'in_settlement' | 'reimbursed';
 
 export const REIMBURSEMENT_STATUS: Record<ReimbursementStatus, { label: string; tone: 'success' | 'warning' | 'info' }> = {
   to_reimburse: { label: 'To reimburse', tone: 'warning' },
   sent: { label: 'Reimbursement sent', tone: 'info' },
+  in_settlement: { label: 'In final settlement', tone: 'info' },
   reimbursed: { label: 'Reimbursed', tone: 'success' },
 };
+
+/** A leg folded into the final settlement (§11) is done once the event is settled. */
+function nettedLegDone(eventStatus?: string | null): boolean {
+  return eventStatus === 'settled' || eventStatus === 'closed';
+}
 
 /**
  * How far an approved claim's pay-back has got, from the claim and the status
  * of its reimbursement leg. Null while the claim is pending or rejected.
+ * `eventStatus` decides how a leg folded into the final settlement (`netted`) reads.
  */
 export function reimbursementStatus(
   draw: Pick<PoolDrawState, 'status' | 'selfReimbursed'> | null | undefined,
   legStatus?: string | null,
+  eventStatus?: string | null,
 ): ReimbursementStatus | null {
   if (draw?.status !== 'approved') return null;
   if (draw.selfReimbursed || legStatus === 'completed') return 'reimbursed';
+  if (legStatus === 'netted') return nettedLegDone(eventStatus) ? 'reimbursed' : 'in_settlement';
   return legStatus === 'initiated' ? 'sent' : 'to_reimburse';
 }
 
@@ -97,22 +110,150 @@ export function reimbursementStatus(
  * Explain a refused pool draw in plain language, using the structured details
  * the API returns. Falls back to the raw message.
  */
-export type RepaymentStatus = 'to_repay' | 'repay_sent' | 'repaid';
+export type RepaymentStatus = 'to_repay' | 'repay_sent' | 'in_settlement' | 'repaid';
 
 export const REPAYMENT_STATUS: Record<RepaymentStatus, { label: string; tone: 'success' | 'warning' | 'info' }> = {
   to_repay: { label: 'Owed back', tone: 'warning' },
   repay_sent: { label: 'Repayment sent', tone: 'info' },
+  in_settlement: { label: 'In final settlement', tone: 'info' },
   repaid: { label: 'Repaid', tone: 'success' },
 };
 
 /**
  * A pool spend already paid with the pool's money, then rejected: the spender owes it back
  * through its `pool_repayment` leg (§9.2). `legStatus` is that leg's status; none ⇒ nothing owed.
+ * `eventStatus` decides how a leg folded into the final settlement (`netted`) reads.
  */
-export function repaymentStatus(drawStatus: string | null | undefined, legStatus?: string | null): RepaymentStatus | null {
+export function repaymentStatus(drawStatus: string | null | undefined, legStatus?: string | null, eventStatus?: string | null): RepaymentStatus | null {
   if (drawStatus !== 'rejected' || !legStatus) return null;
   if (legStatus === 'completed') return 'repaid';
+  if (legStatus === 'netted') return nettedLegDone(eventStatus) ? 'repaid' : 'in_settlement';
   return legStatus === 'initiated' ? 'repay_sent' : 'to_repay';
+}
+
+// ── Hand-overs: advances, returns, early repayments (§9.3, §10.6) ──────────
+
+export const ADVANCE_KIND_LABEL: Record<PoolAdvanceKind, string> = {
+  advance: 'Advance',
+  return: 'Returned',
+  repayment: 'Paid back early',
+};
+
+/**
+ * Where a hand-over stands, from the viewer's side: "Waiting for Ravi to confirm",
+ * "Waiting for you to confirm", "Confirmed", "Not received", "Cancelled".
+ */
+export function advanceStatusText(
+  advance: Pick<PoolAdvance, 'status' | 'toUserId'>,
+  viewerId: string,
+  nameOf: (userId: string) => string,
+): string {
+  switch (advance.status) {
+    case 'confirmed': return 'Confirmed';
+    case 'rejected': return 'Not received';
+    case 'cancelled': return 'Cancelled';
+    default:
+      return advance.toUserId === viewerId ? 'Waiting for you to confirm' : `Waiting for ${nameOf(advance.toUserId)} to confirm`;
+  }
+}
+
+// ── "Paid with" on the expense form ───────────────────────────────────────
+
+/**
+ * What the person picks on the expense form. `pool_held` and `pool_card` are both
+ * `fundingSource: 'pool'`, told apart by `paidFrom` (§9.3); `pool` is the custodian's own choice.
+ */
+export type PaidWithChoice = 'pool' | 'pool_held' | 'pool_card' | 'pool_reimbursement' | 'self';
+
+export interface PaidWithOption {
+  value: PaidWithChoice;
+  fundingSource: ExpenseFundingSource;
+  paidFrom?: PoolPaidFrom;
+  title: string;
+  text: string;
+  /** Listed first and marked "Suggested". */
+  suggested: boolean;
+}
+
+/** The fields the API expects for a choice. */
+export function paidWithPayload(choice: PaidWithChoice): { fundingSource: ExpenseFundingSource; paidFrom?: PoolPaidFrom } {
+  if (choice === 'pool_held') return { fundingSource: 'pool', paidFrom: 'advance' };
+  if (choice === 'pool_card') return { fundingSource: 'pool', paidFrom: 'sponsor_card' };
+  return { fundingSource: choice };
+}
+
+/** The choice that matches a saved expense, for the edit form. */
+export function paidWithChoiceFor(
+  expense: { fundingSource?: ExpenseFundingSource | null; poolDraw?: Pick<PoolDrawState, 'paidFrom'> | null },
+  isCustodian: boolean,
+): PaidWithChoice {
+  const source = expense.fundingSource || 'self';
+  if (source !== 'pool') return source;
+  if (expense.poolDraw?.paidFrom === 'advance') return 'pool_held';
+  if (expense.poolDraw?.paidFrom === 'sponsor_card') return 'pool_card';
+  return isCustodian ? 'pool' : 'pool_card';
+}
+
+/**
+ * The "Paid with" options for one person (design doc §9.3, decision D1). The custodian pays from
+ * the pool directly. Anyone else picks how they paid with pool money: money they hold (offered
+ * once they've been handed some) or the custodian's card/UPI (while the pool allows it); or their
+ * own money.
+ */
+export function paidWithOptions(input: {
+  model: EventFundingModel;
+  isCustodian: boolean;
+  currency: string;
+  noun: string;
+  /** `config.allowSponsorCardSpends !== false`. */
+  allowCardSpends: boolean;
+  /** What this person holds now (holdings.heldBy for their entity). */
+  heldMinor?: number;
+  /** They've been handed money this cycle (or carried some in), even if it's all spent. */
+  hasAdvances?: boolean;
+  /** "Anita": names the card option. */
+  custodianName?: string;
+  /** Listed first and marked "Suggested" (spenders in a sponsor pool: claiming back is risk-free). */
+  preferred?: ExpenseFundingSource;
+}): PaidWithOption[] {
+  const noun = input.noun.toLowerCase();
+  const options: PaidWithOption[] = [];
+  for (const source of allowedFundingSources(input.model)) {
+    if (source === 'pool') {
+      if (input.isCustodian) {
+        options.push({ value: 'pool', fundingSource: 'pool', title: 'Pool funds', text: `Paid from the ${noun} (card, cash or account).`, suggested: false });
+        continue;
+      }
+      const held = input.heldMinor || 0;
+      if (input.hasAdvances || held !== 0) {
+        options.push({
+          value: 'pool_held', fundingSource: 'pool', paidFrom: 'advance',
+          title: `${input.noun} money I'm holding`,
+          text: held > 0
+            ? `${formatMinor(held, input.currency)} left.`
+            : `Nothing left; what you spend beyond it is paid back to you.`,
+          suggested: false,
+        });
+      }
+      if (input.allowCardSpends) {
+        options.push({
+          value: 'pool_card', fundingSource: 'pool', paidFrom: 'sponsor_card',
+          title: input.custodianName ? `${input.custodianName}'s card or UPI` : "The custodian's card or UPI",
+          text: 'Paid with their card, UPI or account.',
+          suggested: false,
+        });
+      }
+    } else if (source === 'pool_reimbursement') {
+      options.push({ value: 'pool_reimbursement', fundingSource: source, title: 'My money — claim it back', text: `You paid; the ${noun} pays you back.`, suggested: false });
+    } else {
+      options.push({ value: 'self', fundingSource: source, title: 'My money — split it', text: 'A regular split between people.', suggested: false });
+    }
+  }
+  if (input.preferred) {
+    for (const o of options) o.suggested = o.value === input.preferred;
+    options.sort((a, b) => Number(b.suggested) - Number(a.suggested));
+  }
+  return options;
 }
 
 export function describePoolRefusal(err: { code?: string; message?: string; data?: Partial<PoolRefusalDetails> }, currency: string): string {
@@ -259,6 +400,21 @@ const PRE_PRODUCTION_ENVS = ['local', 'development', 'staging', 'internal'];
  */
 export function contributorPoolsAvailable(appEnv: string | null | undefined): boolean {
   return CONTRIBUTOR_POOLS_IN_PRODUCTION || PRE_PRODUCTION_ENVS.includes(String(appEnv ?? '').toLowerCase());
+}
+
+/**
+ * "Several of us" is a Pro feature (design doc §12). Pro lists show this entry only where
+ * `contributorPoolsAvailable(appEnv)` is true, so Pro never advertises something users can't open.
+ */
+export const GROUP_POOLS_PRO_FEATURE = {
+  title: 'Group pools',
+  desc: 'Pool money with your group: trip kitty, shared fund, club treasury or collection.',
+} as const;
+
+/** The message for an API `FEATURE_REQUIRES_PRO` refusal, by its `feature` code. */
+export function proRequiredMessage(feature?: string | null): string {
+  if (feature === 'contributor_pools') return 'Group pools ("Several of us") are a Pro feature.';
+  return 'Multi-currency settlement requires Pro.';
 }
 
 /** Picking "Pool money": start on "Just me" when it is the only funder on offer. */

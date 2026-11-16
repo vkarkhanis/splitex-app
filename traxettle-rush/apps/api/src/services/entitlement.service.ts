@@ -20,6 +20,8 @@ const DEFAULT_ENTITLEMENT: UserEntitlement = {
 
 const PRO_FEATURE_CODES = {
   multiCurrencySettlement: 'multi_currency_settlement',
+  /** "Several of us" pools (design doc §12). Checked from Phase 2 WP5. */
+  contributorPools: 'contributor_pools',
 } as const;
 
 export class EntitlementService {
