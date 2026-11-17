@@ -514,8 +514,11 @@ describe('sponsor budget (UC-2)', () => {
       const { eventId, claimId } = await staleClaim('approved');
       expect((await api.dissolve(eventId, ALICE)).status).toBe(200);
       const legs = store.all('settlements').filter((s: any) => s.kind === 'pool_reimbursement');
-      expect(legs).toEqual([expect.objectContaining({ toUserId: BOB, amount: 4000, status: 'pending', expenseId: claimId })]);
-      expect((await api.event(eventId, ALICE)).status).toBe('payment');
+      // Created, then folded into the final settlement (§11), which pays Bob back.
+      expect(legs).toEqual([expect.objectContaining({ toUserId: BOB, amount: 4000, status: 'netted', expenseId: claimId })]);
+      const plan = store.all('settlements').filter((s: any) => !s.kind);
+      expect(plan.map((s: any) => [s.fromUserId, s.toUserId, s.amount])).toEqual([[ALICE, BOB, 4000]]);
+      expect((await api.event(eventId, ALICE)).status).toBe('review');
     });
   });
 
@@ -589,14 +592,19 @@ describe('sponsor budget (UC-2)', () => {
     expect(cycle.reconciliation).toMatchObject({ closingBalanceMinor: 5770000, shareBasis: 'custodian', disposition: 'settle' });
   });
 
-  it('waits for outstanding reimbursements before settling on dissolve', async () => {
+  it('pays an outstanding reimbursement through the final settlement on dissolve (§11)', async () => {
     const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
     const claim = (await api.claim(eventId, BOB, 1000)).body.data;
     const legId = (await api.approveDraw(claim.id, ALICE)).body.data.settlementId;
     await api.dissolve(eventId, ALICE);
+    expect(store.get('settlements', legId).status).toBe('netted');
+    expect((await api.event(eventId, ALICE)).status).toBe('review');
+    for (const uid of [ALICE, BOB, CAROL]) await api.approveReview(eventId, uid);
     expect((await api.event(eventId, ALICE)).status).toBe('payment');
-    await api.payLeg(legId, ALICE);
-    await api.confirmLeg(legId, BOB);
+    const planLeg = store.all('settlements').find((s: any) => !s.kind);
+    expect(planLeg).toMatchObject({ fromUserId: ALICE, toUserId: BOB, amount: 1000 });
+    await api.payLeg(planLeg.id, ALICE);
+    await api.confirmLeg(planLeg.id, BOB);
     expect((await api.event(eventId, ALICE)).status).toBe('settled');
   });
 
@@ -653,14 +661,19 @@ describe('sponsor budget (UC-2)', () => {
       expect((await repaymentLegs(eventId)).map((l) => l.amount)).toEqual([4000]);
     });
 
-    it('waits for the repayment before the event settles on dissolve', async () => {
+    it('collects the repayment through the final settlement on dissolve (§11)', async () => {
       const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
       const paid = (await api.spend(eventId, BOB, 5000, { ...receipt, alreadyIncurred: true })).body.data;
       const legId = (await api.rejectDraw(paid.id, ALICE)).body.data.poolDraw.settlementId;
       await api.dissolve(eventId, ALICE);
-      expect((await api.event(eventId, ALICE)).status).toBe('payment');
-      await api.payLeg(legId, BOB);
-      await api.confirmLeg(legId, ALICE);
+      expect(store.get('settlements', legId).status).toBe('netted');
+      // Only a repayment was open: the event now goes to Review, not straight to Payment.
+      expect((await api.event(eventId, ALICE)).status).toBe('review');
+      for (const uid of [ALICE, BOB, CAROL]) await api.approveReview(eventId, uid);
+      const planLeg = store.all('settlements').find((s: any) => !s.kind);
+      expect(planLeg).toMatchObject({ fromUserId: BOB, toUserId: ALICE, amount: 5000 });
+      await api.payLeg(planLeg.id, BOB);
+      await api.confirmLeg(planLeg.id, ALICE);
       expect((await api.event(eventId, ALICE)).status).toBe('settled');
     });
   });

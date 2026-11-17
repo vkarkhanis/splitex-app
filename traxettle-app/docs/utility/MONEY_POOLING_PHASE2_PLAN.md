@@ -748,3 +748,12 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
 - **Changing the payment method on its own** (with no amount change) re-runs the approval check, the same as an amount change. The method decides what's owed if the spend is rejected, so the spend goes back for approval when the pool requires it, and any unpaid repayment is removed. The plan only covered keeping the method on amount edits.
 - **Turning card spends off later** doesn't block edits to spends already recorded on the card. Only a newly chosen card method is refused (`POOL_CARD_SPENDS_OFF`).
 - **The expense-added notification** now names the method: *Pool money they hold* or *The custodian's card or UPI*.
+
+**WP4 (2026-11-17)**
+- **Order of work at settle-up:** the old plan is cleared and folded rows restored (one batch); this cycle's open repayments and claims are marked `netted` (one transaction); then the plan is worked out and saved. If saving fails, the rows stay `netted` with no plan, and the next run restores them first, so no debt is lost or doubled. The plan described marking rows after saving the plan; this order is safer.
+- **Restored rows go back to `pending`,** including ones that had `failed`. New audit actions `netted` and `unfolded` record each step.
+- **Refusing a netted row** (pay, mark paid, retry, close for a deleted user) returns **400**, *"This payment is included in the final settlement"*, the same code the other settlement status errors use. The plan said 409.
+- **Regenerating during Review:** the check for who is "affected" (whose approvals reset) now compares only the plan's own payments. Before, every pool payment counted as part of the old plan, so pool events reset approvals that hadn't changed. Split-expenses events are unchanged.
+- **Settle-up preview:** `folded` lists the rows the plan will include, including those settle-up creates (approved claims and rejected card spends without a row yet). `separate` lists every other open pool payment: already being paid, from an earlier cycle, or a leaving settlement. A cycle-close preview returns both lists empty.
+- **Three Phase 1 API tests** now follow the new flow: Review, then one payment. Before, the event went straight to Payment and the pool payment was paid on its own.
+- **Until WP6 and WP7,** the apps still show Phase 1 wording ("Paid separately") in the settle-up preview, and show a netted row as payable (the API refuses it). Don't hand-test settle-up wording on this branch until then.

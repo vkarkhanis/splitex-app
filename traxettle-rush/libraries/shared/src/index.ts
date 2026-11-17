@@ -452,7 +452,8 @@ export function showsProviderFxRates(
 
 export interface SettlementAuditEntry {
   id: string;
-  action: 'created' | 'marked_paid' | 'confirmed' | 'rejected' | 'retry_requested' | 'closed_by_admin';
+  /** `netted` / `unfolded`: a pool repayment or claim folded into the final plan, or restored when it's re-run (§11). */
+  action: 'created' | 'marked_paid' | 'confirmed' | 'rejected' | 'retry_requested' | 'closed_by_admin' | 'netted' | 'unfolded';
   actorUserId: string;
   note?: string;
   referenceId?: string;

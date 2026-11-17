@@ -40,6 +40,7 @@ import {
   evaluateDraw,
   formatMinor,
   fromMinor,
+  isPoolSideLeg,
   nextOverdraftLatch,
   outstandingLoans,
   parseEntityKey,
@@ -51,6 +52,7 @@ import {
 } from '@traxettle/shared';
 import { db } from '../config/firebase';
 import { GroupService } from './group.service';
+import { foldablePoolLegs } from './pool-netting';
 
 const CYCLES = 'poolCycles';
 const CONTRIBUTIONS = 'poolContributions';
@@ -133,6 +135,28 @@ export type SettlementPlanner = (
     amount: number;
   }>;
 };
+
+/** A pool payment the final settlement will include (§11): an existing leg, or one settle-up creates. */
+export interface PoolFoldedItem {
+  settlementId: string | null;
+  expenseId: string | null;
+  kind: 'pool_repayment' | 'pool_reimbursement';
+  fromUserId: string;
+  toUserId: string;
+  amountMinor: number;
+  title: string;
+}
+
+/** An open pool payment that stays separate at settle-up: already being paid, or from an earlier cycle. */
+export interface PoolSeparateLeg {
+  settlementId: string;
+  kind: string;
+  status: string;
+  expenseId: string | null;
+  fromUserId: string;
+  toUserId: string;
+  amountMinor: number;
+}
 
 export interface DrawPreparation {
   fundingSource: Exclude<ExpenseFundingSource, 'self'>;
@@ -1318,7 +1342,9 @@ export class PoolService {
     if (!legId) return { legToRemove: null, cycle };
     const leg = await db.collection(SETTLEMENTS).doc(legId).get();
     const repayment = leg.exists && leg.data()?.kind === 'pool_repayment';
-    if (leg.exists && leg.data()?.status !== 'pending') {
+    // A leg folded into the final plan (`netted`, §11) can still change during Review: removing it
+    // marks the plan stale, and re-running the plan folds whatever is left.
+    if (leg.exists && leg.data()?.status !== 'pending' && leg.data()?.status !== 'netted') {
       throw repayment
         ? new PoolError(409, 'This repayment is already being paid and can no longer change', 'POOL_REPAYMENT_IN_PAYMENT')
         : new PoolError(409, 'This reimbursement is already being paid and can no longer change', 'POOL_REIMBURSEMENT_IN_PAYMENT');
@@ -1523,7 +1549,13 @@ export class PoolService {
     eventId: string,
     actorId: string,
     opts: { forDissolution?: boolean; cover?: Array<{ entityId: string; entityType: 'user' | 'group'; amountMinor: number }> } = {},
-  ): Promise<ReconcileResult & { cycleId: string; pendingDraws: number; coverNeededMinor: number }> {
+  ): Promise<ReconcileResult & {
+    cycleId: string;
+    pendingDraws: number;
+    coverNeededMinor: number;
+    folded: PoolFoldedItem[];
+    separate: PoolSeparateLeg[];
+  }> {
     const event = await this.getEvent(eventId);
     const config = this.requirePoolConfig(event);
     this.requireManager(event, config, actorId);
@@ -1532,16 +1564,64 @@ export class PoolService {
     const raw = reconcileCycle(this.reconcileInput(config, cycle, built, { forDissolution: opts.forDissolution }));
     const extraCover = this.normalizeCover(config, built._groups, raw.uncoveredDeficitMinor, opts.cover);
     const result = extraCover.length > 0 ? reconcileCycle(this.reconcileInput(config, cycle, built, { forDissolution: opts.forDissolution, extraCover })) : raw;
+    const settleUp = opts.forDissolution ? await this.settleUpPoolPayments(event, config, cycle, built) : { folded: [], separate: [] };
     return {
       ...result,
       cycleId: cycle.id,
       pendingDraws: built._draws.filter((d) => d.poolDraw?.status === 'pending').length,
       /** Shortfall nobody has been recorded as covering yet (before any default). */
       coverNeededMinor: raw.uncoveredDeficitMinor,
+      ...settleUp,
     };
   }
 
-  private snapshot(result: ReconcileResult, cycle: PoolCycle, actorId: string, settlementIds: string[]): PoolReconciliation {
+  /**
+   * For the settle-up preview (§11.4 step 5): which pool payments the final plan will include, and
+   * which stay separate. Folded: this cycle's repayments and claims nobody has started paying, plus
+   * those settle-up will create (approved claims and rejected card spends without a leg yet).
+   * Separate: every other open pool payment (already being paid, or from an earlier cycle).
+   */
+  private async settleUpPoolPayments(
+    event: EventRecord,
+    config: PoolConfig,
+    cycle: PoolCycle,
+    built: Awaited<ReturnType<PoolService['buildSummary']>>,
+  ): Promise<{ folded: PoolFoldedItem[]; separate: PoolSeparateLeg[] }> {
+    const snap = await db.collection(SETTLEMENTS).where('eventId', '==', event.id).get();
+    const legs = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })) as Array<Record<string, any> & { id: string }>;
+    const byId = new Map(legs.map((l) => [l.id, l]));
+    const titleOf = new Map(built._draws.map((d) => [d.id, String(d.title || '')]));
+    const currency = cycle.currency;
+    const folded: PoolFoldedItem[] = [];
+    const foldedIds = new Set<string>();
+    for (const leg of foldablePoolLegs(legs, cycle.id)) {
+      foldedIds.add(leg.id);
+      folded.push({
+        settlementId: leg.id, expenseId: leg.expenseId ?? null, kind: leg.kind,
+        fromUserId: leg.fromUserId, toUserId: leg.toUserId, amountMinor: toMinor(Number(leg.amount) || 0, currency),
+        title: titleOf.get(leg.expenseId) || '',
+      });
+    }
+    for (const d of built._draws) {
+      const legId = d.poolDraw?.settlementId;
+      if (legId && byId.has(legId)) continue;
+      const amountMinor = toMinor(Number(d.amount) || 0, currency);
+      if (d.fundingSource === 'pool_reimbursement' && d.poolDraw?.status === 'approved' && !d.poolDraw.selfReimbursed && d.paidBy !== config.custodianUserId) {
+        folded.push({ settlementId: null, expenseId: d.id, kind: 'pool_reimbursement', fromUserId: config.custodianUserId, toUserId: d.paidBy, amountMinor, title: String(d.title || '') });
+      } else if (this.owesRepayment(d, config)) {
+        folded.push({ settlementId: null, expenseId: d.id, kind: 'pool_repayment', fromUserId: d.paidBy, toUserId: config.custodianUserId, amountMinor, title: String(d.title || '') });
+      }
+    }
+    const separate: PoolSeparateLeg[] = legs
+      .filter((l) => isPoolSideLeg({ kind: l.kind }) && !foldedIds.has(l.id) && !['completed', 'terminated', 'netted'].includes(l.status))
+      .map((l) => ({
+        settlementId: l.id, kind: l.kind, status: l.status, expenseId: l.expenseId ?? null,
+        fromUserId: l.fromUserId, toUserId: l.toUserId, amountMinor: toMinor(Number(l.amount) || 0, currency),
+      }));
+    return { folded, separate };
+  }
+
+  private snapshot(result: ReconcileResult, cycle: PoolCycle, actorId: string, settlementIds: string[], nettedLegIds: string[] = []): PoolReconciliation {
     return {
       cycleId: cycle.id,
       currency: cycle.currency,
@@ -1559,6 +1639,7 @@ export class PoolService {
       settlementIds,
       ...(result.earlyRepaymentsMinor > 0 ? { earlyRepaymentsMinor: result.earlyRepaymentsMinor } : {}),
       ...(Object.keys(result.heldBy).length > 0 ? { heldBy: result.heldBy } : {}),
+      ...(nettedLegIds.length > 0 ? { nettedLegIds } : {}),
       generatedAt: nowIso(),
       generatedBy: actorId,
     };
@@ -1840,8 +1921,17 @@ export class PoolService {
     return this.toBalances(result.settlementBalances, cycle.currency);
   }
 
-  /** Once the event is settled, freeze the reconciling cycle with its final snapshot. */
-  async finalizeOnSettled(eventId: string, settlementIds: string[] = []): Promise<void> {
+  /** The cycle being settled up, if any (§11: its repayments and claims fold into the plan). */
+  async reconcilingCycleId(eventId: string): Promise<string | null> {
+    const cycles = await this.listCycles(eventId);
+    return [...cycles].reverse().find((c) => c.status === 'reconciling')?.id ?? null;
+  }
+
+  /**
+   * Once the event is settled, freeze the reconciling cycle with its final snapshot, including the
+   * pool payments folded into the plan, so Cycle history can explain the figures.
+   */
+  async finalizeOnSettled(eventId: string, settlementIds: string[] = [], nettedLegIds: string[] = []): Promise<void> {
     const event = await this.getEvent(eventId);
     if (resolveFundingModel(event.data as any) === 'peer_to_peer' || !event.data.poolConfig) return;
     const config = event.data.poolConfig as PoolConfig;
@@ -1857,7 +1947,7 @@ export class PoolService {
       closedAt: now,
       closedBy: event.data.createdBy || null,
       overdraftLatchedAt: null,
-      reconciliation: this.snapshot(result, cycle, event.data.createdBy || 'system', settlementIds),
+      reconciliation: this.snapshot(result, cycle, event.data.createdBy || 'system', settlementIds, nettedLegIds),
       updatedAt: now,
     }, { merge: true });
   }
