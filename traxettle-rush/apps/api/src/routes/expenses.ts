@@ -7,7 +7,7 @@ import {
   isPoolFundedExpense,
   resolveFundingModel,
 } from '@traxettle/shared';
-import type { ExpenseFundingSource } from '@traxettle/shared';
+import type { ExpenseFundingSource, PoolPaidFrom } from '@traxettle/shared';
 import { ExpenseService } from '../services/expense.service';
 import { EventService } from '../services/event.service';
 import { GroupService } from '../services/group.service';
@@ -44,6 +44,14 @@ function poolOrAccessError(res: Response, err: unknown) {
     return res.status(err.statusCode).json({ success: false, error: err.message } as ApiResponse);
   }
   return null;
+}
+
+/** "Paid with" in the expense-added notification. */
+function paidWithText(fundingSource: ExpenseFundingSource, paidFrom?: PoolPaidFrom): string {
+  if (fundingSource !== 'pool') return 'Own money (reimbursement claim)';
+  if (paidFrom === 'advance') return 'Pool money they hold';
+  if (paidFrom === 'sponsor_card') return "The custodian's card or UPI";
+  return 'Pool funds';
 }
 
 function alertCustodianIfFlagged(eventId: string, expense: any) {
@@ -158,6 +166,7 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
           currency: body.currency,
           fundingSource,
           alreadyIncurred: body.alreadyIncurred,
+          paidFrom: body.paidFrom,
           attachments: body.attachments,
         })
       : null;
@@ -181,7 +190,7 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
       Title: expense.title,
       Amount: `${expense.currency} ${expense.amount.toFixed(2)}`,
       ...(prep
-        ? { 'Paid with': fundingSource === 'pool' ? 'Pool funds' : 'Own money (reimbursement claim)' }
+        ? { 'Paid with': paidWithText(fundingSource, prep.poolDraw.paidFrom) }
         : { 'Split Type': expense.splitType, Private: expense.isPrivate ? 'Yes' : 'No' }),
     });
     return res.status(201).json({ success: true, data: expense } as ApiResponse);
@@ -222,12 +231,15 @@ router.put('/:expenseId', requireAuth, async (req: AuthenticatedRequest, res) =>
         return res.status(400).json({ success: false, error: 'Pool expenses must stay in the pool currency' } as ApiResponse);
       }
       await poolService.assertDrawCycleWritable(expenseToCheck);
-      if (dto.amount !== undefined && dto.amount !== expenseToCheck.amount) {
-        if (typeof dto.amount !== 'number' || !Number.isFinite(dto.amount) || dto.amount <= 0) {
+      const amountChanged = dto.amount !== undefined && dto.amount !== expenseToCheck.amount;
+      // Changing how a spend was paid changes what's owed if it's rejected, so it's checked again like an amount change (§9.3).
+      const methodChanged = dto.paidFrom !== undefined && dto.paidFrom !== expenseToCheck.poolDraw?.paidFrom;
+      if (amountChanged || methodChanged) {
+        if (amountChanged && (typeof dto.amount !== 'number' || !Number.isFinite(dto.amount) || dto.amount <= 0)) {
           return res.status(400).json({ success: false, error: 'Amount must be greater than zero' } as ApiResponse);
         }
         ({ legToRemove } = await poolService.assertDrawMutable(expenseToCheck));
-        const prep = await poolService.prepareAmountChange(expenseToCheck, uid, dto.amount, dto.alreadyIncurred);
+        const prep = await poolService.prepareAmountChange(expenseToCheck, uid, amountChanged ? dto.amount! : expenseToCheck.amount, dto.alreadyIncurred, dto.paidFrom);
         poolUpdate = { poolDraw: prep.poolDraw, poolFlags: prep.poolFlags };
       }
     }

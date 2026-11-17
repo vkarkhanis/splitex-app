@@ -743,3 +743,8 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
   - the entries list shows hand-overs that are waiting or confirmed; the new `advances` list has every one, including rejected and cancelled.
 - **Confirm and cancel** take an empty body (new `emptySchema`).
 - **Until WP3,** the API tests write `paidFrom` onto the expense directly. WP3 replaces that with the expense form's field.
+
+**WP3 (2026-11-17)**
+- **Changing the payment method on its own** (with no amount change) re-runs the approval check, the same as an amount change. The method decides what's owed if the spend is rejected, so the spend goes back for approval when the pool requires it, and any unpaid repayment is removed. The plan only covered keeping the method on amount edits.
+- **Turning card spends off later** doesn't block edits to spends already recorded on the card. Only a newly chosen card method is refused (`POOL_CARD_SPENDS_OFF`).
+- **The expense-added notification** now names the method: *Pool money they hold* or *The custodian's card or UPI*.

@@ -23,6 +23,7 @@ import {
   PoolHoldings,
   PoolLedger,
   PoolLedgerEntry,
+  PoolPaidFrom,
   PoolReconciliation,
   PoolRefusalDetails,
   PoolSpenderSummary,
@@ -1020,13 +1021,40 @@ export class PoolService {
   }
 
   /**
+   * How someone other than the custodian paid a pool spend (§9.3): from pool money they hold, or
+   * with the custodian's card/UPI. Optional, so older app builds keep working (decision D10).
+   * `checkCardSwitch` is false when an edit keeps the method the spend already had: turning the
+   * card switch off later doesn't block editing spends recorded before.
+   */
+  private validatePaidFrom(
+    config: PoolConfig,
+    payerId: string,
+    fundingSource: ExpenseFundingSource,
+    paidFrom: unknown,
+    checkCardSwitch = true,
+  ): PoolPaidFrom | undefined {
+    if (paidFrom === undefined || paidFrom === null) return undefined;
+    if (paidFrom !== 'advance' && paidFrom !== 'sponsor_card') {
+      throw new PoolError(400, 'paidFrom must be "advance" or "sponsor_card"', 'POOL_PAID_FROM_INVALID');
+    }
+    if (fundingSource !== 'pool') throw new PoolError(400, 'Only pool spends say how they were paid', 'POOL_PAID_FROM_INVALID');
+    if (payerId === config.custodianUserId) {
+      throw new PoolError(400, "The custodian's own pool spends are paid from the pool directly", 'POOL_PAID_FROM_INVALID');
+    }
+    if (paidFrom === 'sponsor_card' && checkCardSwitch && config.allowSponsorCardSpends === false) {
+      throw new PoolError(400, "This pool doesn't allow spends on the custodian's card or UPI", 'POOL_CARD_SPENDS_OFF');
+    }
+    return paidFrom;
+  }
+
+  /**
    * Validate a new pool-funded expense and decide its approval state.
    * Throws PoolError with structured details when the draw is refused.
    */
   async prepareDraw(
     eventId: string,
     actorId: string,
-    input: { amount: number; currency: string; fundingSource: ExpenseFundingSource; alreadyIncurred?: boolean; attachments?: string[] },
+    input: { amount: number; currency: string; fundingSource: ExpenseFundingSource; alreadyIncurred?: boolean; paidFrom?: PoolPaidFrom; attachments?: string[] },
   ): Promise<DrawPreparation> {
     const event = await this.getEvent(eventId);
     const config = this.requirePoolConfig(event);
@@ -1044,6 +1072,7 @@ export class PoolService {
     }
 
     const fundingSource = input.fundingSource;
+    const paidFrom = this.validatePaidFrom(config, actorId, fundingSource, input.paidFrom);
     const amountMinor = toMinor(input.amount, event.data.currency);
     const hasReceipt = Array.isArray(input.attachments) && input.attachments.length > 0;
     if (fundingSource === 'pool_reimbursement' && config.claimReceiptRequired !== false && !hasReceipt) {
@@ -1090,9 +1119,10 @@ export class PoolService {
         (config.expenseApproval === 'above_threshold' && amountMinor > Number(config.approvalThresholdMinor ?? 0))));
 
     const now = nowIso();
+    const method = paidFrom ? { paidFrom } : {};
     const poolDraw: PoolDrawState = needsApproval
-      ? { status: 'pending', alreadyIncurred }
-      : { status: 'approved', decidedBy: actorId, decidedAt: now, alreadyIncurred };
+      ? { status: 'pending', alreadyIncurred, ...method }
+      : { status: 'approved', decidedBy: actorId, decidedAt: now, alreadyIncurred, ...method };
     return { fundingSource, poolCycleId: cycle.id, poolDraw, poolFlags: flags, autoApproved: !needsApproval };
   }
 
@@ -1303,13 +1333,23 @@ export class PoolService {
   }
 
   /**
-   * Re-run the draw rules for an amount change on a pool expense. The old
-   * deduction is released first, so the check is against the balance the new
-   * amount would actually leave.
+   * Re-run the draw rules for an amount change on a pool expense, or a change in how it was paid.
+   * The old deduction is released first, so the check is against the balance the new amount would
+   * actually leave. The payment method stays as it was unless a new one is sent.
    */
-  async prepareAmountChange(expense: Record<string, any>, actorId: string, newAmount: number, alreadyIncurred?: boolean): Promise<{ poolDraw: PoolDrawState; poolFlags: PoolExpenseFlag[]; autoApproved: boolean }> {
+  async prepareAmountChange(
+    expense: Record<string, any>,
+    actorId: string,
+    newAmount: number,
+    alreadyIncurred?: boolean,
+    paidFrom?: PoolPaidFrom,
+  ): Promise<{ poolDraw: PoolDrawState; poolFlags: PoolExpenseFlag[]; autoApproved: boolean }> {
     const event = await this.getEvent(expense.eventId);
     const config = this.requirePoolConfig(event);
+    const previous: PoolPaidFrom | undefined = expense.poolDraw?.paidFrom;
+    const method = paidFrom === undefined || paidFrom === previous
+      ? this.validatePaidFrom(config, expense.paidBy, expense.fundingSource, previous, false)
+      : this.validatePaidFrom(config, expense.paidBy, expense.fundingSource, paidFrom);
     const cycle = await this.getCycle(expense.poolCycleId);
     if (!cycle) throw new PoolError(404, 'Cycle not found');
     const summary = await this.buildSummary(event, cycle);
@@ -1328,9 +1368,10 @@ export class PoolService {
     const approver = canApproveDraw(actorId, expense.paidBy, config.custodianUserId, this.isManager(event, config, actorId));
     const needsApproval = !approver && (config.expenseApproval === 'always' ||
       (config.expenseApproval === 'above_threshold' && amountMinor > Number(config.approvalThresholdMinor ?? 0)));
+    const kept = method ? { paidFrom: method } : {};
     const poolDraw: PoolDrawState = needsApproval
-      ? { status: 'pending', alreadyIncurred: incurred }
-      : { status: 'approved', decidedBy: actorId, decidedAt: nowIso(), alreadyIncurred: incurred };
+      ? { status: 'pending', alreadyIncurred: incurred, ...kept }
+      : { status: 'approved', decidedBy: actorId, decidedAt: nowIso(), alreadyIncurred: incurred, ...kept };
     return { poolDraw, poolFlags: flags, autoApproved: !needsApproval };
   }
 

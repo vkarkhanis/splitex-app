@@ -33,7 +33,8 @@ jest.mock('../../config/firebase', () => {
 
 import { auth, buildApp, poolApi } from '../helpers/poolHarness';
 
-const { __store: store, db } = require('../../config/firebase');
+const { __store: store } = require('../../config/firebase');
+const { notifyEventParticipants } = require('../../utils/notification-helper');
 const app = buildApp();
 const api = poolApi(app);
 
@@ -74,15 +75,12 @@ async function wedding(overrides: Record<string, any> = {}) {
   return eventId;
 }
 
-/**
- * A spend paid from money the spender holds. Phase 2 WP3 lets the expense form send `paidFrom`;
- * until then the method is written onto the expense directly.
- */
+/** A spend paid from pool money the spender holds (`paidFrom: 'advance'`). */
 async function spendFromHeld(eventId: string, uid: string, amount: number, decision: 'approve' | 'reject' | 'pending' = 'approve') {
-  const created = await api.spend(eventId, uid, amount, { ...RECEIPT, alreadyIncurred: true, title: `Held ${amount}` });
+  const created = await api.spend(eventId, uid, amount, { ...RECEIPT, alreadyIncurred: true, paidFrom: 'advance', title: `Held ${amount}` });
   if (created.status !== 201) throw new Error(`spend failed: ${created.status} ${JSON.stringify(created.body)}`);
   const expense = created.body.data;
-  await db.collection('expenses').doc(expense.id).set({ poolDraw: { ...expense.poolDraw, paidFrom: 'advance' } }, { merge: true });
+  expect(expense.poolDraw.paidFrom).toBe('advance');
   // Pools without approvals (a kitty) approve the spend straight away.
   if (decision === 'approve' && expense.poolDraw.status === 'pending') expect((await api.approveDraw(expense.id, ANITA)).status).toBe(200);
   if (decision === 'reject') expect((await api.rejectDraw(expense.id, ANITA)).status).toBe(200);
@@ -454,5 +452,107 @@ describe('hand-overs: settings, events and proofs', () => {
     expect(ok.status).toBe(201);
     expect(ok.body.data.url).toContain(`pools/${eventId}/advances`);
     expect((await request(app).post('/api/uploads').set(auth(OUTSIDER)).send(file)).status).toBe(403);
+  });
+});
+
+// ── How a pool spend was paid (WP3, §9.3, D1, D10) ────────────────────────
+
+describe('how a pool spend was paid', () => {
+  const edit = (id: string, uid: string, body: Record<string, any>) => request(app).put(`/api/expenses/${id}`).set(auth(uid)).send(body);
+
+  it("stores the method on the spend and in the ledger, and says it in the notification", async () => {
+    const eventId = await wedding();
+    (notifyEventParticipants as jest.Mock).mockClear();
+    const res = await api.spend(eventId, RAVI, 1200, { ...RECEIPT, alreadyIncurred: false, paidFrom: 'sponsor_card', title: 'Flowers' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.poolDraw).toMatchObject({ status: 'pending', alreadyIncurred: false, paidFrom: 'sponsor_card' });
+    expect(res.body.data.paidFrom).toBeUndefined();
+    const entry = (await api.ledger(eventId, ANITA)).entries.find((e: any) => e.id === res.body.data.id);
+    expect(entry.paidFrom).toBe('sponsor_card');
+    const call = (notifyEventParticipants as jest.Mock).mock.calls.find((c: any[]) => c[2] === 'expense_added');
+    expect(call[3]['Paid with']).toBe("The custodian's card or UPI");
+  });
+
+  it('a rejected, already-paid spend on the card is owed back; one from held money is not', async () => {
+    const eventId = await wedding();
+    const card = (await api.spend(eventId, RAVI, 700, { ...RECEIPT, alreadyIncurred: true, paidFrom: 'sponsor_card' })).body.data;
+    await api.rejectDraw(card.id, ANITA);
+    await handOver(eventId, ANITA, RAVI, { kind: 'advance', userId: RAVI, amountMinor: 100000 });
+    await spendFromHeld(eventId, RAVI, 500, 'reject');
+    const legs = store.all('settlements');
+    expect(legs.map((l: any) => [l.kind, l.expenseId, l.amount])).toEqual([['pool_repayment', card.id, 700]]);
+  });
+
+  it('refuses a method on claims, on the custodian\'s own spends, and unknown values', async () => {
+    const eventId = await wedding({ expenseApproval: 'none' });
+    const claim = await api.claim(eventId, RAVI, 100, { paidFrom: 'advance' });
+    expect(claim.status).toBe(400);
+    expect(claim.body.code).toBe('POOL_PAID_FROM_INVALID');
+    expect((await api.spend(eventId, ANITA, 100, { ...RECEIPT, paidFrom: 'sponsor_card' })).body.code).toBe('POOL_PAID_FROM_INVALID');
+    expect((await api.spend(eventId, RAVI, 100, { ...RECEIPT, paidFrom: 'cash' })).body.code).toBe('POOL_PAID_FROM_INVALID');
+  });
+
+  it('with card spends switched off: refuses the card, accepts held money and older apps that send no method', async () => {
+    const eventId = await wedding({ allowSponsorCardSpends: false });
+    const card = await api.spend(eventId, RAVI, 100, { ...RECEIPT, alreadyIncurred: true, paidFrom: 'sponsor_card' });
+    expect(card.status).toBe(400);
+    expect(card.body.code).toBe('POOL_CARD_SPENDS_OFF');
+    expect((await api.spend(eventId, RAVI, 100, { ...RECEIPT, alreadyIncurred: true, paidFrom: 'advance' })).status).toBe(201);
+    const legacy = await api.spend(eventId, RAVI, 100, { ...RECEIPT, alreadyIncurred: true });
+    expect(legacy.status).toBe(201);
+    expect(legacy.body.data.poolDraw.paidFrom).toBeUndefined();
+  });
+
+  it('spending from held money is never refused for going past what they hold', async () => {
+    const eventId = await wedding();
+    await handOver(eventId, ANITA, RAVI, { kind: 'advance', userId: RAVI, amountMinor: 10000 });
+    expect((await api.spend(eventId, RAVI, 5000, { ...RECEIPT, alreadyIncurred: true, paidFrom: 'advance' })).status).toBe(201);
+  });
+
+  it('changing the method is checked again like an amount change: a rejected card spend moved to held money', async () => {
+    const eventId = await wedding();
+    await handOver(eventId, ANITA, RAVI, { kind: 'advance', userId: RAVI, amountMinor: 100000 });
+    const spend = (await api.spend(eventId, RAVI, 400, { ...RECEIPT, alreadyIncurred: true, paidFrom: 'sponsor_card' })).body.data;
+    await api.rejectDraw(spend.id, ANITA);
+    expect(store.all('settlements')).toHaveLength(1);
+
+    const moved = await edit(spend.id, RAVI, { paidFrom: 'advance' });
+    expect(moved.status).toBe(200);
+    expect(moved.body.data.poolDraw).toMatchObject({ status: 'pending', paidFrom: 'advance', alreadyIncurred: true });
+    expect(store.all('settlements')).toHaveLength(0); // the unpaid repayment goes away
+
+    expect((await api.rejectDraw(spend.id, ANITA)).status).toBe(200);
+    expect(store.all('settlements')).toHaveLength(0); // held money stays owed in what Ravi holds
+    expect(await heldBy(eventId)).toEqual({ [`user:${RAVI}`]: 100000 });
+  });
+
+  it('an approved spend moved off held money gives the money back to what they hold, pending approval again', async () => {
+    const eventId = await wedding();
+    await handOver(eventId, ANITA, RAVI, { kind: 'advance', userId: RAVI, amountMinor: 100000 });
+    const id = await spendFromHeld(eventId, RAVI, 300);
+    expect(await heldBy(eventId)).toEqual({ [`user:${RAVI}`]: 70000 });
+    const moved = await edit(id, RAVI, { paidFrom: 'sponsor_card' });
+    expect(moved.body.data.poolDraw).toMatchObject({ status: 'pending', paidFrom: 'sponsor_card' });
+    expect(await heldBy(eventId)).toEqual({ [`user:${RAVI}`]: 100000 });
+  });
+
+  it('turning card spends off later still lets people edit card spends recorded before; a new card method is refused', async () => {
+    const eventId = await wedding();
+    const card = (await api.spend(eventId, RAVI, 400, { ...RECEIPT, alreadyIncurred: true, paidFrom: 'sponsor_card' })).body.data;
+    const held = (await api.spend(eventId, RAVI, 400, { ...RECEIPT, alreadyIncurred: true, paidFrom: 'advance' })).body.data;
+    await request(app).put(`/api/pools/event/${eventId}/config`).set(auth(ANITA)).send({ allowSponsorCardSpends: false });
+    const amount = await edit(card.id, RAVI, { amount: 450 });
+    expect(amount.status).toBe(200);
+    expect(amount.body.data.poolDraw.paidFrom).toBe('sponsor_card');
+    const toCard = await edit(held.id, RAVI, { paidFrom: 'sponsor_card' });
+    expect(toCard.status).toBe(400);
+    expect(toCard.body.code).toBe('POOL_CARD_SPENDS_OFF');
+  });
+
+  it('an amount edit keeps the method the spend already had', async () => {
+    const eventId = await wedding();
+    const spend = (await api.spend(eventId, RAVI, 400, { ...RECEIPT, alreadyIncurred: true, paidFrom: 'advance' })).body.data;
+    const res = await edit(spend.id, RAVI, { amount: 420 });
+    expect(res.body.data.poolDraw.paidFrom).toBe('advance');
   });
 });
