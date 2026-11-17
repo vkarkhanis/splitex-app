@@ -32,7 +32,7 @@ jest.mock('../../config/firebase', () => {
   };
 });
 
-import { auth, buildApp, poolApi } from '../helpers/poolHarness';
+import { auth, buildApp, makePro, poolApi } from '../helpers/poolHarness';
 
 const { __store: store } = require('../../config/firebase');
 const app = buildApp();
@@ -44,7 +44,11 @@ const CAROL = 'mock-carol';
 const DEV = 'mock-dev';
 const OUTSIDER = 'mock-outsider';
 
-beforeEach(() => store.reset());
+// The creator of a "Several of us" pool needs Pro (design doc §12).
+beforeEach(() => {
+  store.reset();
+  makePro(store, ALICE);
+});
 
 async function kitty(members: string[], defaultContributionMinor = 1000000, extra: Record<string, any> = {}) {
   const eventId = await api.createPool(ALICE, { preset: 'trip_kitty', defaultContributionMinor, ...extra });

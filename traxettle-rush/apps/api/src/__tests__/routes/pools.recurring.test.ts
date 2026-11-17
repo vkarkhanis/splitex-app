@@ -25,7 +25,7 @@ jest.mock('../../config/firebase', () => {
   };
 });
 
-import { auth, buildApp, poolApi } from '../helpers/poolHarness';
+import { auth, buildApp, makePro, poolApi } from '../helpers/poolHarness';
 import { periodFor } from '../../services/pool.service';
 
 const { __store: store } = require('../../config/firebase');
@@ -38,7 +38,11 @@ const CAROL = 'mock-carol';
 const DEV = 'mock-dev';
 const RENT = 1500000; // ₹15,000
 
-beforeEach(() => store.reset());
+// The creator of a "Several of us" pool needs Pro (design doc §12).
+beforeEach(() => {
+  store.reset();
+  makePro(store, ALICE);
+});
 
 async function household(members: string[], overrides: Record<string, any> = {}) {
   const eventId = await api.createPool(ALICE, { preset: 'household', defaultContributionMinor: RENT, overrides });

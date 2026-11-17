@@ -3,9 +3,11 @@
  * Money-pooling smoke test against a RUNNING local API.
  *
  * Uses `Bearer mock-*` tokens, which the API accepts only in local/test
- * environments — start the API with APP_ENV=local (mock Firestore or emulator):
+ * environments — start the API with APP_ENV=local (mock Firestore or emulator).
+ * "Several of us" pools need a Pro creator (design doc §12), so the script
+ * switches its test user to Pro first; that needs INTERNAL_TIER_SWITCH_ENABLED=true:
  *
- *   cd apps/api && APP_ENV=local PORT=3001 npx ts-node src/index.ts
+ *   cd apps/api && APP_ENV=local INTERNAL_TIER_SWITCH_ENABLED=true PORT=3001 npx ts-node src/index.ts
  *   node scripts/local-dev/pool-smoke.mjs            # defaults to http://localhost:3001
  *   API=http://localhost:3201 node scripts/local-dev/pool-smoke.mjs
  *
@@ -30,6 +32,14 @@ const check = (label, cond, extra = '') => {
 
 const run = Date.now().toString(36);
 const A = `mock-smoke-alice-${run}`, B = `mock-smoke-bob-${run}`;
+
+// The kitty's creator needs Pro; members join free.
+const pro = await call('POST', '/api/internal/entitlements/switch', A, { tier: 'pro' });
+if (pro.status !== 200) {
+  console.error(`Could not switch the test user to Pro (HTTP ${pro.status}: ${pro.body?.error || 'no message'}).`);
+  console.error('Start the API with INTERNAL_TIER_SWITCH_ENABLED=true (see the comment at the top of this script).');
+  process.exit(1);
+}
 
 const p2p = await call('POST', '/api/events', A, { name: 'Plain trip', type: 'trip', startDate: '2026-10-01', currency: 'INR' });
 check('split-expenses event still created normally', p2p.status === 201 && p2p.body.data.fundingModel === undefined);

@@ -1,12 +1,13 @@
 import { Router, type Response } from 'express';
 import type { ZodSchema } from 'zod';
-import type { ApiResponse } from '@traxettle/shared';
+import { POOL_PRESETS, type ApiResponse } from '@traxettle/shared';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { db } from '../config/firebase';
 import { emitToEvent } from '../config/websocket';
 import { PoolError, PoolService } from '../services/pool.service';
 import { SettlementService } from '../services/settlement.service';
 import { EventAccessError, requireEventAccess } from '../utils/event-access';
+import { groupPoolRefusal } from '../utils/pro-gates';
 import {
   advanceCreateSchema,
   closePreviewSchema,
@@ -126,6 +127,11 @@ router.post('/event/:eventId/convert', requireAuth, async (req: AuthenticatedReq
   if (!body) return;
   try {
     await requireEventAccess(req.params.eventId, req.user!.uid);
+    // Adding a "Several of us" pool needs Pro, the same as creating one (design doc §12).
+    if (POOL_PRESETS[body.preset]?.funderMode === 'contributors') {
+      const refusal = await groupPoolRefusal(req.user!.uid);
+      if (refusal) return res.status(403).json(refusal);
+    }
     const result = await poolService.convertToHybrid(req.params.eventId, req.user!.uid, body);
     emitToEvent(req.params.eventId, 'event:updated', { fundingModel: 'hybrid' });
     announce(req.params.eventId, 'converted');

@@ -757,3 +757,14 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
 - **Settle-up preview:** `folded` lists the rows the plan will include, including those settle-up creates (approved claims and rejected card spends without a row yet). `separate` lists every other open pool payment: already being paid, from an earlier cycle, or a leaving settlement. A cycle-close preview returns both lists empty.
 - **Three Phase 1 API tests** now follow the new flow: Review, then one payment. Before, the event went straight to Payment and the pool payment was paid on its own.
 - **Until WP6 and WP7,** the apps still show Phase 1 wording ("Paid separately") in the settle-up preview, and show a netted row as payable (the API refuses it). Don't hand-test settle-up wording on this branch until then.
+
+**WP5 (2026-11-17)**
+- **One shared check** (`apps/api/src/utils/pro-gates.ts`, `groupPoolRefusal`) is used by event creation and by adding a pool to an existing event.
+- **If the subscription lookup itself fails,** the API returns a server error instead of saying "needs Pro". The multi-currency check treats any failure as "needs Pro"; that check is unchanged.
+- **Subscription states:** "billing retry" counts as free and the grace period as Pro, the same rule as every other Pro limit (`hasActivePro`).
+- **Adding a "Just me" budget to a split-expenses event** is still refused for its own reason (400), never as a Pro refusal.
+- **Tests:**
+  - new helper `makePro(store, …uids)`; the existing pool suites make their pool creator Pro;
+  - `scripts/local-dev/pool-smoke.mjs` switches its user to Pro first, so the local API must run with `INTERNAL_TIER_SWITCH_ENABLED=true`. WP10 updates the run instructions in the testing guide.
+- **Checked against a running local API:** the smoke script passes; a free user creating a Kitty gets the 403; a free user's "Just me" budget is created.
+- **Moved to WP6:** the end-to-end (Playwright) check for a free user, because it needs the web PRO badge.

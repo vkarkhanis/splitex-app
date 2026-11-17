@@ -25,7 +25,7 @@ jest.mock('../../config/firebase', () => {
   };
 });
 
-import { auth, buildApp, poolApi } from '../helpers/poolHarness';
+import { auth, buildApp, makePro, poolApi } from '../helpers/poolHarness';
 
 const { __store: store, db } = require('../../config/firebase');
 const app = buildApp();
@@ -36,7 +36,11 @@ const RAVI = 'mock-ravi';
 const PRIYA = 'mock-priya';
 const RECEIPT = { attachments: ['https://r/1.jpg'] };
 
-beforeEach(() => store.reset());
+// The creator of a "Several of us" pool needs Pro (design doc §12).
+beforeEach(() => {
+  store.reset();
+  makePro(store, ANITA);
+});
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
