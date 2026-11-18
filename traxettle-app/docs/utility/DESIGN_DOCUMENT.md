@@ -944,13 +944,15 @@ This design document provides a comprehensive foundation for building the Traxet
 
 ### 16.2 Capability Model
 - Capabilities are derived server-side from entitlement state.
-- Current capability:
+- Current capabilities:
   - `multiCurrencySettlement` (Pro-only when entitlement is active/grace)
+  - `contributorPools` (Pro-only when entitlement is active/grace): creating "Several of us" pools (Kitty, Fund, Treasury, Collection, and hybrids built on them). Optional in the payload, so clients treat a missing value as unknown.
 
 ### 16.3 Enforcement Boundaries
 - API is source of truth for all entitlement checks.
 - Existing Free event cap (3 active/closed events) remains unchanged.
 - FX/multi-currency fields are denied server-side for Free users.
+- Group pools are denied server-side for Free users when an event is created with a "Several of us" pool (`POST /api/events`) or one is added to an existing event (`POST /api/pools/event/:id/convert`): `403 FEATURE_REQUIRES_PRO`, `feature: contributor_pools` (`apps/api/src/utils/pro-gates.ts`). Only the creator needs Pro. Everything after creation (spending, approvals, cycle closes, settling up, dissolving) is never checked, so a lapse can't trap money in a pool. Design: [MONEY_POOLING_DESIGN.md §12](MONEY_POOLING_DESIGN.md).
 
 ### 16.4 Environment Matrix
 - Local:

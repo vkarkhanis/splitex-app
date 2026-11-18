@@ -1,6 +1,6 @@
 # Money Pooling — Phase 2 Implementation Plan (for review)
 
-**Status:** **Approved 2026-11-16** with every recommendation in §1 (D1–D11). D12 is decided too: a 7-day free trial for new subscribers (§10A). Nothing is built yet.
+**Status:** **Approved 2026-11-16** with every recommendation in §1 (D1–D11). D12 is decided too: a 7-day free trial for new subscribers (§10A). **Built 2026-11-16 to 2026-11-18** (WP1–WP11); as-built notes are in §16 and the design doc's §0. Still to do: the release steps in §11.
 **Branch:** `feature/money-pooling-enhancements-phase2`, created from `feature/money-pooling-enhancements-phase1` at `cf6d871`. Its PR targets the Phase 1 branch.
 **Design:** [MONEY_POOLING_DESIGN.md](MONEY_POOLING_DESIGN.md) §9.3, §10.6, §11 and §12. Where this plan and the design doc differ, the difference is listed in §1, so you can accept or change it.
 
@@ -852,3 +852,31 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
 - **One API run out of four had 3 failures in one suite,** and its output wasn't kept. Three full runs after it were clean. It looks like the timing problem seen in WP5, when timed-out tests left handles open.
 - **Lint:** no new problems in the files touched.
 - **Not run: Playwright.** Its browsers aren't installed on this Mac.
+
+**WP10 (2026-11-18)**
+- **Design doc:**
+  - the status line and the §9, §10, §11 and §12 status lines now say built;
+  - §0 gained a Phase 2 table: every deviation from §1 plus the as-built notes above;
+  - §8's answers are updated, §12.3's free trial is marked decided and built, and §12.4 has a progress note;
+  - §6.2 notes the PRO badge.
+- **Testing guide:**
+  - the new test files;
+  - `INTERNAL_TIER_SWITCH_ENABLED=true` and the web tier switch in the run commands, and how to make a user Pro;
+  - Pro creators in UC-1, UC-3, UC-4, UC-5 and hybrid;
+  - Phase 1 step 7 now describes netting;
+  - a short Phase 2 section;
+  - Playwright with an installed Chrome.
+
+  The old "known mobile failures" note is replaced: those suites pass.
+- **New `traxettle-app/docs/runbook/MONEY_POOLING_PHASE2_E2E.md`:**
+  - Scenario 1, hand-overs through to one ₹6,400 payment;
+  - Scenario 2, Phase 1's Scenarios 1, 3 and 4 re-run with netting;
+  - Scenario 3, early repayment while paused;
+  - Scenario 4, free and Pro users creating a Kitty;
+  - Scenario 5, the creator's Pro lapsing;
+
+  plus a mobile pass, a watch list and a sign-off checklist.
+- **Pro and tier docs:**
+  - Functional.md: 9.7, 15.2, 16.1, 16.4 and 16.7 updated, plus new rows 16.18–16.23. Phase 1's repayments and loans weren't listed either, so they're added too.
+  - TIER_ENTITLEMENT_ENV_MATRIX.md, PRO_FREE_IMPLEMENTATION_CHECKLIST.md, and DESIGN_DOCUMENT.md §16.2–16.3.
+- **Found while writing the test plan: the settle-up preview has no row for money paid back early.** "Collected" includes the loan, and "Left over" subtracts the repayment, so the figures don't add up on screen. The API already returns `earlyRepaymentsMinor`. It's listed as watch item 1 in the Phase 2 test plan; not fixed.

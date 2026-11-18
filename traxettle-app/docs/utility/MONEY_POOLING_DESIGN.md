@@ -1,6 +1,16 @@
 # Money Pooling — Functional Design
 
-**Status:** Implemented on branch `feature/money-pooling` — read **§0** first for what changed from the proposal while building it. Testing guide: [MONEY_POOLING_TESTING.md](../runbook/MONEY_POOLING_TESTING.md). **Phase 1 enhancements built** on branch `feature/money-pooling-enhancements-phase1` (2026-10-25): a rejected spend already paid with the pool's money is owed back (**§9.2**), and money others add is paid back unless it's a gift (**§10**, Phase 1). **Still proposals:** advances to spenders (§9.3) and paying back early (§10.6). **Planned for Phase 2:** netting repayments and unpaid claims into the final settlement (**§11**, decided 2026-11-15); until then they're labelled *paid separately*. Making "Several of us" a Pro feature, and updating every place that lists Pro features (**§12**, decided 2026-11-15). Both are required before "Several of us" is released in production.
+**Status:** Implemented on branch `feature/money-pooling` — read **§0** first for what changed from the proposal while building it. Testing guide: [MONEY_POOLING_TESTING.md](../runbook/MONEY_POOLING_TESTING.md).
+- **Phase 1 enhancements built** on branch `feature/money-pooling-enhancements-phase1` (2026-10-25): a rejected spend already paid with the pool's money is owed back (**§9.2**), and money others add is paid back unless it's a gift (**§10**, Phase 1).
+- **Phase 2 built** on branch `feature/money-pooling-enhancements-phase2` (2026-11-18), following [MONEY_POOLING_PHASE2_PLAN.md](MONEY_POOLING_PHASE2_PLAN.md):
+  - handing money to spenders and tracking what they hold (**§9.3**);
+  - paying lenders back early (**§10.6**);
+  - netting repayments and unpaid claims into the final settlement (**§11**);
+  - "Several of us" as a Pro feature, with every in-app Pro list updated (**§12**);
+  - a free-trial eligibility check (§12.3).
+
+  Phase 2 test plan: [MONEY_POOLING_PHASE2_E2E.md](../runbook/MONEY_POOLING_PHASE2_E2E.md).
+- **Not yet released:** "Several of us" stays hidden in production until `CONTRIBUTOR_POOLS_IN_PRODUCTION` is turned on. That release also updates the store text, RevenueCat descriptions and the web user guide, and switches on the trial offers (plan §11).
 **Date:** 2026-09-15
 **Scope:** Additive feature. The existing peer-to-peer split model remains fully supported and unchanged.
 
@@ -23,11 +33,39 @@ The proposal below is kept for context; these are the decisions that changed whi
 | **Custodian's own dues** | Mark paid → confirm | Marking your own contribution paid as the custodian **confirms it at once** | The money is already in the custodian's hands (same rule as their top-ups). |
 | **Settlement entry points** | Separate dissolve endpoint | `POST /api/pools/event/:id/dissolve` **and** the existing `POST /api/settlements/event/:id/generate` both reconcile the pool first | Otherwise the old "Settle now" button would compute peer debts only and mark a pool event settled with its money unaccounted for. |
 | **Receipts** | New mobile camera dependency needed | `expo-image-picker` / `expo-file-system` were already dependencies | — |
-| **Pro gating** | Consumption weighting as a Pro feature | Not gated | A product decision, left open. |
+| **Pro gating** | Consumption weighting as a Pro feature | Not gated | A product decision, left open. ("Several of us" pools as a whole became Pro in Phase 2, §12.) |
 
 **Prerequisites delivered (Phase A):** `mock-` tokens refused outside local/test; event membership required to read **and create** expenses (others' private expenses hidden server-side); shared upload service (`POST /api/uploads`) with PDF receipts; receipts on every expense (web + mobile); CI on Node 24 running typecheck and all test suites.
 
 **Not done:** the Firebase silent-mock-fallback in production (`config/firebase.ts`) and the IDOR on `GET /api/events/:id` were out of this plan's scope; see the code review for both.
+
+### Phase 2 (built 2026-11-18): where it differs from §9.3, §10.6, §11 and §12
+
+Decided while planning ([MONEY_POOLING_PHASE2_PLAN.md](MONEY_POOLING_PHASE2_PLAN.md) §1, approved 2026-11-16) or found while building (its §16).
+
+| Area | Design | As built | Why |
+|---|---|---|---|
+| **"Asking first" (§9.3)** | Spends from held money or on the sponsor's card are always already paid | The Phase 1 choice stays under both methods. The **method** decides what a rejected, already-paid spend owes: held money stays owed (no leg); a card spend gets the Phase 1 repayment leg. Rejecting an "asking first" spend does nothing. | Otherwise an approved "asking first" spend paid with held cash would never lower what the spender holds. |
+| **Getting money back (§9.3)** | Custodian action "Ask for money back" | **"Record money returned"** (mobile: **"Money returned"**): the custodian records cash received, confirmed at once. Spenders get **"Return money"**, which the custodian confirms. No request or notification. | Simpler; a request flow can come later. |
+| **Who confirms** | Not specified | The receiver confirms. Whoever records a hand-over they're receiving is confirmed at once. Only the custodian records advances and early repayments. The recorder can cancel while it waits (status `cancelled`). | — |
+| **Proof** | `proof?: Attachment[]` | One `proofUrl`, as on contributions (upload scope `pool_advance_proof`) | Reuses the existing upload and preview UI. |
+| **Records** | `PoolAdvance` with kinds `advance` / `return` | One collection `poolAdvances` for kinds `advance`, `return` and `repayment` (early repayment, §10.6), with `cycleId`, `currency` and `rejectionReason`. `paidFrom` on the expense and `allowSponsorCardSpends` on the config as sketched. | One ledger and one set of routes (`/api/pools/event/:id/advances`, `/api/pools/advances/:id/confirm|reject|cancel`). |
+| **Held money carried forward** | Not specified | A carry-forward close copies what each spender holds into the next cycle (`cycle.openingHeld`) | A rolling fund's cash doesn't reset each month. |
+| **Early repayment limit** | Not specified | What the lender lent (confirmed top-ups that aren't gifts) less repayments confirmed or waiting. Overdraft cover isn't included; it's settled at close. | — |
+| **Early repayment and the overdraft** | Not specified | Lowers the overdraft baseline and a collection's "funded" figure, as well as the balance | Repaid money is no longer funding. |
+| **Leaving with held money** | Not specified | Refused (`POOL_HOLDER_LEAVING`) for someone counted on their own who holds money, is owed by the pool, or has a hand-over waiting. A rolling fund that closes on membership change puts it in their leaving settlement instead. Group members aren't checked: the group keeps the money. | Money mustn't vanish with a leaver. |
+| **Membership change in a rolling fund** | Closes the cycle once money has moved | If a spend, top-up or hand-over is still waiting, the member list just updates and the cycle stays open | A waiting top-up used to make the close fail silently, so even the member list didn't change. |
+| **Changing the custodian** | Not specified | Refused while spenders hold money or a hand-over is waiting (`POOL_CUSTODIAN_CHANGE_BLOCKED`) | The new custodian would inherit money they never held. |
+| **Changing how a spend was paid** | Not specified | Re-runs approval like an amount change, and removes an unpaid repayment. Turning card spends off later doesn't block edits to card spends already recorded; only a newly chosen card method is refused (`POOL_CARD_SPENDS_OFF`). A spend without a method (older apps) is accepted. | The method decides what's owed if rejected. |
+| **Notifications** | §11.5: show the netting breakdown | The expense-added notification names the payment method. **The netting breakdown isn't added** to notifications; the preview and the Review and Payment lists show it. | The fewest-payments plan doesn't map folded rows to single payments, so it would need per-person text. |
+| **Netting order (§11.4)** | Mark rows after the plan is saved | The old plan is cleared and folded rows restored (one batch), this cycle's open rows marked `netted` (one transaction), then the plan is saved. A failed save leaves rows `netted`; the next run restores them first. | No debt is lost or doubled. |
+| **Netted rows refused** | Not specified | Pay, mark paid, retry and close-for-deleted-user return **400** *"This payment is included in the final settlement"*. Audit actions `netted` and `unfolded`. | Same code as other settlement status errors. |
+| **Regenerating during Review** | Not specified | Only the plan's own payments decide whose approvals reset | Every pool payment used to count, resetting approvals that hadn't changed. Split-expenses events are unchanged. |
+| **Settle-up preview** | §11.4 step 5 | `folded` includes rows settle-up will create (approved claims, rejected card spends without a row yet); `separate` lists every other open pool payment. The preview waits for hand-overs to be confirmed. | — |
+| **Pro check (§12)** | — | One shared check (`groupPoolRefusal`) for creating and converting. If the subscription lookup fails, the API returns a server error rather than "needs Pro". No exception for `mock-` users. | — |
+| **Pro lists (§12.4)** | Add group pools | Group pools appear in every in-app Pro list only where "Several of us" is released (`contributorPoolsAvailable`), so turning the switch on stays the single release step. Web's lists also gain *Unlimited events* and *Analytics (coming soon)*, matching mobile. | Pro never advertises a feature before it ships. |
+| **Free trial (§12.3)** | Not decided | A 7-day trial for new subscribers, offered only after the Phase 2 build is live. The app shows it on iOS only when RevenueCat says the account is eligible, and reads Google Play's trial from the default option ([plan §10A](MONEY_POOLING_PHASE2_PLAN.md)). | Apple gives an introductory offer once per subscription group. |
+| **Optional fields** | — | `earlyRepaymentsMinor` (left out when 0), `holdings`, `advances`, `heldMinor` and `UserCapabilities.contributorPools` are optional. A missing amount or list means none. A missing `contributorPools` means unknown: the apps lock "Several of us" only on an explicit `false`, and the API decides. | Older servers and existing data keep working. |
 
 ---
 
@@ -688,7 +726,7 @@ The form already has a `Type` select and conditionally-revealed FX blocks, so th
 
 | | |
 |---|---|
-| **Several of us** | → contribution roster UI appears (UC-1, 3, 4, 5) |
+| **Several of us** | → contribution roster UI appears (UC-1, 3, 4, 5). **Pro** (§12): a free user sees a PRO badge and a link to upgrade |
 | **Just me** | → no roster; budget + spender authorisation UI instead (UC-2) |
 
 Then a single follow-up, `Recurring?` — *One-off* vs *Monthly* — which selects between the policy presets in §3.2. **The user never sees `surplusPolicy` or `deficitPolicy`**; presets set them, and an "Advanced" disclosure exposes them for people who care.
@@ -853,16 +891,17 @@ Items 1, 2 and 5 are roughly an hour each and are the highest-leverage work in t
 | **Where to start?** | Phase A prerequisites (≈1 hour each, mostly security), then UC-3 the trip kitty. |
 | **What happens when the pool runs dry?** | Graduated overdraft (§3.7): warn down to −20% of pool value, refuse beyond. Self-latching, auto-recovers when confirmed money arrives. After-the-fact expenses are always recorded, never refused. |
 | **Biggest technical risk?** | Float money arithmetic accumulating drift across carry-forward cycles. Move pool amounts to integer minor units before Phase B. |
-| **What if a spender spends the sponsor's money and it's rejected?** | Built (§9.2, Phase 1): if they say it was already paid, rejecting it creates a `pool_repayment` leg back to the custodian. Advances (§9.3) remain a proposal. |
-| **What if someone other than the sponsor adds money?** | Built (§10, Phase 1): it's a loan the sponsor pays back at close (I've Paid → confirm, or Mark as Paid), unless they mark it a gift. |
-| **Are repayments netted at settle-up?** | Not yet (§11). Repayments and unpaid claims are paid on their own and labelled so. Netting is planned for Phase 2 and required before "Several of us" pools are released in production. |
-| **Is pooling free?** | "Just me" is free. "Several of us" becomes Pro in Phase 2 (§12): only the person creating the pool needs Pro, members join free, and existing pools keep working if Pro lapses. |
+| **What if a spender spends the sponsor's money and it's rejected?** | Built (§9.2, Phase 1): if it was already paid on the sponsor's card, rejecting it creates a `pool_repayment` leg back to the custodian. Built (§9.3, Phase 2): if it was paid with money handed to them, it stays in what they hold, and they return it or settle it at close. |
+| **What if someone other than the sponsor adds money?** | Built (§10, Phase 1): it's a loan the sponsor pays back at close (I've Paid → confirm, or Mark as Paid), unless they mark it a gift. Built (§10.6, Phase 2): the custodian can also pay it back early. |
+| **Who holds the pool's cash?** | Built (§9.3, Phase 2): the custodian hands money to spenders and the app derives what each holds. *With you · With spenders* always adds up to what's left. |
+| **Are repayments netted at settle-up?** | Yes, built in Phase 2 (§11): this cycle's unpaid repayments and claims are folded into the final plan, so Scenario 1 settles as one payment. Rows already being paid, earlier cycles and leaving settlements stay separate. |
+| **Is pooling free?** | "Just me" is free. "Several of us" is Pro, built in Phase 2 (§12): only the person creating the pool needs Pro, members join free, and existing pools keep working if Pro lapses. |
 
 ---
 
 ## 9. Spending the sponsor's money: rejections, advances and who holds what
 
-**Status:** Proposed 2026-10-21, after hand-testing the "Just me" pool. **§9.2 (Phase 1) built** on branch `feature/money-pooling-enhancements-phase1` (2026-10-25); §9.3 (Phase 2) is still a proposal; its design decisions were recorded on 2026-11-12, including dropping transfers between spenders.
+**Status:** Proposed 2026-10-21, after hand-testing the "Just me" pool. **§9.2 (Phase 1) built** on branch `feature/money-pooling-enhancements-phase1` (2026-10-25). **§9.3 (Phase 2) built** on branch `feature/money-pooling-enhancements-phase2` (2026-11-18); its design decisions were recorded on 2026-11-12, including dropping transfers between spenders. Where the build differs from the text below (the "asking first" choice, "Record money returned", a single proof, the records), see §0.
 
 ### 9.1 The gap
 
@@ -905,6 +944,8 @@ Rules:
 Tests: a rejected already-paid draw creates exactly one leg spender → custodian (rejecting again is refused, as it is no longer pending). An asking-first rejection creates none. Deleting the expense removes an unpaid repayment leg. Approving either kind still deducts once.
 
 ### 9.3 Phase 2 — advances: handing money to spenders
+
+*Built 2026-11-18. The sketch below is the proposal; §0 lists what changed.*
 
 **Principle: an advance moves money between holders. It never spends it.**
 
@@ -994,7 +1035,7 @@ export interface PoolAdvance {
 
 ## 10. Money added by others: paid back unless it's a gift
 
-**Status:** Proposed 2026-10-25. **§10.1–10.5 (Phase 1) built** on branch `feature/money-pooling-enhancements-phase1` the same day; early repayment (§10.6) is still a proposal, with its decisions recorded on 2026-11-12.
+**Status:** Proposed 2026-10-25. **§10.1–10.5 (Phase 1) built** on branch `feature/money-pooling-enhancements-phase1` the same day. **Early repayment (§10.6) built** on branch `feature/money-pooling-enhancements-phase2` (2026-11-18), following its decisions of 2026-11-12.
 
 ### 10.1 The gap
 
@@ -1073,6 +1114,8 @@ Anita pays Priya ₹10,000: the ₹3,000 still in the pool plus ₹7,000 of her 
 
 ### 10.6 Phase 2: paying back early
 
+*Built 2026-11-18: kind `repayment` in `poolAdvances`, recorded by the custodian and confirmed by the lender. It lowers the overdraft baseline too (§0).*
+
 A lender may want their money back before the event ends. The custodian taps **Pay back now**: a repayment, custodian → lender, settled with the same I've Paid → confirm (or Mark as Paid) actions. It lowers the pool's remaining amount (money leaving, not spending) and what's owed at close. Because it lowers the balance, it can trigger the overdraft pause (§3.7), like any other drop. The ledger can be shared with §9.3's `PoolAdvance`, as kind `'repayment'`: the one kind there that changes `remaining`.
 
 **Decisions (2026-11-12):**
@@ -1094,7 +1137,7 @@ No questions remain open in §10.
 
 ## 11. Netting pool payments into the final settlement (Phase 2)
 
-**Status:** Decided 2026-11-15. Not in Phase 1: it's built with Phase 2 (§9.3), and it's **required before "Several of us" pools are released in production** (`CONTRIBUTOR_POOLS_IN_PRODUCTION`), as is the Pro check (§12). Phase 1 labels these payments instead (§11.2).
+**Status:** Decided 2026-11-15. **Built** on branch `feature/money-pooling-enhancements-phase2` (2026-11-18), with §9.3 and the Pro check (§12), as required before "Several of us" pools are released in production (`CONTRIBUTOR_POOLS_IN_PRODUCTION`). Phase 1 labelled these payments instead (§11.2). Differences from §11.4–11.5 (the order of work, 400 for refusals, no notification breakdown) are in §0.
 
 ### 11.1 The gap
 
@@ -1113,6 +1156,8 @@ The final settle-up already finds the fewest payments across everyone's balances
 | Office kitty (Scenario 3) | Anita → Ravi ₹1,400; Anita → Priya ₹1,400; Ravi → Anita ₹1,500 (3 payments, ₹4,300 moved) | Anita → Priya ₹1,300; Ravi → Priya ₹100 (2 payments, ₹1,400 moved) |
 
 ### 11.2 Phase 1: labelled and paid on their own (as built 2026-11-15)
+
+*Replaced in Phase 2:* the preview now lists **Included in the final settlement** and **Paid separately**. Netted rows are listed after the plan's payments, under *"Repayments and unpaid claims are included in these payments. They aren't paid on their own."* (`POOL_LEGS_NETTED_NOTE`).
 
 - **Finish & report / Settle up preview:** open pool payments are listed under **Paid separately**, with *"These stay as they are and are paid on their own. They aren't combined with the amounts above."* When nobody gets or pays anything from the pool itself, it says *"Nothing to pay out of the budget"* instead of *"Nobody owes anybody anything"*. Closing a cycle doesn't list them, because no money moves then.
 - **Settlement Review and Settlements lists:** after settle-up these list the pool payments next to the plan's own (Pool payments shows only while the event is active). Each pool payment is labelled (*Repayment (spend not approved)*, *Reimbursement*, *Leaving settlement*, *Cycle refund*) with "paid on its own", or "already paid" in Review. Above the rows: *"Pool payments (reimbursements and repayments) are paid on their own. They aren't combined with the other payments."*
@@ -1171,7 +1216,7 @@ The final settle-up already finds the fewest payments across everyone's balances
 
 ## 12. "Several of us" is a Pro feature (Phase 2)
 
-**Status:** Decided 2026-11-15. Built in Phase 2, together with §9.3 and §11. Like netting (§11), it's **required before "Several of us" is released in production** (`CONTRIBUTOR_POOLS_IN_PRODUCTION`). It also includes updating every place that lists Pro features (§12.4), so users see accurate information when the release ships.
+**Status:** Decided 2026-11-15. **Built** on branch `feature/money-pooling-enhancements-phase2` (2026-11-18), together with §9.3 and §11, as required before "Several of us" is released in production (`CONTRIBUTOR_POOLS_IN_PRODUCTION`). The in-app Pro lists are updated, shown only where the feature is released. The store, RevenueCat and user-guide text changes with the release itself (§12.4).
 
 ### 12.1 Decision
 
@@ -1210,9 +1255,11 @@ The final settle-up already finds the fewest payments across everyone's balances
   Choose the text by `feature`, so a free user picking a Kitty isn't told about currencies.
 - **Lapsed is free:** use `hasActivePro` (active or grace period count as Pro; expired and revoked don't), the same rule as the other Pro limits.
 - **Settling up, regenerating, dissolving and cycle closes aren't creation:** don't check Pro on them (rule 3).
-- **Not decided:** a free trial for new subscribers (an introductory offer in App Store Connect and Google Play). It would let people try group pools before paying. Decide before the Phase 2 release.
+- **Free trial: decided (D12) and built.** A 7-day trial for new subscribers lets people try group pools before paying. The store offers are created only after the Phase 2 build is live. The app shows the trial on iOS only when RevenueCat says the account is eligible, and reads Google Play's trial from the default option. Store setup and testing: [plan §10A](MONEY_POOLING_PHASE2_PLAN.md).
 
 ### 12.4 Update every place that lists Pro features
+
+**Progress (2026-11-18):** the **In the apps** rows are built. Each list shows group pools only where "Several of us" is released (`contributorPoolsAvailable`), so they change automatically when the switch is turned on. Exception: the static web user guide, which is edited in the release commit. The **Project docs** rows are done. The **Store listings and billing** rows are release steps (plan §11).
 
 These change **in the Phase 2 release, at the same time as the switch is turned on**, not before. Store listings must describe only what the shipped build does, so update the store text in the same submission as the build. While updating, make the lists agree with each other; today they don't (see the notes in the table).
 

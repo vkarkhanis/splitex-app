@@ -211,7 +211,7 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 9.4 | Mobile event detail | ✅ Supported | Summary cards, expense list, settlement cards with dual currency, pay/approve actions, groups |
 | 9.5 | Mobile create expense | ✅ Supported | Full form with entity selection, split calculation, "On Behalf Of" toggle + selector |
 | 9.6 | Mobile create event | ✅ Supported | Event form with settlement currency, FX rate mode, predefined rate input; Pro tier gating |
-| 9.7 | Free/Pro monetization tiers | ✅ Supported | Server-authoritative entitlement + capability model; local/internal testing controls enabled by env |
+| 9.7 | Free/Pro monetization tiers | ✅ Supported | Server-authoritative entitlement + capability model (`multiCurrencySettlement`, `contributorPools`); local/internal testing controls enabled by env |
 | 9.8 | Push notifications | ❌ Not Currently Supported | — |
 | 9.9 | Offline support | ❌ Not Currently Supported | — |
 | 9.10 | Camera for receipt capture | ✅ Supported | Take photo / choose photo on the expense form |
@@ -302,7 +302,7 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
 | 15.1 | Shared entitlement model | ✅ Supported | `tier`, `entitlementStatus`, `entitlementSource`, and capability payload in shared contracts |
-| 15.2 | RevenueCat webhook ingestion | ✅ Supported | Idempotent processing and entitlement state mapping in API. Pro ends on `EXPIRATION` (or a `CANCELLATION` whose expiry has passed, i.e. a refund); turning off auto-renew, a scheduled pause, or a store grace period keeps Pro until then. Every Pro limit (event cap, multi-currency) uses paid-up Pro: tier `pro` with status `active` or `grace_period` |
+| 15.2 | RevenueCat webhook ingestion | ✅ Supported | Idempotent processing and entitlement state mapping in API. Pro ends on `EXPIRATION` (or a `CANCELLATION` whose expiry has passed, i.e. a refund); turning off auto-renew, a scheduled pause, or a store grace period keeps Pro until then. Every Pro limit (event cap, multi-currency, group pools) uses paid-up Pro: tier `pro` with status `active` or `grace_period` |
 | 15.3 | Internal entitlement switch route | ✅ Supported | Non-prod only; gated by env flag and tester checks |
 | 15.4 | WebSocket tier update broadcast | ✅ Supported | API emits `user:tier-updated`; web refreshes profile/capabilities live |
 | 15.5 | Local tier switching (mobile + web) | ✅ Supported | Enabled only with local/internal feature flags |
@@ -318,13 +318,13 @@ Pooling is an additional **funding model**: money is collected first and expense
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 16.1 | Funding choice at event creation | ✅ Supported | Split expenses (default) or Pool money → Several of us / Just me. **First release:** production shows only *Just me*; *Several of us* stays visible in local and staging (including a release build switched to Staging) until `CONTRIBUTOR_POOLS_IN_PRODUCTION` in `libraries/shared/src/pool-ui.ts` is set to `true`. The API supports both |
+| 16.1 | Funding choice at event creation | ✅ Supported | Split expenses (default) or Pool money → Several of us / Just me. **First release:** production shows only *Just me*; *Several of us* stays visible in local and staging (including a release build switched to Staging) until `CONTRIBUTOR_POOLS_IN_PRODUCTION` in `libraries/shared/src/pool-ui.ts` is set to `true`. The API supports both. **Pro:** *Several of us* needs a Pro creator (16.21); *Just me* is free |
 | 16.2 | Pool presets | ✅ Supported | Kitty (one-off, pro-rata refund), Fund (monthly, carry-forward), Treasury (tiered dues, keep surplus), Collection (target before spending), Budget (single sponsor) |
 | 16.3 | Hybrid events | ✅ Supported | Pool expenses and regular split expenses in one event; one combined settlement plan |
-| 16.4 | Add a pool to an existing event | ✅ Supported | One-way conversion to hybrid; existing expenses unchanged |
+| 16.4 | Add a pool to an existing event | ✅ Supported | One-way conversion to hybrid; existing expenses unchanged. API only (no app screen). A *Several of us* preset needs the person converting to be Pro |
 | 16.5 | Contributions | ✅ Supported | Per-person or tiered amounts; mark paid → custodian confirms; partial payments; waive; proof of payment; custodian's own dues confirm at once |
 | 16.6 | Top-ups | ✅ Supported | Add money any time (e.g. to unpause the pool or pay carried arrears) |
-| 16.7 | Pool expenses | ✅ Supported | "Paid with: Pool funds" — no splits needed, deducts from the pool |
+| 16.7 | Pool expenses | ✅ Supported | "Paid with: Pool funds" — no splits needed, deducts from the pool. Anyone but the custodian picks how they paid: *money I'm holding* (16.18) or *the custodian's card or UPI* (which a budget can switch off), and whether it's already paid or asking first |
 | 16.8 | Reimbursement claims | ✅ Supported | "My money — claim it back" with receipt → approval → settlement leg paid by the custodian, without settling or locking the event |
 | 16.9 | Graduated overdraft | ✅ Supported | Warn down to −20% of the pool, then pause pre-authorised spending until the overdraft is repaid plus more; already-paid expenses are always recorded and flagged |
 | 16.10 | Approvals & spender controls | ✅ Supported | Approval never / above an amount / always; nobody approves their own spending except the custodian (it's their money); sponsor budgets authorise spenders (people or groups) with optional caps; receipts can be mandatory |
@@ -335,6 +335,12 @@ Pooling is an additional **funding model**: money is collected first and expense
 | 16.15 | Real-time updates | ✅ Supported | `pool:updated` socket events refresh the pool tab and dashboard tiles; custodian alerted on flagged expenses |
 | 16.16 | Scheduled (automatic) cycle closing | ❌ Not Currently Supported | Cycles are closed by the custodian/admin; there is no background scheduler |
 | 16.17 | Pool notifications by email/push | ❌ Not Currently Supported | In-app and socket only |
+| 16.18 | Rejected spends owed back | ✅ Supported | A spend already paid on the custodian's card or UPI and then rejected creates a repayment, spender → custodian. Only the custodian or an admin can delete it (design doc §9.2) |
+| 16.19 | Money added by others | ✅ Supported | A top-up from anyone but the custodian is a loan, paid back at close, unless marked a gift (§10) |
+| 16.20 | Handing money to spenders | ✅ Supported | The custodian gives a spender cash (an advance); the spender confirms it. The app derives what each holds, and *With you + With spenders* always equals what's left. Spenders return money (the custodian confirms), or the custodian records money returned. At close, what someone still holds is settled. Optional proof on each (§9.3) |
+| 16.21 | "Several of us" is Pro | ✅ Supported | Kitty, Fund, Treasury and Collection, including hybrid events built on them, need a Pro creator (or converter). Free users get `403 FEATURE_REQUIRES_PRO` with `feature: contributor_pools`, and the apps show a PRO badge. Members join free, and a lapse never blocks an existing pool (§12) |
+| 16.22 | Paying back early | ✅ Supported | The custodian pays back what someone lent before the pool closes; the lender confirms. Allowed while spending is paused, with a warning (§10.6) |
+| 16.23 | Netting at settle-up | ✅ Supported | Unpaid repayments and claims of the cycle being settled are folded into the final payments (fewest payments, including between members). Rows already being paid, earlier cycles and leaving settlements stay separate (§11) |
 
 ---
 
