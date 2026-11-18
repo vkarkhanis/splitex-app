@@ -1,5 +1,6 @@
 import {
   describeSettleUpRow,
+  settleUpFigures,
   settleUpRows,
   ADVANCE_KIND_LABEL,
   advanceStatusText,
@@ -462,3 +463,38 @@ describe('settle-up preview rows (§11.4 step 5)', () => {
     expect(describeSettleUpRow(rows[0], 'INR', 'Kitty')).toEqual({ headline: `gets back ${formatMinor(500, 'INR')}`, detail: null });
   });
 });
+
+describe('settleUpFigures', () => {
+  const base = { openingBalanceMinor: 0, confirmedContributionsMinor: 6000000, poolSpendMinor: 1500000, reimbursementsMinor: 0, preCoverBalanceMinor: 4500000 };
+  const signedTotal = (f: ReturnType<typeof settleUpFigures>) =>
+    f.filter((x) => x.key !== 'result').reduce((sum, x) => sum + x.amountMinor, 0);
+
+  it('lists collected, spent and left over when nothing was carried in or paid back early', () => {
+    expect(settleUpFigures(base)).toEqual([
+      { key: 'collected', label: 'Collected', amountMinor: 6000000 },
+      { key: 'spent', label: 'Spent from the pool', amountMinor: -1500000 },
+      { key: 'result', label: 'Left over', amountMinor: 4500000 },
+    ]);
+  });
+
+  it('shows money paid back early, so the figures add up (Phase 2 test plan, Scenario 3)', () => {
+    const f = settleUpFigures({ openingBalanceMinor: 0, confirmedContributionsMinor: 2050000, earlyRepaymentsMinor: 400000, poolSpendMinor: 1600000, reimbursementsMinor: 0, preCoverBalanceMinor: 50000 });
+    expect(f.map((x) => [x.label, x.amountMinor])).toEqual([
+      ['Collected', 2050000], ['Paid back early', -400000], ['Spent from the pool', -1600000], ['Left over', 50000],
+    ]);
+    expect(signedTotal(f)).toBe(50000);
+  });
+
+  it('shows what was carried in, counts claims paid as spending, and says when the pool is short', () => {
+    const f = settleUpFigures({ openingBalanceMinor: 700000, confirmedContributionsMinor: 1000000, poolSpendMinor: 1500000, reimbursementsMinor: 400000, preCoverBalanceMinor: -200000 });
+    expect(f.map((x) => [x.key, x.amountMinor])).toEqual([['carried_in', 700000], ['collected', 1000000], ['spent', -1900000], ['result', 200000]]);
+    expect(f.at(-1)!.label).toBe('Short by');
+    expect(signedTotal(f)).toBe(-200000);
+  });
+
+  it('treats a missing or zero early repayment (older servers) as none', () => {
+    expect(settleUpFigures({ ...base, earlyRepaymentsMinor: 0 }).map((x) => x.key)).toEqual(['collected', 'spent', 'result']);
+    expect(settleUpFigures({ ...base, earlyRepaymentsMinor: undefined }).map((x) => x.key)).toEqual(['collected', 'spent', 'result']);
+  });
+});
+

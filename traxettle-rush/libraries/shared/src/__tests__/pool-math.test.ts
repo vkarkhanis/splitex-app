@@ -11,6 +11,7 @@ import {
   nextOverdraftLatch,
   outstandingLoans,
   reconcileCycle,
+  settleUpFigures,
   splitForMembershipChange,
 } from '../index';
 import type { AdvanceLike, ContributionLike, DrawLike, HoldingDrawLike, PoolConfig, PoolCycleTotals, ReconcileInput } from '../index';
@@ -1008,6 +1009,15 @@ describe('reconcileCycle — early repayments (§10.6)', () => {
   it('owes the lender nothing once the loan is fully paid back', () => {
     const r = anita({ repayments: [{ entityKey: 'user:priya', amountMinor: 1000000 }] });
     expect(r.settlementBalances).toEqual({});
+  });
+
+  it('the preview figures add up to what is left, with the early repayment shown', () => {
+    const r = anita({ repayments: [{ entityKey: 'user:priya', amountMinor: 400000 }] });
+    const figures = settleUpFigures(r);
+    expect(figures.find((f) => f.key === 'paid_back_early')!.amountMinor).toBe(-400000);
+    const shown = figures.filter((f) => f.key !== 'result').reduce((sum, f) => sum + f.amountMinor, 0);
+    expect(shown).toBe(r.preCoverBalanceMinor);
+    expect(figures.at(-1)).toEqual({ key: 'result', label: 'Left over', amountMinor: r.preCoverBalanceMinor });
   });
 
   it('agrees with computeCycleTotals on the closing balance', () => {

@@ -154,5 +154,23 @@ describe('PoolScreen — Phase 2', () => {
     expect(byId('reconcile-submit').props.disabled).toBe(true);
     expect(textOf(byId('reconcile-row-user:ravi'))).toMatch(/Ravi: gets back ₹4,400\.00.*less ₹600\.00 for Snacks \(repayment\)/);
     expect(textOf(byId('reconcile-folded'))).toMatch(/Ravi → You: ₹600\.00 · Repayment \(spend not approved\) · Snacks/);
+    expect(textOf(byId('reconcile-figures'))).toBe('Collected ₹90,000.00 · spent from the pool ₹15,000.00');
+    expect(textOf(byId('reconcile-figure-result'))).toBe('Left over ₹75,000.00');
+  });
+
+  it('shows money paid back early and money carried in, so the figures add up', async () => {
+    mockPool.previewClose.mockResolvedValue({
+      openingBalanceMinor: 700000, confirmedContributionsMinor: 2050000, earlyRepaymentsMinor: 400000, poolSpendMinor: 1600000, reimbursementsMinor: 0,
+      preCoverBalanceMinor: 750000, closingBalanceMinor: 750000, uncoveredDeficitMinor: 0, coverNeededMinor: 0, overdraftCoverMinor: 0,
+      outcome: 'surplus', shareBasis: 'custodian', disposition: 'settle', entityShares: [], pendingDraws: 0, cycleId: 'c1',
+      settlementBalances: {}, folded: [], separate: [],
+    });
+    await mount('anita');
+    await act(async () => { byId('pool-settle-up').props.onPress(); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(textOf(byId('reconcile-figures'))).toBe(
+      'Carried in ₹7,000.00 · collected ₹20,500.00 · paid back early ₹4,000.00 · spent from the pool ₹16,000.00',
+    );
+    expect(textOf(byId('reconcile-figure-result'))).toBe('Left over ₹7,500.00');
   });
 });

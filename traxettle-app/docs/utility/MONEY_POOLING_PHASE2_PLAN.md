@@ -879,4 +879,15 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
 - **Pro and tier docs:**
   - Functional.md: 9.7, 15.2, 16.1, 16.4 and 16.7 updated, plus new rows 16.18–16.23. Phase 1's repayments and loans weren't listed either, so they're added too.
   - TIER_ENTITLEMENT_ENV_MATRIX.md, PRO_FREE_IMPLEMENTATION_CHECKLIST.md, and DESIGN_DOCUMENT.md §16.2–16.3.
-- **Found while writing the test plan: the settle-up preview has no row for money paid back early.** "Collected" includes the loan, and "Left over" subtracts the repayment, so the figures don't add up on screen. The API already returns `earlyRepaymentsMinor`. It's listed as watch item 1 in the Phase 2 test plan; not fixed.
+- **Found while writing the test plan: the settle-up preview has no row for money paid back early.** "Collected" includes the loan, and "Left over" subtracts the repayment, so the figures don't add up on screen. The API already returns `earlyRepaymentsMinor`. It was listed as watch item 1 in the Phase 2 test plan, then fixed the same day (below).
+
+**Follow-up fix (2026-11-18): the settle-up figures add up**
+- **New shared helper `settleUpFigures`** (`pool-ui.ts`) returns the preview's figures in an order that adds up: carried in, collected, **paid back early**, spent from the pool, then left over or short by. "Carried in" and "Paid back early" appear only when they aren't zero. An older server sends no `earlyRepaymentsMinor`, which counts as none.
+- **Web** renders the rows from it (test ids `reconcile-figure-*`). **Mobile** builds its one-line summary from it. That also adds *carried in*, which mobile had never shown: a Fund's second month didn't add up on mobile either.
+- **Tests (shared 248, web 116, mobile 154):**
+  - examples, plus a check against a real `reconcileCycle` result with an early repayment;
+  - a web settle-up preview;
+  - a mobile preview with both new rows.
+
+  Checked in a browser against a local API: Collected ₹14,000 · Paid back early −₹4,000 · Spent −₹9,000 · Left over ₹1,000.
+

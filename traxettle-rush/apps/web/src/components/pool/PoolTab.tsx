@@ -38,6 +38,7 @@ import {
   poolLegLabel,
   reimbursementStatus,
   repaymentStatus,
+  settleUpFigures,
   settleUpRows,
   toMinor,
 } from '@traxettle/shared';
@@ -1040,10 +1041,13 @@ function ReconcileModal(props: {
             )}
             <Table>
               <tbody>
-                {preview.openingBalanceMinor !== 0 && <tr><td>Carried in</td><td>{money(preview.openingBalanceMinor)}</td></tr>}
-                <tr><td>Collected</td><td>{money(preview.confirmedContributionsMinor)}</td></tr>
-                <tr><td>Spent from the pool</td><td>{money(-(preview.poolSpendMinor + preview.reimbursementsMinor))}</td></tr>
-                <tr><td><strong>{preview.preCoverBalanceMinor >= 0 ? 'Left over' : 'Short by'}</strong></td><td><strong>{money(Math.abs(preview.preCoverBalanceMinor))}</strong></td></tr>
+                {settleUpFigures(preview).map((f) => (
+                  <tr key={f.key} data-testid={`reconcile-figure-${f.key}`}>
+                    {f.key === 'result'
+                      ? <><td><strong>{f.label}</strong></td><td><strong>{money(f.amountMinor)}</strong></td></>
+                      : <><td>{f.label}</td><td>{money(f.amountMinor)}</td></>}
+                  </tr>
+                ))}
               </tbody>
             </Table>
 

@@ -158,6 +158,46 @@ export function advanceStatusText(
   }
 }
 
+// ── Settle-up preview: the pool's own figures ─────────────────────────────
+
+export interface SettleUpFigure {
+  key: 'carried_in' | 'collected' | 'paid_back_early' | 'spent' | 'result';
+  label: string;
+  /** Money out of the pool is negative. The last row (`result`) is unsigned: its label says which way. */
+  amountMinor: number;
+}
+
+/**
+ * The figures at the top of a settle-up or cycle-close preview, in an order that adds up on screen:
+ * carried in + collected − paid back early − spent = left over (or short by).
+ * "Carried in" and "Paid back early" appear only when they aren't zero. Money paid back early (§10.6)
+ * is counted in "Collected" when it came in, so without its own row the figures wouldn't add up.
+ * A server from before Phase 2 sends no `earlyRepaymentsMinor`, which counts as none.
+ */
+export function settleUpFigures(preview: {
+  openingBalanceMinor: number;
+  confirmedContributionsMinor: number;
+  earlyRepaymentsMinor?: number;
+  poolSpendMinor: number;
+  reimbursementsMinor: number;
+  preCoverBalanceMinor: number;
+}): SettleUpFigure[] {
+  const figures: SettleUpFigure[] = [];
+  if (preview.openingBalanceMinor !== 0) {
+    figures.push({ key: 'carried_in', label: 'Carried in', amountMinor: preview.openingBalanceMinor });
+  }
+  figures.push({ key: 'collected', label: 'Collected', amountMinor: preview.confirmedContributionsMinor });
+  const repaid = preview.earlyRepaymentsMinor || 0;
+  if (repaid > 0) figures.push({ key: 'paid_back_early', label: 'Paid back early', amountMinor: -repaid });
+  figures.push({ key: 'spent', label: 'Spent from the pool', amountMinor: -(preview.poolSpendMinor + preview.reimbursementsMinor) });
+  figures.push({
+    key: 'result',
+    label: preview.preCoverBalanceMinor >= 0 ? 'Left over' : 'Short by',
+    amountMinor: Math.abs(preview.preCoverBalanceMinor),
+  });
+  return figures;
+}
+
 // ── Settle-up preview: pool payments folded into the final settlement (§11) ──
 
 export interface SettleUpRow {

@@ -332,6 +332,24 @@ describe('PoolTab — paying a lender back early (§10.6)', () => {
     await click(q('pay-back-bob'));
     expect(q('handover-warning')!.textContent).toBe("Spending is paused. Paying Bob ₹10,000.00 now means you'll need to add ₹30,000.01 before anyone can spend again.");
   });
+
+  it('shows money paid back early in the settle-up figures, so they add up', async () => {
+    mockApi.post.mockResolvedValue({
+      success: true,
+      data: {
+        openingBalanceMinor: 0, confirmedContributionsMinor: 2050000, earlyRepaymentsMinor: 400000, poolSpendMinor: 1600000, reimbursementsMinor: 0,
+        preCoverBalanceMinor: 50000, closingBalanceMinor: 50000, uncoveredDeficitMinor: 0, coverNeededMinor: 0, overdraftCoverMinor: 0,
+        outcome: 'surplus', shareBasis: 'custodian', disposition: 'settle', entityShares: [],
+        settlementBalances: {}, pendingDraws: 0, cycleId: 'c1', folded: [], separate: [],
+      },
+    });
+    await mount(ALICE, weddingLedger({ held: 0 }));
+    await click(q('pool-settle-up'));
+    expect(q('reconcile-figure-collected')!.textContent).toMatch(/Collected.*₹20,500\.00/);
+    expect(q('reconcile-figure-paid_back_early')!.textContent).toMatch(/Paid back early.*₹4,000\.00/);
+    expect(q('reconcile-figure-spent')!.textContent).toMatch(/Spent from the pool.*₹16,000\.00/);
+    expect(q('reconcile-figure-result')!.textContent).toBe('Left over₹500.00');
+  });
 });
 
 describe('PoolTab — a spender holding money (§9.3)', () => {

@@ -224,7 +224,7 @@ so far, and money paid back early comes off it (design doc §0).
 | 3.8 | Ravi | Add expense: Anita's card or UPI, **asking first**, "Lamps", ₹500, with a receipt. | Refused: spending is paused. |
 | 3.9 | Anita | **Add money** ₹6,000. | Still paused: the balance has to go **above** zero. | ₹0 |
 | 3.10 | Anita | **Add money** ₹500. | Spending resumes. | ₹500 |
-| 3.11 | Anita | **Finish & report**, then **Settle up**. | Left over **₹500**. Nobody is paid anything: Ravi's loan is fully paid back. The event is **Settled**. See [watch item 1](#watch-list) about the figures above it. |
+| 3.11 | Anita | **Finish & report**, then **Settle up**. | The figures add up: Collected **₹20,500**, Paid back early **−₹4,000**, Spent from the pool **−₹16,000**, Left over **₹500**. Nobody is paid anything: Ravi's loan is fully paid back. The event is **Settled**. |
 
 ---
 
@@ -278,7 +278,7 @@ the event screen.
 | Spender's button | **Return money** |
 | Give / return / pay back | One sheet for all three, with amount, note and optional proof |
 | Lender line | *Ravi lent the budget money: ₹10,000.00 still to pay back.* with **Pay back now** |
-| Settle-up sheet | *Ravi: gets back ₹6,400.00*, with the breakdown under it. Then **Included in the final settlement**: *Ravi → You: ₹600.00 · Repayment (spend not approved) · Band* |
+| Settle-up sheet | The figures on one line (*Collected ₹60,000.00 · spent from the pool ₹15,000.00*, plus *carried in* or *paid back early* when there are any), then *Left over …* in bold. *Ravi: gets back ₹6,400.00*, with the breakdown under it. Then **Included in the final settlement**: *Ravi → You: ₹600.00 · Repayment (spend not approved) · Band* |
 | A hand-over still waiting at settle-up | *1 hand-over is waiting for confirmation…*, and the button is disabled |
 | Netted rows in Review and Settlements | Greyed out, labelled *included in the payments above*, and left out of the counter |
 | Create event, free user | **PRO** on "Several of us", and a notice with **Upgrade to Pro** |
@@ -290,21 +290,17 @@ the event screen.
 Behaviours the current build is expected to show. They aren't failures, but decide whether you want each
 one changed before release.
 
-1. **The settle-up figures don't show money paid back early.** In Scenario 3, the preview shows Collected
-   ₹20,500, Spent −₹16,000 and Left over ₹500. The ₹4,000 paid back early is subtracted from Left over but
-   has no row of its own, so the three figures don't add up on screen. The API already sends the amount
-   (`earlyRepaymentsMinor`); the fix is a *Paid back early* row on web and mobile.
-2. **Cash swapped between spenders without a record.** The pool total stays right, but each spender's
+1. **Cash swapped between spenders without a record.** The pool total stays right, but each spender's
    close-out isn't: one is asked to return money they no longer hold, and the other is paid for spending
    beyond what they held. They settle the difference between themselves (design doc §9.3, decisions).
-3. **Notifications don't show the netting breakdown** (decision D11). Ravi was told "you owe ₹600" when
+2. **Notifications don't show the netting breakdown** (decision D11). Ravi was told "you owe ₹600" when
    Band was rejected. The ₹6,400 payment's notification doesn't mention the ₹600; the preview and the
    Review list do.
-4. **Older installed apps show a netted row as "To pay".** Tapping pay is refused (*This payment is
+3. **Older installed apps show a netted row as "To pay".** Tapping pay is refused (*This payment is
    included in the final settlement*). Updating the app fixes the label.
-5. **A close that only has a repayment open now goes to Review.** Everyone has to approve, so one person
+4. **A close that only has a repayment open now goes to Review.** Everyone has to approve, so one person
    who never approves blocks it (Scenario 2, step 4.7). That was accepted in design doc §11.5.
-6. **The free trial can't be tested yet.** It needs the store offers, which are created only after the
+5. **The free trial can't be tested yet.** It needs the store offers, which are created only after the
    Phase 2 build is live. Use the release-day checks in [plan §10A.5](../utility/MONEY_POOLING_PHASE2_PLAN.md).
 
 ---
@@ -327,6 +323,7 @@ one changed before release.
 | ☐ | Payments can go between members, not only through the custodian | S2 3.8 |
 | ☐ | Paying back early: the amount is filled in, the pause warnings are right, and it's allowed while paused | S3 3.2, 3.6 |
 | ☐ | Paying back early lowers the overdraft limit, and spending resumes only once the balance is above it | S3 3.5, 3.9–3.10 |
+| ☐ | The settle-up figures show money paid back early (and carried in) and add up | S3 3.11 · S5 5.8 |
 | ☐ | A free user sees PRO on "Several of us" and is refused; "Just me" and split events stay free | S4 4.1–4.5 |
 | ☐ | The refusal names group pools, not multi-currency | S4 4.3 |
 | ☐ | Pro lists show Group pools on local and staging builds | S4 4.4 · mobile note |

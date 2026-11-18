@@ -35,6 +35,7 @@ import {
   REPAYMENT_STATUS,
   reimbursementStatus,
   repaymentStatus,
+  settleUpFigures,
   settleUpRows,
   toMinor,
 } from '@traxettle/shared';
@@ -800,10 +801,22 @@ function ReconcileSheet(props: {
               {props.waitingHandOvers} hand-over{props.waitingHandOvers === 1 ? ' is' : 's are'} waiting for confirmation. Confirm, reject or cancel {props.waitingHandOvers === 1 ? 'it' : 'them'} first.
             </Text>
           )}
-          <Text style={{ color: colors.text }}>Collected {money(preview.confirmedContributionsMinor)} · spent {money(preview.poolSpendMinor + preview.reimbursementsMinor)}</Text>
-          <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.xs }}>
-            {preview.preCoverBalanceMinor >= 0 ? `Left over ${money(preview.preCoverBalanceMinor)}` : `Short by ${money(-preview.preCoverBalanceMinor)}`}
-          </Text>
+          {(() => {
+            // The same figures as web, in an order that adds up (shared settleUpFigures).
+            const figures = settleUpFigures(preview);
+            const result = figures[figures.length - 1];
+            const line = figures.slice(0, -1)
+              .map((f, i) => `${i === 0 ? f.label : f.label.toLowerCase()} ${money(f.key === 'carried_in' ? f.amountMinor : Math.abs(f.amountMinor))}`)
+              .join(' · ');
+            return (
+              <>
+                <Text testID="reconcile-figures" style={{ color: colors.text }}>{line}</Text>
+                <Text testID="reconcile-figure-result" style={{ color: colors.text, fontWeight: '700', marginTop: spacing.xs }}>
+                  {result.label} {money(result.amountMinor)}
+                </Text>
+              </>
+            );
+          })()}
           {preview.coverNeededMinor > 0 && (
             <Text style={{ color: colors.textSecondary, marginTop: spacing.xs }}>The custodian is recorded as covering the {money(preview.coverNeededMinor)} shortfall (change it on the web if someone else did).</Text>
           )}
