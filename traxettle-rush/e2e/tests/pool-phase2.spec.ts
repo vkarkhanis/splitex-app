@@ -7,7 +7,7 @@
  */
 import { test, expect, Page } from '@playwright/test';
 import { loginAsMockUser } from '../helpers/auth';
-import { apiRequestWithStatus } from '../helpers/api';
+import { apiRequestWithStatus, switchTier } from '../helpers/api';
 import * as pool from '../helpers/pool';
 
 test.describe.configure({ timeout: 120_000 });
@@ -235,6 +235,156 @@ test.describe('Money pooling Phase 2', () => {
     await page.reload();
     await page.getByTestId('tab-expenses').click();
     await expect(page.getByTestId(`repayment-badge-${dj.id}`)).toHaveText('Repaid');
+  });
+
+  test('Scenario 5: a Fund carries held money into the next month, and keeps working after the creator\'s Pro lapses', async ({ page }) => {
+    const p = await pool.cast('s5', { anitaPro: true });
+    const eventId = await pool.createPool(p.anita, 'Flat 4B', { preset: 'household', defaultContributionMinor: 500_000 });
+    await pool.join(eventId, p.anita, p.ravi);
+    for (const uid of [p.anita, p.ravi]) await pool.payIn(eventId, p.anita, uid);
+    const groceries = await pool.spend(eventId, p.ravi, 'Groceries', 2_000, { paidFrom: 'sponsor_card', alreadyIncurred: true });
+    expect(groceries.poolDraw.status).toBe('approved');
+    const advance = await pool.handOver(eventId, p.anita, { kind: 'advance', userId: p.ravi, amountMinor: 100_000 });
+    await pool.decideAdvance(advance.id, p.ravi, 'confirm');
+
+    await openPool(page, p.anita, eventId);
+    await expect(page.getByTestId('pool-holdings')).toHaveText('With you ₹7,000.00 · With spenders ₹1,000.00');
+
+    // The creator's Pro lapses: spending and closing the month still work.
+    expect((await switchTier(p.anita, 'free')).status).toBe(200);
+    const electricity = await pool.spend(eventId, p.ravi, 'Electricity', 1_000, { paidFrom: 'sponsor_card', alreadyIncurred: true });
+    expect(electricity.poolDraw.status).toBe('approved');
+    await openPool(page, p.anita, eventId);
+    await page.getByTestId('pool-close-cycle').click();
+    await expect(page.getByTestId('reconcile-figure-result')).toHaveText('Left over₹7,000.00');
+    await settleUp(page);
+
+    // A new month: Ravi still holds the ₹1,000.
+    await openPool(page, p.ravi, eventId);
+    await expect(page.getByTestId('pool-holdings')).toHaveText("You're holding ₹1,000.00 of the fund's money.");
+    for (const uid of [p.anita, p.ravi]) await pool.payIn(eventId, p.anita, uid);
+
+    // Only new group pools need Pro.
+    const kitty = await apiRequestWithStatus('POST', '/api/events', {
+      name: 'New kitty', type: 'trip', startDate: '2026-12-01', currency: 'INR', pool: { preset: 'trip_kitty', defaultContributionMinor: 100_000 },
+    }, p.anita);
+    expect(kitty.body.code).toBe('FEATURE_REQUIRES_PRO');
+
+    await openPool(page, p.anita, eventId);
+    await openSettleUp(page);
+    await expect(page.getByTestId('reconcile-figure-carried_in')).toContainText('₹7,000.00');
+    await expect(page.getByTestId('reconcile-figure-collected')).toContainText('₹10,000.00');
+    await expect(page.getByTestId('reconcile-figure-result')).toHaveText('Left over₹17,000.00');
+    await expect(page.getByTestId(`reconcile-row-user:${p.ravi}`)).toContainText('gets back ₹7,500.00');
+    await expect(page.getByTestId(`reconcile-row-user:${p.anita}`)).toContainText('pays ₹7,500.00');
+    await settleUp(page);
+    const legs = await pool.settlements(eventId, p.anita);
+    expect(planLegs(legs)).toEqual([[p.anita, p.ravi, 7500]]);
+    for (const uid of [p.anita, p.ravi]) await pool.approveReview(eventId, uid);
+    await pool.payAndConfirm(legs.find((l) => !l.kind).id, p.anita, p.ravi);
+    expect((await pool.event(eventId, p.anita)).status).toBe('settled');
+  });
+
+  test('Scenario 6: budget edge cases, and every kind of pool payment at settle-up', async ({ page }) => {
+    const p = await pool.cast('s6');
+    const eventId = await pool.createPool(p.anita, 'Sangeet', {
+      preset: 'sponsor_budget', targetAmountMinor: 3_000_000, overrides: { authorizedSpenders: [p.ravi] },
+    });
+    await pool.join(eventId, p.anita, p.ravi);
+    await pool.join(eventId, p.anita, p.priya);
+    const removeRavi = () => apiRequestWithStatus('DELETE', `/api/events/${eventId}/participants/${p.ravi}`, undefined, p.anita);
+
+    // A. A waiting hand-over can be cancelled; someone holding money can't be removed.
+    const first = await pool.handOver(eventId, p.anita, { kind: 'advance', userId: p.ravi, amountMinor: 500_000 });
+    await openPool(page, p.anita, eventId);
+    await page.getByTestId(`advance-cancel-${first.id}`).click();
+    await expect(page.getByTestId(`advance-${first.id}`)).toContainText('Cancelled');
+    await expect(page.getByTestId('pool-holdings')).toHaveText('With you ₹30,000.00 · With spenders ₹0.00');
+    const second = await pool.handOver(eventId, p.anita, { kind: 'advance', userId: p.ravi, amountMinor: 500_000 });
+    await pool.decideAdvance(second.id, p.ravi, 'confirm');
+    expect((await removeRavi()).body.error).toBe('This person still holds ₹5,000.00 of pool money. It needs to be returned first.');
+
+    // B. Spending beyond what he holds; then changing how it was paid.
+    const lights = await pool.spend(eventId, p.ravi, 'Lights', 6_000, { paidFrom: 'advance', alreadyIncurred: true });
+    await pool.approveDraw(lights.id, p.anita);
+    await openPool(page, p.ravi, eventId);
+    await expect(page.getByTestId('pool-holdings')).toHaveText('The budget owes you ₹1,000.00 for spends beyond the money you held.');
+    await openPool(page, p.anita, eventId);
+    await expect(page.getByTestId('pool-holdings')).toHaveText(/^With you ₹25,000\.00 · With spenders [−-]₹1,000\.00$/);
+    expect((await removeRavi()).body.error).toBe('The pool owes this person ₹1,000.00 for spends beyond the money they held. Give them that amount first.');
+
+    await pool.call('PUT', `/api/expenses/${lights.id}`, p.ravi, { paidFrom: 'sponsor_card' });
+    let s = await pool.summary(eventId, p.anita);
+    expect(s.totals.balanceMinor).toBe(3_000_000);
+    expect(s.holdings.heldBy[`user:${p.ravi}`]).toBe(500_000);
+    await pool.approveDraw(lights.id, p.anita);
+    s = await pool.summary(eventId, p.anita);
+    expect([s.totals.balanceMinor, s.holdings.heldBy[`user:${p.ravi}`]]).toEqual([2_400_000, 500_000]);
+    const back = await pool.handOver(eventId, p.ravi, { kind: 'return', amountMinor: 500_000 });
+    await pool.decideAdvance(back.id, p.anita, 'confirm');
+
+    // C. A loan (paying back too much is refused), a claim, a repayment being paid, and one not.
+    await pool.addMoney(eventId, p.anita, p.ravi, 200_000);
+    await openPool(page, p.anita, eventId);
+    await page.getByTestId(`pay-back-${p.ravi}`).click();
+    await page.getByTestId('handover-amount').fill('2500');
+    await expect(page.getByTestId('handover-too-much')).toHaveText("That's more than ₹2,000.00.");
+    await expect(page.getByTestId('handover-submit')).toBeDisabled();
+    const taxi = await pool.call('POST', '/api/expenses', p.ravi, {
+      eventId, title: 'Taxi', amount: 800, currency: 'INR', fundingSource: 'pool_reimbursement', attachments: ['https://receipts.example/e2e.jpg'],
+    });
+    await pool.approveDraw(taxi.id, p.anita);
+    const snacks = await pool.spend(eventId, p.ravi, 'Snacks', 400, { paidFrom: 'sponsor_card', alreadyIncurred: true });
+    const snacksLeg = (await pool.rejectDraw(snacks.id, p.anita)).poolDraw.settlementId;
+    await pool.call('POST', `/api/settlements/${snacksLeg}/pay`, p.ravi, { referenceId: 'UPI-E2E', note: 'paid' });
+    const cake = await pool.spend(eventId, p.ravi, 'Cake', 300, { paidFrom: 'sponsor_card', alreadyIncurred: true });
+    await pool.rejectDraw(cake.id, p.anita);
+
+    // D. Settle up.
+    await openPool(page, p.anita, eventId);
+    await openSettleUp(page);
+    await expect(page.getByTestId('reconcile-figure-collected')).toContainText('₹32,000.00');
+    await expect(page.getByTestId('reconcile-figure-spent')).toContainText('₹6,800.00');
+    await expect(page.getByTestId('reconcile-figure-result')).toHaveText('Left over₹25,200.00');
+    const ravi = page.getByTestId(`reconcile-row-user:${p.ravi}`);
+    for (const text of ['₹2,000.00 from the budget', 'plus ₹800.00 for Taxi (claim)', 'less ₹300.00 for Cake (repayment)', 'gets back ₹2,500.00']) {
+      await expect(ravi).toContainText(text);
+    }
+    await expect(page.getByTestId(`reconcile-row-user:${p.anita}`)).toContainText('pays ₹2,500.00');
+    await expect(page.getByTestId('reconcile-folded')).toContainText('You → Ravi · Reimbursement · Taxi');
+    await expect(page.getByTestId('reconcile-folded')).toContainText('Ravi → You · Repayment (spend not approved) · Cake');
+    await expect(page.getByTestId('reconcile-separate')).toContainText('Ravi → You · Repayment (spend not approved) · sent, awaiting confirmation');
+    await settleUp(page);
+    let legs = await pool.settlements(eventId, p.anita);
+    expect(planLegs(legs)).toEqual([[p.anita, p.ravi, 2500]]);
+
+    await page.reload();
+    await page.getByTestId('settlement-details-btn').click();
+    await expect(page.getByText('Total:').locator('..')).toContainText('₹2900.00');
+    await page.keyboard.press('Escape');
+
+    // Forgiving Cake during Review un-folds it and asks for the plan to be regenerated.
+    await pool.call('DELETE', `/api/expenses/${cake.id}`, p.anita);
+    await page.reload();
+    await expect(page.getByText('Expenses have changed.')).toBeVisible();
+    await page.getByTestId('regenerate-btn').click();
+    await expect.poll(async () => planLegs(await pool.settlements(eventId, p.anita))).toEqual([[p.anita, p.ravi, 2800]]);
+
+    // Payment: the repayment being paid keeps the event open until it's confirmed.
+    for (const uid of [p.anita, p.ravi, p.priya]) await pool.approveReview(eventId, uid);
+    await page.reload();
+    await expect(page.getByTestId('settlement-section')).toContainText('0/2 complete');
+    legs = await pool.settlements(eventId, p.anita);
+    await pool.payAndConfirm(legs.find((l) => !l.kind).id, p.anita, p.ravi);
+    expect((await pool.event(eventId, p.anita)).status).toBe('payment');
+    await page.reload();
+    await expect(page.getByTestId('settlement-section')).toContainText('1/2 complete');
+    await pool.call('POST', `/api/settlements/${snacksLeg}/approve`, p.anita);
+    expect((await pool.event(eventId, p.anita)).status).toBe('settled');
+    await page.reload();
+    await page.getByTestId('tab-expenses').click();
+    await expect(page.getByTestId(`reimbursement-badge-${taxi.id}`)).toHaveText('Reimbursed');
+    await expect(page.getByTestId(`repayment-badge-${snacks.id}`)).toHaveText('Repaid');
   });
 
   test('A close with only a repayment open goes to Review with one payment (Phase 1 Scenario 4, re-run)', async ({ page }) => {

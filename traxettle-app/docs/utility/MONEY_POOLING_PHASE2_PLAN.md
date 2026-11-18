@@ -900,3 +900,12 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
 - **How:** data is set up through the API with `e2e/helpers/pool.ts`, which sets names so the screens say Anita, Ravi and Priya.
 - **Results:** all four pass, and the full suite gives 78 passed and 1 conditional skip. Hiding the *Paid back early* row made Scenario 3 fail at that check, so the tests do catch regressions.
 
+**Test plan completed and two more browser tests (2026-11-18)**
+- **The Phase 2 test plan now covers everything Phase 2 built.**
+  - Setup: exact steps for testing on another Mac against staging, and why that's safe during App Review.
+  - New Scenario 6 (budget edge cases): cancelling a hand-over, removing someone who holds money, spending beyond what you hold, changing how a spend was paid, paying back too much, an unpaid claim folded in, a repayment being paid kept separate, Settlement Details, and forgiving a spend during Review then regenerating.
+  - Scenario 5 now carries held money into a Fund's next month.
+  - New "Other changes" checks (the session lock), a list of what only automated tests check, a longer mobile pass, and more sign-off rows.
+  - Two steps fixed: *Record money returned* only appears once someone holds money, and on web a free user's Create button is disabled rather than refused on submit.
+- **`pool-phase2.spec.ts` gained Scenarios 5 and 6.** Writing them checked the plan's new expectations: the Settlement Details total shows *₹2900.00* (no thousands separator), and that step is fixed. Six pool tests now run in the browser.
+

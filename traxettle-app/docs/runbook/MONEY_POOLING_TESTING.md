@@ -48,8 +48,8 @@ Typecheck everything:
 **End-to-end (Playwright),** from `e2e/`: `npm test` starts its own API (:3201) and web (:3200).
 It needs Playwright's Chromium (`npm run install:browsers`, about 150 MB). To use an installed Google
 Chrome instead, run with a config that spreads `playwright.config.ts` and sets `channel: 'chrome'` on
-the project. Pooling: `tests/pool-phase2.spec.ts` (hand-overs to one payment, paying back early, netting
-in a kitty and in a budget) and the Pro checks in `tests/tier-entitlements.spec.ts`.
+the project. Pooling: `tests/pool-phase2.spec.ts` (the Phase 2 test plan's Scenarios 1, 3, 5 and 6, and
+Phase 1's Scenarios 3 and 4 with netting) and the Pro checks in `tests/tier-entitlements.spec.ts`.
 
 ---
 

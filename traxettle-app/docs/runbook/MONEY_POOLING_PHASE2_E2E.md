@@ -21,30 +21,94 @@ For the reasons behind these rules, see [MONEY_POOLING_DESIGN.md](../utility/MON
 
 ## 0. Before you start
 
-### Where to run
+### Is it safe to run during App Review?
 
-Run **the branch's own API on your Mac**, as in Phase 1. None of these options touch production.
+Yes, with the setup below. It runs **the branch's own API and web app on your Mac**, connected to the
+**staging** Firebase project. Nothing is deployed.
 
-| Option | Command (from `traxettle-rush/`) | Where the data goes |
-|---|---|---|
-| Web | `bash scripts/local-dev/04_real_web.sh staging` | Staging Firestore |
-| Mobile | `bash scripts/local-dev/03_real_mobile.sh staging` | Staging Firestore |
-| Fully offline | `sh scripts/local-dev/02_emulator_web.sh` | Firebase emulators on this Mac |
+- **App Review is untouched.** Build 1.0.40, which Apple is reviewing, uses the production API and the
+  production Firebase project. These steps never touch either.
+- **The deployed staging API (Cloud Run) is untouched,** so TestFlight builds switched to Staging keep
+  working as they do now.
+- **What gets written, and where.** Test accounts' events, contributions and payments go to staging
+  Firestore, as in Phase 1. So do a new `poolAdvances` collection and a few new optional fields. The
+  deployed staging API ignores them.
+- **No database changes are needed.** Phase 2's new queries are all single equality filters, which
+  Firestore indexes automatically. No Firestore or Storage rules changed.
+- **Don't open these test events in a TestFlight or App Store build switched to Staging.** Those builds
+  use the deployed staging API, which runs older code and doesn't know about hand-overs or netting.
+- **Don't buy anything.** Pro is switched on test accounts with the tier switch (below), and the free
+  trial can't be tested yet (watch item 5).
 
-- **Don't open these test events in the TestFlight or App Store app.** Those apps use the deployed
-  staging API, which doesn't know about hand-overs or netting.
-- Rebuild the shared library after pulling the branch:
-  `node common/scripts/install-run-rush.js build --to @traxettle/shared --to @traxettle/ui`
-  (on Node 25 or later, put `RUSH_ALLOW_UNSUPPORTED_NODEJS=1` in front).
+### Steps on the Mac you test on
 
-### Making someone Pro
+You need the same files as for Phase 1 (the staging service account and Firebase config files). The
+bootstrap step at the start of each script lists anything missing.
 
-"Several of us" pools need a Pro creator. On a local build, switch a test account without buying anything:
+1. **Get the branch**, from the repository root (the folder containing `traxettle-rush/`):
 
-- **Web:** Profile → **Local Tier Switch** → **Pro** (or **Free**). `04_real_web.sh` turns this on.
+   ```bash
+   git fetch origin
+   git checkout feature/money-pooling-enhancements-phase2
+   git pull
+   ```
+
+2. **Install and build**, from `traxettle-rush/`. On Node 25 or later, keep the
+   `RUSH_ALLOW_UNSUPPORTED_NODEJS=1` prefix; on Node 24 it isn't needed.
+
+   ```bash
+   RUSH_ALLOW_UNSUPPORTED_NODEJS=1 node common/scripts/install-run-rush.js install
+   RUSH_ALLOW_UNSUPPORTED_NODEJS=1 node common/scripts/install-run-rush.js build --to @traxettle/shared --to @traxettle/ui
+   ```
+
+   Run the build step again after every pull: the apps read the shared library's built `dist/`.
+
+3. **Optional: the automated suites** (about 3 minutes), from `traxettle-rush/`:
+
+   ```bash
+   (cd libraries/shared && npm test) && (cd apps/api && npm test) && (cd apps/web && npm test) && (cd apps/mobile && npm test)
+   ```
+
+4. **Web: start the API and web app against staging**, from `traxettle-rush/`:
+
+   ```bash
+   bash scripts/local-dev/04_real_web.sh staging
+   ```
+
+   Wait for the web app to report it's ready, then open http://localhost:3000. Leave the terminal
+   running; **Ctrl+C** stops both. This is the setup for Scenarios 1 to 6.
+
+5. **Mobile: one at a time with web.** Both scripts start an API on port 3001, so stop the web script
+   first. Then, from `traxettle-rush/`:
+
+   ```bash
+   bash scripts/local-dev/03_real_mobile.sh staging
+   ```
+
+   This starts the API and Metro. Open the Traxettle debug app you installed for Phase 1 on the
+   simulator: it loads the new code from Metro (Phase 2 added no native libraries). If the app isn't
+   installed, or the script says the environment switched, build it once in a second terminal:
+
+   ```bash
+   cd apps/mobile && npx expo run:ios --no-bundler
+   ```
+
+6. **When you're done:** switch the test accounts back to the plan they should keep. The test events
+   can stay on staging, or you can delete them.
+
+### Accounts and making someone Pro
+
+Use three staging test accounts (the Phase 1 ones are fine): **Anita**, **Ravi** and **Priya**. Set
+each account's display name to match, so the screens read like this plan. On web, use three browser
+profiles, or Chrome, Safari and Firefox: incognito windows share one session.
+
+"Several of us" pools need a Pro creator. Switch a test account without buying anything:
+
+- **Web:** Profile → **Local Tier Switch** → **Pro** (or **Free**). The script turns this on.
 - **Mobile:** Profile → **Internal Tier Switch**.
 
-The switch changes the tier the server uses, the same one a real subscription sets.
+The switch changes the tier the server uses, the same one a real subscription sets. It only changes
+the staging account you're signed in as.
 
 ### The people
 
@@ -54,8 +118,6 @@ The switch changes the tier the server uses, the same one a real subscription se
 | **Ravi** | A spender in the budgets and a member in the pools | Free |
 | **Priya** | A guest in the budgets; tries to create a Kitty in Scenario 4 | Free, then Pro |
 
-On web, use three browser profiles, or Chrome, Safari and Firefox (incognito windows share one session).
-
 ### Good to know
 
 - A **Budget** needs a receipt on every pool expense and every claim. Keep a small image ready.
@@ -64,20 +126,11 @@ On web, use three browser profiles, or Chrome, Safari and Firefox (incognito win
 - All amounts are in INR. People appear as **You** on their own screen.
 - **Balance** is what's left in the pool. Handing money over doesn't change it: it only moves the
   money between **With you** (the custodian) and **With spenders**.
-- Adding a group pool to an existing split-expenses event has no button in the apps, only an API call.
-  The automated tests check that it needs Pro.
-
-### Automated suites first (about 3 minutes)
-
-```bash
-(cd libraries/shared && npm test) && (cd apps/api && npm test) && (cd apps/web && npm test) && (cd apps/mobile && npm test)
-(cd apps/api && npx tsc --noEmit) && (cd apps/web && npx tsc --noEmit) && (cd apps/mobile && npx tsc --noEmit)
-```
-
-The Playwright suite is optional (see [MONEY_POOLING_TESTING.md §2](MONEY_POOLING_TESTING.md#2-automated-tests)).
-`pool-phase2.spec.ts` runs Scenario 1, Scenario 3, and Phase 1's Scenarios 3 and 4 with netting in a
-browser (data set up through the API). `tier-entitlements.spec.ts` covers the Pro refusal and the PRO badge.
-What they don't cover: Scenario 2's Phase 1 Scenario 1 re-run, Scenarios 4 and 5, and the mobile pass.
+- Run the scenarios in order. Each one ends with its event **Settled**.
+- **Already automated** (`e2e/tests/pool-phase2.spec.ts`, run with Playwright): Scenarios 1, 3, 5 and 6,
+  and Phase 1's Scenarios 3 and 4 with netting. Running them by hand is still worth it: the automated
+  tests set up most data through the API and run on web only, while here you click every step, on web
+  and mobile.
 
 ---
 
@@ -97,11 +150,11 @@ and a settle-up that nets all of it into one payment.
 
 | # | Who | Do | Expect | Balance |
 |---|---|---|---|---|
-| A1 | Anita | Open **Budget**. | Buttons **Give money** and **Record money returned**. | ₹50,000 |
+| A1 | Anita | Open the **Budget** tab. | A **Give money** button. **Record money returned** isn't there yet: it appears once a spender holds money (D5). | ₹50,000 |
 | A2 | Anita | Tap **Give money**. | The sheet **Give money to a spender** lists only Ravi (Priya can't spend) and shows *Up to ₹50,000.00*. The hint starts *They confirm once they have it. Moving money between spenders? Record a return from one and an advance to the other…* | |
 | A3 | Anita | Enter **20,000**, note "Cash for decor", attach a photo as proof (optional), tap **Give money**. | Toast **Money handed over**: *Waiting for them to confirm.* The card **Money handed over** lists *Advance · Waiting for Ravi to confirm*, You → Ravi ₹20,000, with **Cancel**. Under the meter: *With you ₹50,000.00 · With spenders ₹0.00 · ₹20,000.00 handed over, waiting to be confirmed*. | ₹50,000 |
 | A4 | Ravi | Open **Budget**. | The same row reads *Waiting for you to confirm*, with **Confirm** and **Not received**. | |
-| A5 | Ravi | Tap **Confirm**. | Toast *Recorded as received.* Ravi sees *You're holding ₹20,000.00 of the budget's money.* | ₹50,000 |
+| A5 | Ravi | Tap **Confirm**. | Toast *Recorded as received.* Ravi sees *You're holding ₹20,000.00 of the budget's money.* and a **Return money** button. The row reads *Confirmed*, with the note and a **proof** link that opens the photo. | ₹50,000 |
 | A6 | Anita | Look at Budget and Spenders. | *With you ₹30,000.00 · With spenders ₹20,000.00*. Spenders has a **Holding** column: Ravi ₹20,000. | ₹50,000 |
 | A7 | Anita | **Give money**, enter **35,000**. | *Up to ₹30,000.00*, a red *That's more than ₹30,000.00.*, and the button is disabled. | |
 | A8 | Anita | Change it to **5,000** and give it. Then, as Ravi, tap **Not received** on it. | The row shows *Not received* and never counts: Ravi still holds ₹20,000. | ₹50,000 |
@@ -236,7 +289,7 @@ so far, and money paid back early comes off it (design doc §0).
 |---|---|---|---|
 | 4.1 | Priya (free) | **Create event → Pool money**. | **Several of us** has a **PRO** badge. **Just me** doesn't. |
 | 4.2 | Priya | Pick **Several of us**. | A notice: *Group pools are a Pro feature. Only you need Pro: everyone you invite joins free.* with **Learn how to get Pro** (web). Mobile shows **Upgrade to Pro**, which opens the upgrade screen. |
-| 4.3 | Priya | Choose **Kitty**, fill in the form and submit. | Refused: *Group pools ("Several of us") are a Pro feature.* No event is created. |
+| 4.3 | Priya | Choose **Kitty** and fill in the rest of the form. | **Web:** **Create Event** stays disabled while "Several of us" is picked. **Mobile:** tapping Create shows **Pro Feature**: *Group pools ("Several of us") are a Pro feature. Only you need Pro: everyone you invite joins free.* with **Not now** and **Upgrade**. No event is created. |
 | 4.4 | Priya | Follow **Learn how to get Pro**. | The Pro page lists **Unlimited events · Multi-currency settlement · Group pools · Analytics (coming soon) · More power-user features**. Help's Pro card shows the same, and its feature list has a pooling line. |
 | 4.5 | Priya | Create a **Just me** budget, and a **Split expenses** event. | Both are created: they're free. |
 | 4.6 | Priya | Switch to **Pro** (see "Making someone Pro"). Open create event again. | No PRO badge or notice. Create "Book club" as a **Kitty**, ₹1,000 each. It's created. |
@@ -251,26 +304,106 @@ pools out of every Pro list until `CONTRIBUTOR_POOLS_IN_PRODUCTION` is turned on
 
 ---
 
-## Scenario 5: The creator's Pro lapses mid-month
+## Scenario 5: A Fund across two months: held money carries over, and the creator's Pro lapses
 
 | # | Who | Do | Expect | Balance |
 |---|---|---|---|---|
 | 5.1 | Anita (Pro) | Create "Flat 4B": **Several of us → Fund**, ₹5,000 per person per month. Invite Ravi. Both pay in; Anita confirms Ravi's. | | ₹10,000 |
-| 5.2 | Ravi | Add a pool expense "Groceries", ₹2,000. | Saved. | ₹8,000 |
-| 5.3 | Anita | Switch to **Free**. | | |
-| 5.4 | Ravi | Add a pool expense "Electricity", ₹1,000. | Still works. | ₹7,000 |
-| 5.5 | Anita | Tap **Close <month>** and confirm. | The cycle closes. A new month opens with ₹7,000 carried (₹3,500 each) and fresh dues of ₹5,000 each. | ₹7,000 |
-| 5.6 | Anita, Ravi | Both pay the new month; Anita confirms Ravi's. | Works on the free plan. | ₹17,000 |
-| 5.7 | Anita | Try to create a new **Kitty**. | **PRO** badge, and creating is refused. Only *new* group pools need Pro. | |
-| 5.8 | Anita | Back in "Flat 4B", tap **Settle up**. | Carried in ₹7,000, Collected ₹10,000, Spent ₹0, Left over ₹17,000. Ravi **gets back ₹8,500.00**; you **pay ₹8,500.00** (you hold the cash; your own ₹8,500 stays with you). | |
-| 5.9 | Everyone | Settle up, approve, pay, confirm. Then switch Anita back to **Pro**. | **Settled**. | |
+| 5.2 | Ravi | Add expense: **Anita's card or UPI**, **already paid**, "Groceries", ₹2,000. | Saved and approved: a Fund doesn't ask for approval. | ₹8,000 |
+| 5.3 | Anita, then Ravi | Anita taps **Give money**: ₹1,000 to Ravi for the cleaner. Ravi confirms. | Anita sees *With you ₹7,000.00 · With spenders ₹1,000.00*. Ravi sees *You're holding ₹1,000.00 of the fund's money.* | ₹8,000 |
+| 5.4 | Anita | Switch to **Free**. | | |
+| 5.5 | Ravi | Add expense: **Anita's card or UPI**, already paid, "Electricity", ₹1,000. | Still works: the lapse doesn't block an existing pool. | ₹7,000 |
+| 5.6 | Anita | Tap **Close <month>** (the button names the month) and confirm. | The cycle closes. A new month opens with ₹7,000 carried (₹3,500 each) and fresh dues of ₹5,000 each. Ravi **still holds ₹1,000**: held money carries over. | ₹7,000 |
+| 5.7 | Anita, Ravi | Both pay the new month; Anita confirms Ravi's. | Works on the free plan. | ₹17,000 |
+| 5.8 | Anita | Try to create a new **Kitty**. | **PRO** badge, and Create stays disabled. Only *new* group pools need Pro. | |
+| 5.9 | Anita | Back in "Flat 4B", tap **Settle up**. | Carried in ₹7,000, Collected ₹10,000, Spent from the pool ₹0, Left over ₹17,000. Ravi **gets back ₹7,500.00**: his ₹8,500 share less the ₹1,000 he holds. You **pay ₹7,500.00**. | |
+| 5.10 | Everyone | Settle up, approve, pay, confirm. Then switch Anita back to **Pro**. | **Settled**. | |
+
+**Why these numbers (5.9):** month one spent ₹3,000, so each of you carried ₹5,000 − ₹1,500 = ₹3,500.
+Month two adds ₹5,000 each with no spending, so each share is ₹8,500. Anita holds ₹16,000 of the cash and
+Ravi ₹1,000, so Anita pays Ravi ₹8,500 − ₹1,000 = ₹7,500.
+
+---
+
+## Scenario 6: Budget edge cases
+
+The less common paths: cancelling, spending beyond what you hold, changing how a spend was paid, leaving
+while holding money, and every kind of pool payment meeting at settle-up.
+
+### Setup
+
+| # | Who | Do | Expect | Balance |
+|---|---|---|---|---|
+| 6.0 | Anita | Create "Sangeet": **Just me**, budget **30,000**. Invite Ravi (**Can spend**) and Priya (guest). | | ₹30,000 |
+
+### A. Hand-overs
+
+| # | Who | Do | Expect | Balance |
+|---|---|---|---|---|
+| 6.1 | Anita | **Give money** ₹5,000 to Ravi. While it waits, tap **Cancel** on its row. | The row reads *Cancelled*. *With you ₹30,000.00 · With spenders ₹0.00*. | ₹30,000 |
+| 6.2 | Anita, then Ravi | Give Ravi ₹5,000 again, attaching a photo as proof. Ravi confirms. | Ravi holds ₹5,000. | ₹30,000 |
+| 6.3 | Anita | Participants → remove Ravi, and confirm. | Refused: *This person still holds ₹5,000.00 of pool money. It needs to be returned first.* Ravi stays. | |
+
+### B. Spending beyond what he holds, and changing how it was paid
+
+| # | Who | Do | Expect | Balance |
+|---|---|---|---|---|
+| 6.4 | Ravi | **Budget money I'm holding** (*₹5,000.00 left.*), already paid, "Lights", ₹6,000, with a receipt. Anita approves it. | Ravi sees *The budget owes you ₹1,000.00 for spends beyond the money you held.* Anita sees *With you ₹25,000.00 · With spenders −₹1,000.00*. | ₹24,000 |
+| 6.5 | Anita | Try to remove Ravi again. | Refused: *The pool owes this person ₹1,000.00 for spends beyond the money they held. Give them that amount first.* | |
+| 6.6 | Ravi | Edit **Lights**: change Paid with to **Anita's card or UPI**, and save. | Lights goes back to *Awaiting approval*: changing how it was paid is checked again, like changing the amount. Ravi holds ₹5,000 again. | ₹30,000 |
+| 6.7 | Anita | Approve **Lights** again. | The approval row shows **Your card or UPI**. Ravi still holds ₹5,000: a card spend doesn't use his cash. | ₹24,000 |
+| 6.8 | Ravi, then Anita | Ravi taps **Return money**, ₹5,000; Anita confirms. | Ravi holds nothing, and his **Return money** button disappears. | ₹24,000 |
+
+### C. A loan, a claim and two repayments
+
+| # | Who | Do | Expect | Balance |
+|---|---|---|---|---|
+| 6.9 | Ravi, then Anita | Ravi adds ₹2,000 (keep the loan default); Anita confirms. | *Ravi lent the budget money: ₹2,000.00 still to pay back.* | ₹26,000 |
+| 6.10 | Anita | **Pay back now**, change the amount to **2,500**. | *That's more than ₹2,000.00.* and the button is disabled. Close the sheet. | |
+| 6.11 | Ravi, then Anita | Ravi adds **My money — claim it back**, "Taxi", ₹800, with a receipt. Anita approves it. | Pool payments: *Anita → Ravi · Reimbursement · To pay ₹800*. **Leave it unpaid.** | ₹25,200 |
+| 6.12 | Ravi, then Anita | Ravi adds **Anita's card or UPI**, already paid, "Snacks", ₹400. Anita rejects it. Ravi taps **Mark as paid** on the ₹400 repayment and submits. | The repayment reads *Paid — awaiting confirmation*. **Leave it there.** | ₹25,200 |
+| 6.13 | Ravi, then Anita | Ravi adds **Anita's card or UPI**, already paid, "Cake", ₹300. Anita rejects it. | A ₹300 repayment, *To pay*. **Leave it unpaid.** | ₹25,200 |
+
+### D. Settle up with every kind of pool payment
+
+| # | Who | Do | Expect |
+|---|---|---|---|
+| 6.14 | Anita | Tap **Finish & report**. | Collected **₹32,000**, Spent from the pool **−₹6,800**, Left over **₹25,200**. Ravi's row: *₹2,000.00 from the budget*, plus ₹800.00 for Taxi (claim), less ₹300.00 for Cake (repayment) → **gets back ₹2,500.00**. Your row: **pays ₹2,500.00**. **Included in the final settlement:** *You → Ravi · Reimbursement · Taxi* ₹800 and *Ravi → You · Repayment (spend not approved) · Cake* ₹300. **Paid separately:** *Ravi → You · Repayment (spend not approved) · sent, awaiting confirmation* ₹400, because Ravi already started paying it. |
+| 6.15 | Anita | Tap **Settle up**. | **Review** lists **Anita → Ravi ₹2,500**, then Taxi and Cake greyed out (*… · included in the payments above*), and Snacks as *Repayment (spend not approved) · paid on its own*. In Expenses, Taxi and Cake show **In final settlement**. |
+| 6.16 | Anita | Tap **Settlement Details**. | *Total: ₹2900.00* (₹2,500 plus the ₹400 being paid; this popup shows no thousands separator). The folded rows are listed last and aren't counted again. |
+| 6.17 | Anita | In Expenses, delete **Cake** (forgiving it). | Allowed. The Review shows *⚠ Expenses have changed. Settlement needs to be regenerated before approvals can continue.* |
+| 6.18 | Anita | Tap **Regenerate Settlement**. | The payment becomes **Anita → Ravi ₹2,800**, and the Cake row is gone. Taxi is still included. |
+| 6.19 | Everyone | Approve. | **Payment**, with **0/2** complete: the ₹2,800 and the ₹400 repayment. Taxi isn't counted again. |
+| 6.20 | Anita, then Ravi | Anita taps **I've Paid** for ₹2,800; Ravi taps **Confirm Receipt**. | **1/2**. The event **stays in Payment**, because the ₹400 repayment is still open. |
+| 6.21 | Anita | In the Settlements list, tap **Confirm Receipt** on the ₹400 Snacks row. | The event is **Settled**. Taxi shows **Reimbursed** and Snacks **Repaid**. |
+
+**Why these numbers (6.14):** Collected = Anita's 30,000 + Ravi's 2,000 loan. Spent = Lights 6,000 + the
+Taxi claim 800. Ravi holds nothing, so from the budget he gets back his 2,000 loan, plus the 800 Taxi
+claim and less the 300 Cake repayment, both folded in: 2,500. Snacks stays separate because he'd already
+said he'd paid it.
+
+---
+
+## Other changes on this branch
+
+| # | Where | Do | Expect |
+|---|---|---|---|
+| X1 | Web | As a brand-new account, open the Dashboard so the guided tour starts. In the browser console, run `window.dispatchEvent(new CustomEvent('traxettle:webAuthUnauthorized'))`. | *Session locked* appears **on top of** the tour card, and **Log out** works. (Before this branch, the tour card covered it.) |
+| X2 | Web and mobile | Profile → upgrade row, Pro page, Help. | Covered in Scenario 4: group pools appear in every Pro list on local and staging builds. |
+
+**Checked only by automated tests** (no screen for them, or they can't be set up by hand):
+- changing the custodian while spenders hold money is refused (no screen changes the custodian);
+- a member leaving a monthly Fund while holding money gets it into their leaving settlement;
+- adding a group pool to an existing split-expenses event needs Pro (API only);
+- subscription states such as the store's grace period and billing retry;
+- an older app trying to pay a folded row is refused.
 
 ---
 
 ## Mobile pass
 
-Run `bash scripts/local-dev/03_real_mobile.sh staging`. Repeat **Scenario 1, sections A to E**, and
-**Scenario 4, steps 4.1–4.3**, in the app. The pool lives on the **Pool screen**: tap the pool card on
+Start mobile as in §0 step 5. Repeat in the app: **Scenario 1, sections A to F**; **Scenario 4, steps
+4.1–4.4**; **Scenario 5, step 5.9**; and **Scenario 6, steps 6.1–6.8**. The pool lives on the **Pool screen**: tap the pool card on
 the event screen.
 
 | Where | Mobile shows |
@@ -283,7 +416,12 @@ the event screen.
 | Settle-up sheet | The figures on one line (*Collected ₹60,000.00 · spent from the pool ₹15,000.00*, plus *carried in* or *paid back early* when there are any), then *Left over …* in bold. *Ravi: gets back ₹6,400.00*, with the breakdown under it. Then **Included in the final settlement**: *Ravi → You: ₹600.00 · Repayment (spend not approved) · Band* |
 | A hand-over still waiting at settle-up | *1 hand-over is waiting for confirmation…*, and the button is disabled |
 | Netted rows in Review and Settlements | Greyed out, labelled *included in the payments above*, and left out of the counter |
-| Create event, free user | **PRO** on "Several of us", and a notice with **Upgrade to Pro** |
+| Create event, free user | **PRO** on "Several of us", and a notice with **Upgrade to Pro**. Tapping Create shows the **Pro Feature** alert |
+| Rejecting a spend | An alert with the same warning text as web, Cancel / Reject, and **no reason field** |
+| Spending beyond what you hold | *The budget owes you ₹1,000.00 for spends beyond the money you held.* |
+| Edit expense, a spender's pool spend | **Paid with** can switch between *money I'm holding* and *Anita's card or UPI* |
+| Settle-up figures in a Fund's second month | *Carried in ₹7,000.00 · collected ₹10,000.00 · spent from the pool ₹0.00*, then **Left over ₹17,000.00** |
+| Pro lists | The upgrade screen lists **Group pools** after Multi-Currency Settlement; Profile reads *Unlimited events, group pools, multi-currency & more*; Help has a **Pool Money** card |
 
 ---
 
@@ -331,4 +469,14 @@ one changed before release.
 | ☐ | Pro lists show Group pools on local and staging builds | S4 4.4 · mobile note |
 | ☐ | A Pro user can create one, and free members take part fully | S4 4.6–4.7 |
 | ☐ | A lapsed creator's pool keeps working: spends, cycle close, settle up | S5 |
+| ☐ | A waiting hand-over can be cancelled; proof attached to one opens from its row | S1 A5 · S6 6.1–6.2 |
+| ☐ | Someone holding pool money, or owed by the pool, can't be removed | S6 6.3, 6.5 |
+| ☐ | Spending beyond what you hold means the pool owes you the difference | S6 6.4 |
+| ☐ | Changing how a spend was paid sends it back for approval and moves the money back | S6 6.6–6.7 |
+| ☐ | Paying back more than is owed is refused | S6 6.10 |
+| ☐ | Unpaid claims are folded in; a repayment already being paid stays separate and keeps the event in Payment | S6 6.14–6.21 |
+| ☐ | Settlement Details doesn't count folded rows | S6 6.16 |
+| ☐ | Forgiving a folded spend during Review asks to regenerate, and the plan changes | S6 6.17–6.18 |
+| ☐ | Held money carries into a Fund's next month and is settled at the end | S5 5.3, 5.6, 5.9 |
+| ☐ | The session lock sits above the guided tour | X1 |
 | ☐ | The mobile app matches the web app | Mobile pass |
