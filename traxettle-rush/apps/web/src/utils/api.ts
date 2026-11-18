@@ -5,12 +5,15 @@ export class WebApiError extends Error {
   code?: string;
   /** Structured details some errors carry (e.g. a refused pool draw). */
   data?: unknown;
+  /** FEATURE_REQUIRES_PRO: which Pro feature, e.g. 'contributor_pools'. */
+  feature?: string;
 
-  constructor(message: string, status: number, code?: string, data?: unknown) {
+  constructor(message: string, status: number, code?: string, data?: unknown, feature?: string) {
     super(message);
     this.status = status;
     this.code = code;
     this.data = data;
+    this.feature = feature;
   }
 }
 
@@ -84,6 +87,7 @@ async function request<T = any>(
       res.status,
       json.code,
       json.data,
+      json.feature,
     );
     if (res.status === 401) {
       dispatchUnauthorized(error);

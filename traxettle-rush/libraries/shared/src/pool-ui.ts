@@ -16,6 +16,7 @@ import type {
   PoolContributionStatus,
   PoolDrawState,
   PoolExpenseApprovalMode,
+  PoolFoldedItem,
   PoolOverdraftState,
   PoolPaidFrom,
   PoolPreset,
@@ -155,6 +156,71 @@ export function advanceStatusText(
     default:
       return advance.toUserId === viewerId ? 'Waiting for you to confirm' : `Waiting for ${nameOf(advance.toUserId)} to confirm`;
   }
+}
+
+// ── Settle-up preview: pool payments folded into the final settlement (§11) ──
+
+export interface SettleUpRow {
+  /** Entity key. */
+  key: string;
+  /** From the pool itself: + gets back, − pays. */
+  poolMinor: number;
+  /** Repayments and claims folded in: + owed to them, − owed by them. */
+  adjustments: Array<{ amountMinor: number; text: string }>;
+  totalMinor: number;
+}
+
+/**
+ * Each person's settle-up figure: what the pool pays them (or they pay it), plus the repayments
+ * and claims folded into the final settlement. `keyOf` maps a user to their entity key (their
+ * group, if they're in one), as the plan does.
+ */
+export function settleUpRows(
+  settlementBalances: Record<string, number>,
+  folded: PoolFoldedItem[],
+  keyOf: (userId: string) => string,
+): SettleUpRow[] {
+  const rows = new Map<string, SettleUpRow>();
+  const row = (key: string) => {
+    let r = rows.get(key);
+    if (!r) {
+      r = { key, poolMinor: 0, adjustments: [], totalMinor: 0 };
+      rows.set(key, r);
+    }
+    return r;
+  };
+  for (const [key, v] of Object.entries(settlementBalances)) row(key).poolMinor += v;
+  for (const f of folded) {
+    const fromKey = keyOf(f.fromUserId);
+    const toKey = keyOf(f.toUserId);
+    if (fromKey === toKey) continue;
+    const what = f.kind === 'pool_repayment' ? `${f.title || 'a spend'} (repayment)` : `${f.title || 'a claim'} (claim)`;
+    row(fromKey).adjustments.push({ amountMinor: -f.amountMinor, text: what });
+    row(toKey).adjustments.push({ amountMinor: f.amountMinor, text: what });
+  }
+  const out: SettleUpRow[] = [];
+  for (const r of rows.values()) {
+    r.totalMinor = r.poolMinor + r.adjustments.reduce((s, a) => s + a.amountMinor, 0);
+    if (r.totalMinor !== 0 || r.adjustments.length > 0) out.push(r);
+  }
+  return out.sort((a, b) => b.totalMinor - a.totalMinor);
+}
+
+/**
+ * Words for one row: "gets back ₹9,400" and, when something was folded in,
+ * "₹10,000 from the budget, less ₹600 for Snacks (repayment)".
+ */
+export function describeSettleUpRow(row: SettleUpRow, currency: string, noun: string): { headline: string; detail: string | null } {
+  const money = (v: number) => formatMinor(Math.abs(v), currency);
+  const headline = row.totalMinor > 0 ? `gets back ${money(row.totalMinor)}` : row.totalMinor < 0 ? `pays ${money(row.totalMinor)}` : 'is square';
+  if (row.adjustments.length === 0) return { headline, detail: null };
+  const parts: string[] = [];
+  if (row.poolMinor !== 0) parts.push(`${money(row.poolMinor)} ${row.poolMinor > 0 ? 'from' : 'to'} the ${noun.toLowerCase()}`);
+  for (const a of row.adjustments) {
+    const word = parts.length === 0 ? (a.amountMinor > 0 ? 'Owed' : 'Owes') : a.amountMinor > 0 ? 'plus' : 'less';
+    parts.push(`${word} ${money(a.amountMinor)} for ${a.text}`);
+  }
+  return { headline, detail: parts.join(', ') };
 }
 
 // ── "Paid with" on the expense form ───────────────────────────────────────

@@ -20,12 +20,14 @@ import {
   PoolDrawState,
   PoolEntityRef,
   PoolExpenseFlag,
+  PoolFoldedItem,
   PoolHoldings,
   PoolLedger,
   PoolLedgerEntry,
   PoolPaidFrom,
   PoolReconciliation,
   PoolRefusalDetails,
+  PoolSeparateLeg,
   PoolSpenderSummary,
   ReconcileResult,
   allowedFundingSources,
@@ -135,28 +137,6 @@ export type SettlementPlanner = (
     amount: number;
   }>;
 };
-
-/** A pool payment the final settlement will include (§11): an existing leg, or one settle-up creates. */
-export interface PoolFoldedItem {
-  settlementId: string | null;
-  expenseId: string | null;
-  kind: 'pool_repayment' | 'pool_reimbursement';
-  fromUserId: string;
-  toUserId: string;
-  amountMinor: number;
-  title: string;
-}
-
-/** An open pool payment that stays separate at settle-up: already being paid, or from an earlier cycle. */
-export interface PoolSeparateLeg {
-  settlementId: string;
-  kind: string;
-  status: string;
-  expenseId: string | null;
-  fromUserId: string;
-  toUserId: string;
-  amountMinor: number;
-}
 
 export interface DrawPreparation {
   fundingSource: Exclude<ExpenseFundingSource, 'self'>;

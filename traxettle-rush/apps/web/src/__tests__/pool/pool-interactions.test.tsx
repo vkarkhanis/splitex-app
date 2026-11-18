@@ -163,7 +163,7 @@ describe('SpenderPermissions', () => {
     await click(container.querySelector('input[aria-label="Allow group Shopping to spend"]'));
     await click(q('save-spenders'));
     expect(mockApi.put).toHaveBeenCalledWith('/api/pools/event/e1/config', {
-      authorizedSpenders: ['bob'], authorizedSpenderGroups: ['g1'], spenderCapsMinor: { bob: 2500000 },
+      authorizedSpenders: ['bob'], authorizedSpenderGroups: ['g1'], spenderCapsMinor: { bob: 2500000 }, allowSponsorCardSpends: true,
     });
     expect(onSaved).toHaveBeenCalled();
   });

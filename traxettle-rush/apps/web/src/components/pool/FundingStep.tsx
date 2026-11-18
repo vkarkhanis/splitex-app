@@ -90,6 +90,42 @@ const Check = styled.label`
   cursor: pointer;
 `;
 
+const ProTag = styled.span`
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: ${(p) => p.theme.colors.warning};
+  border: 1px solid ${(p) => p.theme.colors.warning};
+  vertical-align: middle;
+`;
+
+const ProNotice = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: ${(p) => p.theme.colors.warning};
+  background: ${(p) => p.theme.colors.warningBg};
+`;
+
+const ProLink = styled.button`
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  color: inherit;
+  cursor: pointer;
+`;
+
 interface Props {
   value: FundingChoice;
   onChange: (next: FundingChoice) => void;
@@ -97,6 +133,10 @@ interface Props {
   disabled?: boolean;
   /** Offer "Several of us" pools; otherwise only "Just me" (see contributorPoolsAvailable). */
   allowContributorPools: boolean;
+  /** "Several of us" is Pro and this person doesn't have it (design doc §12): shown with a PRO badge. */
+  contributorPoolsLocked?: boolean;
+  /** Where "Learn how to get Pro" goes. */
+  onLearnPro?: () => void;
 }
 
 const SPLIT_TEXT = 'Everyone pays their own way. Settle up at the end.';
@@ -106,7 +146,7 @@ const POOL_TEXT = 'Collect money up front. Spend from the pool.';
  * "How is this event funded?" — split expenses (today's behaviour, default) or
  * a pool. Pool users pick a familiar shape (Kitty, Fund…) instead of policies.
  */
-export function FundingStep({ value, onChange, currency, disabled, allowContributorPools }: Props) {
+export function FundingStep({ value, onChange, currency, disabled, allowContributorPools, contributorPoolsLocked, onLearnPro }: Props) {
   const sym = currencySymbol(currency);
   const set = (patch: Partial<FundingChoice>) => onChange({ ...value, ...patch });
   const preset = value.funder === 'sponsor' ? 'sponsor_budget' : value.preset;
@@ -134,7 +174,10 @@ export function FundingStep({ value, onChange, currency, disabled, allowContribu
               <ChoiceCard type="button" role="radio" aria-checked={value.funder === 'contributors'} $selected={value.funder === 'contributors'}
                 onClick={() => onChange(withPreset({ ...value, funder: 'contributors' }, CONTRIBUTOR_PRESETS.includes(value.preset) ? value.preset : 'trip_kitty'))}
                 data-testid="funder-contributors">
-                <CardTitle>Several of us</CardTitle>
+                <CardTitle>
+                  Several of us
+                  {contributorPoolsLocked && <ProTag data-testid="funder-contributors-pro">PRO</ProTag>}
+                </CardTitle>
                 <CardText>Everyone chips in; anyone can spend from the pool.</CardText>
               </ChoiceCard>
             )}
@@ -145,6 +188,13 @@ export function FundingStep({ value, onChange, currency, disabled, allowContribu
               <CardText>{POOL_PRESET_LABELS.sponsor_budget.tagline}</CardText>
             </ChoiceCard>
           </Cards>
+
+          {allowContributorPools && value.funder === 'contributors' && contributorPoolsLocked && (
+            <ProNotice data-testid="funding-pro-notice">
+              <span>Group pools are a Pro feature. Only you need Pro: everyone you invite joins free.</span>
+              {onLearnPro && <ProLink type="button" onClick={onLearnPro} data-testid="funding-learn-pro">Learn how to get Pro</ProLink>}
+            </ProNotice>
+          )}
 
           {allowContributorPools && value.funder === 'contributors' && (
             <>

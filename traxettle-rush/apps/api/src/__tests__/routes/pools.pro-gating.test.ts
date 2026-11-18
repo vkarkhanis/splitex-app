@@ -163,5 +163,7 @@ describe('capabilities', () => {
     expect(caps('pro', 'grace_period').contributorPools).toBe(true);
     expect(caps('pro', 'expired').contributorPools).toBe(false);
     expect(caps('free', 'active').contributorPools).toBe(false);
+    // What a brand-new user's profile reports before they have any subscription record.
+    expect(svc.computeCapabilities(svc.getDefaultEntitlement())).toEqual({ multiCurrencySettlement: false, contributorPools: false });
   });
 });

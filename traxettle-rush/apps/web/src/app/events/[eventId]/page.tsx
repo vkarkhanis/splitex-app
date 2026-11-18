@@ -34,7 +34,7 @@ import { getResolvedApiBaseUrl } from '../../../config/dev-options';
 import { PoolTab } from '../../../components/pool/PoolTab';
 import { SpenderPermissions } from '../../../components/pool/SpenderPermissions';
 import { poolNoun } from '../../../components/pool/poolFormat';
-import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, POOL_LEGS_PAID_SEPARATELY_NOTE, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg, poolLegLabel, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, POOL_LEGS_NETTED_NOTE, POOL_LEGS_PAID_SEPARATELY_NOTE, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg, poolLegLabel, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
 import { FxRatesAttribution } from '../../../components/FxRatesAttribution';
 import type {
   Event as TraxettleEvent,
@@ -1408,10 +1408,12 @@ export default function EventDetailPage() {
         const approvedCount = approvalEntries.filter(([, a]) => a.approved).length;
         const totalEntities = approvalEntries.length;
         const approvalPct = totalEntities > 0 ? Math.round((approvedCount / totalEntities) * 100) : 0;
-        const totalSettlementAmount = settlements.reduce((sum, s) => sum + s.amount, 0);
-        const hasFx = settlements.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
-        const totalSettlementConverted = hasFx ? settlements.reduce((sum, s) => sum + (s.settlementAmount || s.amount), 0) : 0;
-        const fxCurrSym = hasFx ? (CURRENCY_SYMBOLS[(settlements[0] as any).settlementCurrency] || (settlements[0] as any).settlementCurrency || '') : '';
+        // Pool payments folded into the plan (`netted`, §11) are inside its amounts: listed, not counted again.
+        const planned = settlements.filter((s) => s.status !== 'netted');
+        const totalSettlementAmount = planned.reduce((sum, s) => sum + s.amount, 0);
+        const hasFx = planned.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
+        const totalSettlementConverted = hasFx ? planned.reduce((sum, s) => sum + (s.settlementAmount || s.amount), 0) : 0;
+        const fxCurrSym = hasFx ? (CURRENCY_SYMBOLS[(planned[0] as any).settlementCurrency] || (planned[0] as any).settlementCurrency || '') : '';
 
         return (
           <SettlementSection data-testid="settlement-review-section">
@@ -1447,7 +1449,7 @@ export default function EventDetailPage() {
               </SummaryCard>
               <SummaryCard>
                 <SummaryLabel>Transactions</SummaryLabel>
-                <SummaryValue>{settlements.length}</SummaryValue>
+                <SummaryValue>{planned.length}</SummaryValue>
               </SummaryCard>
               <SummaryCard>
                 <SummaryLabel>Approvals</SummaryLabel>
@@ -1470,11 +1472,15 @@ export default function EventDetailPage() {
             </div>
 
             {/* Settlement transactions preview */}
-            {settlements.some(isPoolSideLeg) && (
+            {settlements.some((s) => s.status === 'netted') && (
+              <p style={{ fontSize: 12, opacity: 0.75, margin: '0 0 8px' }} data-testid="settlement-review-netted-note">{POOL_LEGS_NETTED_NOTE}</p>
+            )}
+            {settlements.some((s) => isPoolSideLeg(s) && s.status !== 'netted') && (
               <p style={{ fontSize: 12, opacity: 0.75, margin: '0 0 8px' }} data-testid="settlement-review-pool-note">{POOL_LEGS_PAID_SEPARATELY_NOTE}</p>
             )}
-            {settlements.filter(s => s.amount > 0.01).map((s) => (
-              <TransactionCard key={s.id} $status={s.status} data-testid={`settlement-review-txn-${s.id}`}>
+            {/* Folded pool payments go last: their label says they're in the payments above. */}
+            {settlements.filter(s => s.amount > 0.01).sort((a, b) => Number(a.status === 'netted') - Number(b.status === 'netted')).map((s) => (
+              <TransactionCard key={s.id} $status={s.status} data-testid={`settlement-review-txn-${s.id}`} style={s.status === 'netted' ? { opacity: 0.6 } : undefined}>
                 <TransactionFlow>
                   <TransactionNames>
                     <span>{getEntityName(s.fromEntityId, s.fromEntityType)}</span>
@@ -1483,7 +1489,7 @@ export default function EventDetailPage() {
                   </TransactionNames>
                   {poolLegLabel(s) && (
                     <TransactionMeta data-testid={`settlement-review-kind-${s.id}`}>
-                      {poolLegLabel(s)} · {s.status === 'completed' ? 'already paid' : 'paid on its own'}
+                      {poolLegLabel(s)} · {s.status === 'netted' ? 'included in the payments above' : s.status === 'completed' ? 'already paid' : 'paid on its own'}
                     </TransactionMeta>
                   )}
                 </TransactionFlow>
@@ -1531,19 +1537,21 @@ export default function EventDetailPage() {
 
       {/* Settlement Summary — shown when event is in payment/settled/closed and has settlements */}
       {(event.status === 'payment' || event.status === 'settled' || event.status === 'closed') && settlements.length > 0 && (() => {
-        const completedCount = settlements.filter(s => s.status === 'completed').length;
-        const pct = Math.round((completedCount / settlements.length) * 100);
-        const totalSettlementAmount = settlements.reduce((sum, s) => sum + s.amount, 0);
-        const hasFx = settlements.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
-        const totalSettlementConverted = hasFx ? settlements.reduce((sum, s) => sum + (s.settlementAmount || s.amount), 0) : 0;
-        const fxCurrSym = hasFx ? (CURRENCY_SYMBOLS[(settlements[0] as any).settlementCurrency] || (settlements[0] as any).settlementCurrency || '') : '';
+        // Pool payments folded into the plan (`netted`, §11) are paid through it: left out of the counts.
+        const planned = settlements.filter((s) => s.status !== 'netted');
+        const completedCount = planned.filter(s => s.status === 'completed').length;
+        const pct = planned.length > 0 ? Math.round((completedCount / planned.length) * 100) : 100;
+        const totalSettlementAmount = planned.reduce((sum, s) => sum + s.amount, 0);
+        const hasFx = planned.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
+        const totalSettlementConverted = hasFx ? planned.reduce((sum, s) => sum + (s.settlementAmount || s.amount), 0) : 0;
+        const fxCurrSym = hasFx ? (CURRENCY_SYMBOLS[(planned[0] as any).settlementCurrency] || (planned[0] as any).settlementCurrency || '') : '';
 
         return (
           <SettlementSection data-testid="settlement-section">
             <SettlementHeader>
               <SettlementTitle>Settlement Summary</SettlementTitle>
               <SettlementProgress>
-                <span>{completedCount}/{settlements.length} complete</span>
+                <span>{completedCount}/{planned.length} complete</span>
                 <ProgressBar>
                   <ProgressFill $pct={pct} />
                 </ProgressBar>
@@ -1560,19 +1568,40 @@ export default function EventDetailPage() {
               </SummaryCard>
               <SummaryCard>
                 <SummaryLabel>Transactions</SummaryLabel>
-                <SummaryValue>{settlements.length}</SummaryValue>
+                <SummaryValue>{planned.length}</SummaryValue>
               </SummaryCard>
               <SummaryCard>
                 <SummaryLabel>Completed</SummaryLabel>
-                <SummaryValue>{completedCount} / {settlements.length}</SummaryValue>
+                <SummaryValue>{completedCount} / {planned.length}</SummaryValue>
               </SummaryCard>
             </SummaryGrid>
 
-            {settlements.some(isPoolSideLeg) && (
+            {settlements.some((s) => s.status === 'netted') && (
+              <p style={{ fontSize: 12, opacity: 0.75, margin: '0 0 8px' }} data-testid="settlement-netted-note">{POOL_LEGS_NETTED_NOTE}</p>
+            )}
+            {settlements.some((s) => isPoolSideLeg(s) && s.status !== 'netted') && (
               <p style={{ fontSize: 12, opacity: 0.75, margin: '0 0 8px' }} data-testid="settlement-pool-note">{POOL_LEGS_PAID_SEPARATELY_NOTE}</p>
             )}
-            {settlements.map((s) => {
+            {[...settlements].sort((a, b) => Number(a.status === 'netted') - Number(b.status === 'netted')).map((s) => {
               const settlementStatus = s.status as string;
+              // Folded into the plan (§11): shown for the record, paid through the payments above.
+              if (settlementStatus === 'netted') {
+                return (
+                  <TransactionCard key={s.id} $status={s.status} data-testid={`settlement-txn-${s.id}`} style={{ opacity: 0.6 }}>
+                    <TransactionFlow>
+                      <TransactionNames>
+                        <span>{getEntityName(s.fromEntityId, s.fromEntityType)}</span>
+                        <ArrowIcon>→</ArrowIcon>
+                        <span>{getEntityName(s.toEntityId, s.toEntityType)}</span>
+                      </TransactionNames>
+                      <TransactionMeta data-testid={`settlement-netted-${s.id}`}>
+                        {poolLegLabel(s) || 'Pool payment'} · included in the payments above
+                      </TransactionMeta>
+                    </TransactionFlow>
+                    <TransactionAmount>{currSym}{s.amount.toFixed(2)}</TransactionAmount>
+                  </TransactionCard>
+                );
+              }
               const payerUserId =
                 s.fromEntityType === 'group'
                   ? (groups.find((g) => g.id === s.fromEntityId)?.payerUserId || s.fromUserId)
@@ -1773,11 +1802,11 @@ export default function EventDetailPage() {
                   const isExpanded = expandedExpenseId === expense.id;
                   const sym = CURRENCY_SYMBOLS[expense.currency] || expense.currency;
                   const payBack = expense.fundingSource === 'pool_reimbursement'
-                    ? reimbursementStatus(expense.poolDraw, legStatusById.get(expense.poolDraw?.settlementId ?? ''))
+                    ? reimbursementStatus(expense.poolDraw, legStatusById.get(expense.poolDraw?.settlementId ?? ''), event.status)
                     : null;
                   // A rejected spend already paid with the pool's money is owed back (§9.2).
                   const repay = expense.fundingSource === 'pool'
-                    ? repaymentStatus(expense.poolDraw?.status, legStatusById.get(expense.poolDraw?.settlementId ?? ''))
+                    ? repaymentStatus(expense.poolDraw?.status, legStatusById.get(expense.poolDraw?.settlementId ?? ''), event.status)
                     : null;
                   return (
                     <ExpenseRowWrapper key={expense.id} data-testid={`expense-item-${expense.id}`}>

@@ -768,3 +768,19 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
   - `scripts/local-dev/pool-smoke.mjs` switches its user to Pro first, so the local API must run with `INTERNAL_TIER_SWITCH_ENABLED=true`. WP10 updates the run instructions in the testing guide.
 - **Checked against a running local API:** the smoke script passes; a free user creating a Kitty gets the 403; a free user's "Just me" budget is created.
 - **Moved to WP6:** the end-to-end (Playwright) check for a free user, because it needs the web PRO badge.
+
+**WP6 (2026-11-18)**
+- **Held money appears as a line under the meter,** not as a legend inside it: *"With you ₹x · With spenders ₹y"* for the custodian, *"You're holding ₹x"* for a spender. `PoolMeter` is unchanged.
+- **New shared helpers** for the settle-up preview: `settleUpRows` and `describeSettleUpRow` (*"₹10,000 from the budget, less ₹600 for Snacks (repayment)"*). Web and mobile use the same wording.
+- **Preview types moved to shared:** `PoolFoldedItem` and `PoolSeparateLeg` (they had been API-only).
+- **The settle-up preview** blocks settling while a hand-over is still waiting for confirmation, the same way as pending expenses.
+- **Settlement lists:** netted rows come after the plan's own payments, so their label (*"included in the payments above"*) reads correctly. The note above the list now says *"included in these payments. They aren't paid on their own."*
+- **Edit expense:** a spender can switch a pool spend between *"Pool money I'm holding"* and the custodian's card. Spends saved before Phase 2 (no method) show as the card, and saving one unchanged doesn't count as a change.
+- **Web API errors** now carry `feature`, so create-event shows the right Pro message.
+- **Bug fixed along the way (API):** a brand-new user's first profile load returned a fixed capability list without `contributorPools`, so the PRO badge didn't show until they reloaded. The defaults now come from the entitlement service.
+- **Checked in a browser** against a local API with seeded data:
+  - the pool tab: holdings, hand-overs, approvals with payment method, Holding column, activity;
+  - the settle-up preview: Ravi gets back ₹4,400 = ₹5,000 less ₹600;
+  - the Review list after settling up: one ₹4,900 payment plus the netted ₹600;
+  - the PRO badge for a new free user.
+- **End-to-end (Playwright) checks added** to `e2e/tests/tier-entitlements.spec.ts`: a free user is refused a Kitty and allowed a "Just me" budget; the create page marks "Several of us" PRO. **Not run here:** Playwright browsers aren't installed on this Mac. The API part matches the live check in WP5.

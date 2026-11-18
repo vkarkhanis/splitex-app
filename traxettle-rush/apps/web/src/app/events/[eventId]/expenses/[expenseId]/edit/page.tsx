@@ -18,7 +18,7 @@ import {
   useToast,
 } from '@traxettle/ui';
 import { api } from '../../../../../../utils/api';
-import type { EventParticipant, Group, Expense, OnBehalfOfEntry, ExpenseFundingSource } from '@traxettle/shared';
+import type { EventParticipant, Group, Expense, OnBehalfOfEntry, ExpenseFundingSource, PoolConfig, PoolPaidFrom } from '@traxettle/shared';
 import { isPoolFundedExpense } from '@traxettle/shared';
 import { ReceiptField } from '../../../../../../components/pool/ReceiptField';
 import { canRecordAnyway, poolErrorText, toPoolError } from '../../../../../../components/pool/poolFormat';
@@ -248,17 +248,26 @@ export default function EditExpensePage() {
   const [uploading, setUploading] = useState(false);
   const [canOverride, setCanOverride] = useState(false);
   const isPoolDraw = fundingSource !== 'self';
+  // A pool spend by someone other than the custodian says how it was paid (§9.3). Changing that
+  // sends it back for approval, like changing the amount.
+  const [poolConfig, setPoolConfig] = useState<PoolConfig | null>(null);
+  const [payerId, setPayerId] = useState('');
+  const [paidFrom, setPaidFrom] = useState<PoolPaidFrom | undefined>(undefined);
+  const [originalPaidFrom, setOriginalPaidFrom] = useState<PoolPaidFrom | undefined>(undefined);
+  const showsMethod = fundingSource === 'pool' && Boolean(poolConfig) && Boolean(payerId) && payerId !== poolConfig?.custodianUserId;
 
   const [entities, setEntities] = useState<SplitEntry[]>([]);
 
   const fetchData = useCallback(async () => {
     setFetchLoading(true);
     try {
-      const [pRes, gRes, expRes] = await Promise.all([
+      const [pRes, gRes, expRes, evRes] = await Promise.all([
         api.get<EventParticipant[]>(`/api/events/${eventId}/participants`),
         api.get<Group[]>(`/api/groups/event/${eventId}`),
         api.get<Expense>(`/api/expenses/${expenseId}`),
+        api.get<{ poolConfig?: PoolConfig }>(`/api/events/${eventId}`).catch(() => ({ data: undefined })),
       ]);
+      setPoolConfig(evRes?.data?.poolConfig || null);
       const pData = pRes.data || [];
       const gData = gRes.data || [];
       const expense = expRes.data;
@@ -276,6 +285,12 @@ export default function EditExpensePage() {
           ? expense.paidOnBehalfOf
           : [];
         setFundingSource(isPoolFundedExpense(expense) ? expense.fundingSource! : 'self');
+        setPayerId(expense.paidBy);
+        // Saved before Phase 2 (no method): it was paid on the custodian's card (paidWithChoiceFor).
+        const method: PoolPaidFrom | undefined = expense.poolDraw?.paidFrom || (expense.fundingSource === 'pool' ? 'sponsor_card' : undefined);
+        setPaidFrom(method);
+        // Compared with what the page first shows, so saving an untouched older spend isn't a change.
+        setOriginalPaidFrom(method);
         setReceipts(Array.isArray(expense.attachments) ? expense.attachments : []);
         setForm({
           title: expense.title,
@@ -404,6 +419,7 @@ export default function EditExpensePage() {
         amount,
         attachments: receipts,
         ...(alreadyIncurred ? { alreadyIncurred: true } : {}),
+        ...(showsMethod && paidFrom && paidFrom !== originalPaidFrom ? { paidFrom } : {}),
       });
       pushToast({ type: 'success', title: 'Expense Updated', message: `"${form.title}" has been updated.` });
       router.push(`/events/${eventId}`);
@@ -509,7 +525,24 @@ export default function EditExpensePage() {
             {isPoolDraw && (
               <div style={{ fontSize: 13 }} data-testid="edit-paid-with">
                 <strong>Paid with:</strong> {fundingSource === 'pool' ? 'Pool funds' : 'My money — claimed back from the pool'}
-                <div style={{ fontSize: 12, opacity: 0.7 }}>To change how it was paid, delete this expense and add it again.</div>
+                {showsMethod ? (
+                  <div role="radiogroup" aria-label="How it was paid" style={{ display: 'flex', gap: 16, marginTop: 6, flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input type="radio" name="paid-from" checked={paidFrom === 'advance'} onChange={() => setPaidFrom('advance')} data-testid="edit-paid-from-advance" />
+                      Pool money I&apos;m holding
+                    </label>
+                    <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input type="radio" name="paid-from" checked={paidFrom === 'sponsor_card'} onChange={() => setPaidFrom('sponsor_card')}
+                        disabled={poolConfig?.allowSponsorCardSpends === false && originalPaidFrom !== 'sponsor_card'} data-testid="edit-paid-from-card" />
+                      {(() => { const p = participants.find((x) => x.userId === poolConfig?.custodianUserId); return p?.displayName || p?.email || 'The custodian'; })()}&apos;s card or UPI
+                    </label>
+                  </div>
+                ) : null}
+                <div style={{ fontSize: 12, opacity: 0.7 }}>
+                  {showsMethod
+                    ? 'Changing how it was paid sends it back for approval. To change it to your own money, delete this expense and add it again.'
+                    : 'To change how it was paid, delete this expense and add it again.'}
+                </div>
               </div>
             )}
 

@@ -406,7 +406,7 @@ export const POOL_LEGS_PAID_SEPARATELY_NOTE =
   "Pool payments (reimbursements and repayments) are paid on their own. They aren't combined with the other payments.";
 
 /** Shown above pool repayments and claims folded into the final settlement plan (design doc §11). */
-export const POOL_LEGS_NETTED_NOTE = 'Repayments and unpaid claims are included in the payments above.';
+export const POOL_LEGS_NETTED_NOTE = "Repayments and unpaid claims are included in these payments. They aren't paid on their own.";
 
 type PoolLegLike = Pick<Settlement, 'kind' | 'status' | 'fromUserId' | 'toUserId'>;
 

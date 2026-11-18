@@ -3,8 +3,8 @@
 import React from 'react';
 import styled from 'styled-components';
 import { Label } from '@traxettle/ui';
-import { allowedFundingSources } from '@traxettle/shared';
-import type { EventFundingModel, ExpenseFundingSource, PoolCycleSummary } from '@traxettle/shared';
+import { paidWithOptions } from '@traxettle/shared';
+import type { EventFundingModel, ExpenseFundingSource, PaidWithChoice, PoolCycleSummary } from '@traxettle/shared';
 import { formatMinor } from './poolFormat';
 import { meterCaption } from './PoolMeter';
 
@@ -40,13 +40,8 @@ const Status = styled.div<{ $tone: 'ok' | 'warn' | 'stop' }>`
   color: ${(p) => (p.$tone === 'stop' ? p.theme.colors.error : p.$tone === 'warn' ? p.theme.colors.warning : p.theme.colors.muted)};
 `;
 
-export type PaidWith = ExpenseFundingSource;
-
-const COPY: Record<ExpenseFundingSource, { title: string; text: string }> = {
-  pool: { title: 'Pool funds', text: 'Paid from the pool (card, cash or account).' },
-  pool_reimbursement: { title: 'My money — claim it back', text: 'You paid; the pool reimburses you.' },
-  self: { title: 'My money — split it', text: 'A regular split between people.' },
-};
+/** The person's choice on the form; see `paidWithOptions` and `paidWithPayload` in @traxettle/shared. */
+export type PaidWith = PaidWithChoice;
 
 interface Props {
   model: EventFundingModel;
@@ -59,7 +54,16 @@ interface Props {
   amountMinor: number;
   disabled?: boolean;
   /** Listed first and marked "Suggested" (spenders in a sponsor pool: claiming back is risk-free). */
-  preferred?: PaidWith;
+  preferred?: ExpenseFundingSource;
+  /** The custodian pays from the pool directly; anyone else says how they paid (§9.3). */
+  isCustodian: boolean;
+  /** `poolConfig.allowSponsorCardSpends !== false`. */
+  allowCardSpends: boolean;
+  /** What this person holds of the pool's money now. */
+  heldMinor?: number;
+  /** They've been handed money this cycle. */
+  hasAdvances?: boolean;
+  custodianName?: string;
 }
 
 /**
@@ -67,9 +71,8 @@ interface Props {
  * Choosing a pool option removes the split UI rather than adding to it.
  * Not rendered at all for split-expenses events.
  */
-export function PaidWithControl({ model, value, onChange, summary, currency, noun, amountMinor, disabled, preferred }: Props) {
-  const options = allowedFundingSources(model);
-  if (preferred && options.includes(preferred)) options.sort((a, b) => Number(b === preferred) - Number(a === preferred));
+export function PaidWithControl({ model, value, onChange, summary, currency, noun, amountMinor, disabled, preferred, isCustodian, allowCardSpends, heldMinor, hasAdvances, custodianName }: Props) {
+  const options = paidWithOptions({ model, isCustodian, currency, noun, allowCardSpends, heldMinor, hasAdvances, custodianName, preferred });
   const o = summary?.overdraft;
   let status: { tone: 'ok' | 'warn' | 'stop'; text: string } | null = null;
   if (o && value !== 'self') {
@@ -86,20 +89,27 @@ export function PaidWithControl({ model, value, onChange, summary, currency, nou
       status = { tone: 'ok', text: `${formatMinor(o.balanceMinor, currency)} in the ${noun.toLowerCase()}${amountMinor > 0 ? ` · ${formatMinor(projected, currency)} after this` : ''}` };
     }
   }
+  // Spending more than they hold is fine: the pool pays them back the difference (§9.3).
+  const overHeld = value === 'pool_held' && amountMinor > 0 && amountMinor > Math.max(0, heldMinor || 0);
 
   return (
     <Wrap data-testid="paid-with">
       <Label id="paid-with-label">Paid with</Label>
       <Options role="radiogroup" aria-labelledby="paid-with-label">
         {options.map((opt) => (
-          <Option key={opt} type="button" role="radio" aria-checked={value === opt} $selected={value === opt}
-            onClick={() => onChange(opt)} disabled={disabled} data-testid={`paid-with-${opt}`}>
-            <strong>{COPY[opt].title}{opt === preferred ? ' · Suggested' : ''}</strong>
-            <span>{COPY[opt].text}</span>
+          <Option key={opt.value} type="button" role="radio" aria-checked={value === opt.value} $selected={value === opt.value}
+            onClick={() => onChange(opt.value)} disabled={disabled} data-testid={`paid-with-${opt.value}`}>
+            <strong>{opt.title}{opt.suggested ? ' · Suggested' : ''}</strong>
+            <span>{opt.text}</span>
           </Option>
         ))}
       </Options>
       {status && <Status $tone={status.tone} data-testid="paid-with-status">{status.text}</Status>}
+      {overHeld && (
+        <Status $tone="warn" data-testid="paid-with-over-held">
+          That&apos;s more than you hold. The {noun.toLowerCase()} pays you back the {formatMinor(amountMinor - Math.max(0, heldMinor || 0), currency)} difference.
+        </Status>
+      )}
     </Wrap>
   );
 }

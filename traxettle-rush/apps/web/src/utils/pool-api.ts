@@ -1,15 +1,28 @@
 import type {
   CreatePoolConfigDto,
+  PoolAdvance,
+  PoolAdvanceKind,
   PoolConfig,
   PoolContribution,
   PoolCycle,
   PoolCycleSummary,
+  PoolFoldedItem,
   PoolLedger,
+  PoolSeparateLeg,
   ReconcileResult,
 } from '@traxettle/shared';
 import { api } from './api';
 
 export type CoverEntry = { entityId: string; entityType: 'user' | 'group'; amountMinor: number };
+
+/** What closing (or settling up) would do. `folded` / `separate`: settle-up only (design doc §11). */
+export type ClosePreview = ReconcileResult & {
+  cycleId: string;
+  pendingDraws: number;
+  coverNeededMinor: number;
+  folded?: PoolFoldedItem[];
+  separate?: PoolSeparateLeg[];
+};
 
 export function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -42,10 +55,26 @@ export const poolApi = {
   approveDraw: (expenseId: string) => api.post(`/api/pools/expenses/${expenseId}/approve`, {}),
   rejectDraw: (expenseId: string, reason?: string) => api.post(`/api/pools/expenses/${expenseId}/reject`, reason ? { reason } : {}),
   previewClose: (eventId: string, body: { forDissolution?: boolean; cover?: CoverEntry[] } = {}) =>
-    api.post<ReconcileResult & { cycleId: string; pendingDraws: number; coverNeededMinor: number }>(`/api/pools/event/${eventId}/close-preview`, body),
+    api.post<ClosePreview>(`/api/pools/event/${eventId}/close-preview`, body),
   closeCycle: (eventId: string, body: { cover?: CoverEntry[]; openNext?: boolean } = {}) =>
     api.post<{ closed: PoolCycle; next: PoolCycle | null; settlementIds: string[] }>(`/api/pools/event/${eventId}/close`, body),
   dissolve: (eventId: string, body: { cover?: CoverEntry[] } = {}) => api.post(`/api/pools/event/${eventId}/dissolve`, body),
+
+  /** Money handed between the custodian and someone else (design doc §9.3, §10.6). */
+  recordAdvance: (eventId: string, body: { kind: PoolAdvanceKind; userId?: string; amountMinor: number; note?: string; proofUrl?: string }) =>
+    api.post<PoolAdvance>(`/api/pools/event/${eventId}/advances`, body),
+  confirmAdvance: (id: string) => api.post<PoolAdvance>(`/api/pools/advances/${id}/confirm`, {}),
+  rejectAdvance: (id: string, reason?: string) => api.post<PoolAdvance>(`/api/pools/advances/${id}/reject`, reason ? { reason } : {}),
+  cancelAdvance: (id: string) => api.post<PoolAdvance>(`/api/pools/advances/${id}/cancel`, {}),
+
+  /** Proof for money handed over, uploaded before it's recorded; returns its URL. */
+  async uploadAdvanceProof(eventId: string, file: File): Promise<string> {
+    const base64 = await fileToBase64(file);
+    const res = await api.post<{ url: string }>('/api/uploads', {
+      scope: 'pool_advance_proof', eventId, base64, contentType: file.type || 'image/jpeg', filename: file.name,
+    });
+    return res.data!.url;
+  },
 
   async uploadReceipt(eventId: string, file: File): Promise<string> {
     const base64 = await fileToBase64(file);

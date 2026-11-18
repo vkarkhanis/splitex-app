@@ -162,23 +162,24 @@ function summaryWith(overdraft: Partial<PoolCycleSummary['overdraft']>): PoolCyc
 }
 
 describe('PaidWithControl', () => {
-  it('offers only pool options in a pure pool event', async () => {
-    await render(<PaidWithControl model="pool" value="pool" onChange={jest.fn()} summary={null} currency="INR" noun="Kitty" amountMinor={0} />);
+  it('offers the custodian only pool options in a pure pool event', async () => {
+    await render(<PaidWithControl model="pool" value="pool" onChange={jest.fn()} summary={null} currency="INR" noun="Kitty" amountMinor={0} isCustodian allowCardSpends />);
     expect(q('paid-with-pool')).not.toBeNull();
     expect(q('paid-with-pool_reimbursement')).not.toBeNull();
     expect(q('paid-with-self')).toBeNull();
   });
 
   it('lists a preferred option first, marked Suggested', async () => {
-    await render(<PaidWithControl model="pool" value="pool_reimbursement" onChange={jest.fn()} summary={null} currency="INR" noun="Budget" amountMinor={0} preferred="pool_reimbursement" />);
+    await render(<PaidWithControl model="pool" value="pool_reimbursement" onChange={jest.fn()} summary={null} currency="INR" noun="Budget" amountMinor={0} preferred="pool_reimbursement"
+      isCustodian={false} allowCardSpends custodianName="Alice" />);
     const options = [...container.querySelectorAll('[role="radio"]')].map((o) => o.textContent);
     expect(options[0]).toMatch(/^My money — claim it back · Suggested/);
-    expect(options[1]).toMatch(/^Pool funds/);
+    expect(options[1]).toMatch(/^Alice's card or UPI/);
   });
 
   it('also offers a regular split in a hybrid event', async () => {
     const onChange = jest.fn();
-    await render(<PaidWithControl model="hybrid" value="pool" onChange={onChange} summary={null} currency="INR" noun="Kitty" amountMinor={0} />);
+    await render(<PaidWithControl model="hybrid" value="pool" onChange={onChange} summary={null} currency="INR" noun="Kitty" amountMinor={0} isCustodian allowCardSpends />);
     await click(q('paid-with-self'));
     expect(onChange).toHaveBeenCalledWith('self');
   });
@@ -190,13 +191,24 @@ describe('PaidWithControl', () => {
     [{ zone: 'blocked', latched: true, balanceMinor: -800000 }, 100, /already paid, you can still record it/],
     [{ zone: 'overdrawn', balanceMinor: -30000, headroomMinor: 770000 }, 0, /overdrawn by ₹300\.00 · ₹7,700\.00 of headroom left/],
   ] as const)('projects the balance as the amount is typed (%#)', async (od, amount, text) => {
-    await render(<PaidWithControl model="pool" value="pool" onChange={jest.fn()} summary={summaryWith(od as any)} currency="INR" noun="Kitty" amountMinor={amount} />);
+    await render(<PaidWithControl model="pool" value="pool" onChange={jest.fn()} summary={summaryWith(od as any)} currency="INR" noun="Kitty" amountMinor={amount} isCustodian allowCardSpends />);
     expect(q('paid-with-status')!.textContent).toMatch(text);
   });
 
   it('shows no projection for a regular split', async () => {
-    await render(<PaidWithControl model="hybrid" value="self" onChange={jest.fn()} summary={summaryWith({})} currency="INR" noun="Kitty" amountMinor={100} />);
+    await render(<PaidWithControl model="hybrid" value="self" onChange={jest.fn()} summary={summaryWith({})} currency="INR" noun="Kitty" amountMinor={100} isCustodian allowCardSpends />);
     expect(q('paid-with-status')).toBeNull();
+  });
+
+  it('a spender holding money sees it, and is told the pool pays back anything spent beyond it (§9.3)', async () => {
+    const onChange = jest.fn();
+    await render(<PaidWithControl model="pool" value="pool_held" onChange={onChange} summary={null} currency="INR" noun="Budget" amountMinor={70000}
+      isCustodian={false} allowCardSpends={false} heldMinor={50000} hasAdvances />);
+    expect(q('paid-with-pool_held')!.textContent).toMatch(/Budget money I'm holding.*₹500\.00 left/);
+    expect(q('paid-with-pool_card')).toBeNull(); // the budget turned card spends off
+    expect(q('paid-with-over-held')!.textContent).toMatch(/pays you back the ₹200\.00 difference/);
+    await click(q('paid-with-pool_reimbursement'));
+    expect(onChange).toHaveBeenCalledWith('pool_reimbursement');
   });
 });
 
@@ -462,7 +474,7 @@ describe('PoolTab — money owed back in a sponsor pool', () => {
     expect(mockPoolApi.markPaid).toHaveBeenCalledWith('tu1', { amountMinor: 25000 });
   });
 
-  it('lists open pool payments as paid separately in the finish preview (not netted)', async () => {
+  it('shows what the final settlement includes, each person\'s figure, and what stays separate (§11)', async () => {
     mockPoolApi.previewClose.mockResolvedValue({
       success: true,
       data: {
@@ -470,21 +482,17 @@ describe('PoolTab — money owed back in a sponsor pool', () => {
         preCoverBalanceMinor: 1000000, closingBalanceMinor: 1000000, uncoveredDeficitMinor: 0, coverNeededMinor: 0, overdraftCoverMinor: 0,
         outcome: 'surplus', shareBasis: 'custodian', disposition: 'settle', entityShares: [],
         settlementBalances: {}, pendingDraws: 0, cycleId: 'c1',
+        folded: [{ settlementId: 'rep1', expenseId: 'r1', kind: 'pool_repayment', fromUserId: BOB, toUserId: ALICE, amountMinor: 50000, title: 'Band' }],
+        separate: [{ settlementId: 'rep2', kind: 'pool_repayment', status: 'initiated', expenseId: 'r2', fromUserId: BOB, toUserId: ALICE, amountMinor: 30000 }],
       },
     });
-    const legs = [
-      { id: 'rep1', kind: 'pool_repayment', fromUserId: BOB, toUserId: ALICE, amount: 500, currency: 'INR', status: 'pending' },
-      { id: 'rep2', kind: 'pool_repayment', fromUserId: BOB, toUserId: ALICE, amount: 300, currency: 'INR', status: 'initiated' },
-      { id: 'reim1', kind: 'pool_reimbursement', fromUserId: ALICE, toUserId: BOB, amount: 800, currency: 'INR', status: 'completed' },
-    ] as any;
-    await render(<PoolTab event={sponsorEvent} currentUserId={ALICE} participants={people} groups={[]} settlements={legs} refreshKey={0} onChanged={jest.fn()} />);
+    await render(<PoolTab event={sponsorEvent} currentUserId={ALICE} participants={people} groups={[]} settlements={[]} refreshKey={0} onChanged={jest.fn()} />);
     await click(q('pool-settle-up'));
-    expect(q('reconcile-shares')!.textContent).toMatch(/Nothing to pay out of the budget — ₹10,000\.00 stays with the sponsor\./);
+    expect(q('reconcile-row-user:bob')!.textContent).toMatch(/Bob.*Owes ₹500\.00 for Band \(repayment\).*pays ₹500\.00/);
+    expect(q('reconcile-row-user:alice')!.textContent).toMatch(/You.*gets back ₹500\.00/);
+    expect(q('reconcile-folded')!.textContent).toMatch(/Bob → You · Repayment \(spend not approved\) · Band.*₹500\.00/);
     const separate = q('reconcile-separate')!.textContent!;
-    expect(separate).toMatch(/Bob → You · Repayment \(spend not approved\).*₹500\.00/);
-    expect(separate).toMatch(/₹300\.00/);
-    expect(separate).toMatch(/sent, awaiting confirmation/);
-    expect(separate).not.toMatch(/₹800\.00/); // already paid
-    expect(q('pool-reconcile-modal')!.textContent).toMatch(/paid on their own/);
+    expect(separate).toMatch(/Bob → You · Repayment \(spend not approved\) · sent, awaiting confirmation.*₹300\.00/);
+    expect(q('pool-reconcile-modal')!.textContent).toMatch(/included in the payments above instead of being paid on their own/);
   });
 });

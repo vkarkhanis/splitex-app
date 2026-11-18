@@ -38,6 +38,8 @@ export function SpenderPermissions({ event, participants, groups, canEdit, onSav
   const [users, setUsers] = useState(initial.users);
   const [groupIds, setGroupIds] = useState(initial.groups);
   const [caps, setCaps] = useState(initial.caps);
+  // Spenders may record spends on the sponsor's card or UPI (§9.3). On unless turned off.
+  const [cardSpends, setCardSpends] = useState(config.allowSponsorCardSpends !== false);
   const [saving, setSaving] = useState(false);
 
   const toggle = (set: Set<string>, id: string, update: (s: Set<string>) => void) => {
@@ -58,6 +60,7 @@ export function SpenderPermissions({ event, participants, groups, canEdit, onSav
         authorizedSpenders: [...users],
         authorizedSpenderGroups: [...groupIds],
         spenderCapsMinor,
+        allowSponsorCardSpends: cardSpends,
       });
       pushToast({ type: 'success', title: 'Saved', message: 'Spending permissions updated.' });
       onSaved();
@@ -106,6 +109,15 @@ export function SpenderPermissions({ event, participants, groups, canEdit, onSav
             </tbody>
           </Table>
         )}
+        <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 12, fontSize: 13 }}>
+          <input type="checkbox" checked={cardSpends} disabled={!canEdit} onChange={() => setCardSpends((v) => !v)} data-testid="allow-card-spends" />
+          <span>
+            Spenders can pay with my card or UPI
+            <span style={{ display: 'block', opacity: 0.7, fontSize: 12 }}>
+              Turn this off if you never share your card or UPI: spenders then only see “money I&apos;m holding” and “my money — claim it back”.
+            </span>
+          </span>
+        </label>
         {canEdit && (
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
             <Button $variant="primary" onClick={save} disabled={saving} data-testid="save-spenders">{saving ? 'Saving…' : 'Save'}</Button>

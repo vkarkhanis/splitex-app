@@ -1,4 +1,6 @@
 import {
+  describeSettleUpRow,
+  settleUpRows,
   ADVANCE_KIND_LABEL,
   advanceStatusText,
   GROUP_POOLS_PRO_FEATURE,
@@ -338,7 +340,7 @@ describe('pool payments folded into the final settlement (§11)', () => {
       { id: 'b', kind: 'pool_reimbursement' as const, status: 'pending' },
     ];
     expect(openPoolSideLegs(legs).map((l) => l.id)).toEqual(['b']);
-    expect(POOL_LEGS_NETTED_NOTE).toBe('Repayments and unpaid claims are included in the payments above.');
+    expect(POOL_LEGS_NETTED_NOTE).toBe("Repayments and unpaid claims are included in these payments. They aren't paid on their own.");
   });
 });
 
@@ -425,5 +427,38 @@ describe('"Several of us" as Pro (§12)', () => {
   it('has the entry for the Pro lists', () => {
     expect(GROUP_POOLS_PRO_FEATURE.title).toBe('Group pools');
     expect(GROUP_POOLS_PRO_FEATURE.desc).toMatch(/trip kitty, shared fund, club treasury or collection/);
+  });
+});
+
+describe('settle-up preview rows (§11.4 step 5)', () => {
+  const keyOf = (uid: string) => (uid === 'meera' ? 'group:fam' : `user:${uid}`);
+  const snacks = { settlementId: 's1', expenseId: 'e1', kind: 'pool_repayment' as const, fromUserId: 'ravi', toUserId: 'anita', amountMinor: 60000, title: 'Snacks' };
+
+  it('Scenario 1: Ravi gets back ₹10,000 from the budget, less ₹600 for Snacks = ₹9,400', () => {
+    const rows = settleUpRows({ 'user:ravi': 1000000, 'user:anita': -1000000 }, [snacks], keyOf);
+    expect(rows.map((r) => [r.key, r.poolMinor, r.totalMinor])).toEqual([['user:ravi', 1000000, 940000], ['user:anita', -1000000, -940000]]);
+    const ravi = describeSettleUpRow(rows[0], 'INR', 'Budget');
+    expect(ravi.headline).toBe(`gets back ${formatMinor(940000, 'INR')}`);
+    expect(ravi.detail).toBe(`${formatMinor(1000000, 'INR')} from the budget, less ${formatMinor(60000, 'INR')} for Snacks (repayment)`);
+    expect(describeSettleUpRow(rows[1], 'INR', 'Budget').detail).toBe(`${formatMinor(1000000, 'INR')} to the budget, plus ${formatMinor(60000, 'INR')} for Snacks (repayment)`);
+  });
+
+  it('works with only folded payments, and maps group members to their group', () => {
+    const claim = { settlementId: null, expenseId: 'e2', kind: 'pool_reimbursement' as const, fromUserId: 'anita', toUserId: 'meera', amountMinor: 80000, title: '' };
+    const rows = settleUpRows({}, [claim], keyOf);
+    expect(rows.map((r) => r.key)).toEqual(['group:fam', 'user:anita']);
+    expect(describeSettleUpRow(rows[0], 'INR', 'Kitty')).toEqual({ headline: `gets back ${formatMinor(80000, 'INR')}`, detail: `Owed ${formatMinor(80000, 'INR')} for a claim (claim)` });
+    expect(describeSettleUpRow(rows[1], 'INR', 'Kitty').detail).toBe(`Owes ${formatMinor(80000, 'INR')} for a claim (claim)`);
+  });
+
+  it('keeps a row that nets to zero when something was folded in, and drops plain zeros', () => {
+    const rows = settleUpRows({ 'user:ravi': 60000, 'user:anita': -60000, 'user:priya': 0 }, [snacks], keyOf);
+    expect(rows.map((r) => [r.key, r.totalMinor])).toEqual([['user:ravi', 0], ['user:anita', 0]]);
+    expect(describeSettleUpRow(rows[0], 'INR', 'Budget').headline).toBe('is square');
+  });
+
+  it('a row without folded payments has no detail', () => {
+    const rows = settleUpRows({ 'user:ravi': 500, 'user:anita': -500 }, [], keyOf);
+    expect(describeSettleUpRow(rows[0], 'INR', 'Kitty')).toEqual({ headline: `gets back ${formatMinor(500, 'INR')}`, detail: null });
   });
 });
