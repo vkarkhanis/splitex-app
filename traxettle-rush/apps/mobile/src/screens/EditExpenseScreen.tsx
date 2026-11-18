@@ -15,7 +15,7 @@ import {
 import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../api';
-import type { EventParticipant, Group, OnBehalfOfEntry, Expense, ExpenseFundingSource } from '@traxettle/shared';
+import type { EventParticipant, Group, OnBehalfOfEntry, Expense, ExpenseFundingSource, PoolConfig, PoolPaidFrom } from '@traxettle/shared';
 import { canRecordAnyway, isPoolFundedExpense, poolErrorText, toPoolError } from '@traxettle/shared';
 import { ReceiptPicker } from '../components/pool/PoolViews';
 import DateField from '../components/DateField';
@@ -82,15 +82,28 @@ export default function EditExpenseScreen({ route, navigation }: any) {
   const [fundingSource, setFundingSource] = useState<ExpenseFundingSource>('self');
   const [receipts, setReceipts] = useState<string[]>([]);
   const isPoolDraw = fundingSource !== 'self';
+  // A pool spend by someone other than the custodian says how it was paid (§9.3). Changing that
+  // sends it back for approval, like changing the amount.
+  const [poolConfig, setPoolConfig] = useState<PoolConfig | null>(null);
+  const [custodianName, setCustodianName] = useState('The custodian');
+  const [payerId, setPayerId] = useState('');
+  const [paidFrom, setPaidFrom] = useState<PoolPaidFrom | undefined>(undefined);
+  const [originalPaidFrom, setOriginalPaidFrom] = useState<PoolPaidFrom | undefined>(undefined);
+  const showsMethod = fundingSource === 'pool' && Boolean(poolConfig) && Boolean(payerId) && payerId !== poolConfig?.custodianUserId;
 
   const fetchData = useCallback(async () => {
     try {
-      const [pRes, gRes, expRes, profileRes] = await Promise.all([
+      const [pRes, gRes, expRes, profileRes, evRes] = await Promise.all([
         api.get<EventParticipant[]>(`/api/events/${eventId}/participants`),
         api.get<Group[]>(`/api/groups/event/${eventId}`),
         api.get<Expense>(`/api/expenses/${expenseId}`),
         api.get('/api/users/profile').catch(() => ({ data: null })),
+        api.get<{ poolConfig?: PoolConfig }>(`/api/events/${eventId}`).catch(() => ({ data: undefined })),
       ]);
+      const cfg = evRes?.data?.poolConfig || null;
+      setPoolConfig(cfg);
+      const custodian = (pRes.data || []).find((p) => p.userId === cfg?.custodianUserId);
+      if (custodian) setCustodianName(custodian.displayName || custodian.email || 'The custodian');
       const gData = gRes.data || [];
       setGroups(gData);
       if (profileRes.data?.userId) setCurrentUserId(profileRes.data.userId);
@@ -104,6 +117,12 @@ export default function EditExpenseScreen({ route, navigation }: any) {
 
       // Pre-populate form fields
       setFundingSource(isPoolFundedExpense(expense) ? expense.fundingSource! : 'self');
+      setPayerId(expense.paidBy);
+      // Saved before Phase 2 (no method): it was paid on the custodian's card (paidWithChoiceFor).
+      // Compared with what's first shown, so saving an untouched older spend isn't a change.
+      const method: PoolPaidFrom | undefined = expense.poolDraw?.paidFrom || (expense.fundingSource === 'pool' ? 'sponsor_card' : undefined);
+      setPaidFrom(method);
+      setOriginalPaidFrom(method);
       setReceipts(Array.isArray(expense.attachments) ? expense.attachments : []);
       setTitle(expense.title);
       setDescription(expense.description || '');
@@ -235,6 +254,7 @@ export default function EditExpenseScreen({ route, navigation }: any) {
         amount: amt,
         attachments: receipts,
         ...(alreadyIncurred ? { alreadyIncurred: true } : {}),
+        ...(showsMethod && paidFrom && paidFrom !== originalPaidFrom ? { paidFrom } : {}),
       });
       Alert.alert('Success', `"${title}" updated.`);
       navigation.goBack();
@@ -337,10 +357,28 @@ export default function EditExpenseScreen({ route, navigation }: any) {
     >
     <ScrollView style={[styles.container, { backgroundColor: c.background }]} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Text style={[styles.heading, { color: c.text }]}>Edit Expense</Text>
-      {isPoolDraw && (
+      {isPoolDraw && !showsMethod && (
         <Text testID="edit-paid-with" style={{ color: c.textSecondary, marginBottom: spacing.md }}>
           Paid with: {fundingSource === 'pool' ? 'pool funds' : 'my money — claimed back from the pool'}. To change that, delete and re-add the expense.
         </Text>
+      )}
+      {showsMethod && (
+        <View testID="edit-paid-with" style={{ marginBottom: spacing.md }}>
+          <Text style={[styles.label, { color: c.textSecondary }]}>Paid with pool money</Text>
+          {([['advance', "Pool money I'm holding"], ['sponsor_card', `${custodianName}'s card or UPI`]] as const).map(([value, label]) => {
+            const selected = paidFrom === value;
+            const disabled = value === 'sponsor_card' && poolConfig?.allowSponsorCardSpends === false && originalPaidFrom !== 'sponsor_card';
+            return (
+              <TouchableOpacity key={value} testID={`edit-paid-from-${value}`} disabled={disabled} onPress={() => setPaidFrom(value)}
+                style={{ paddingVertical: spacing.sm, opacity: disabled ? 0.4 : 1 }}>
+                <Text style={{ color: selected ? c.primary : c.text, fontWeight: selected ? '700' : '400' }}>{selected ? '◉' : '○'}  {label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+          <Text style={{ color: c.textSecondary, fontSize: fontSizes.xs }}>
+            Changing how it was paid sends it back for approval. To change it to your own money, delete and re-add the expense.
+          </Text>
+        </View>
       )}
 
       <Text style={[styles.label, { color: c.textSecondary }]}>Title</Text>

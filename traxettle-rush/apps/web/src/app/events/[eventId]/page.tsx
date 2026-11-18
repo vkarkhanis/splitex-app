@@ -2445,12 +2445,15 @@ export default function EventDetailPage() {
         </ModalHeader>
         <ModalBody>
           {(() => {
-            const nonZeroSettlements = settlements.filter(s => s.amount > 0.01);
+            // Pool payments folded into the plan (`netted`, §11) go last and aren't counted again in the total.
+            const nonZeroSettlements = settlements.filter(s => s.amount > 0.01)
+              .sort((a, b) => Number(a.status === 'netted') - Number(b.status === 'netted'));
+            const plannedNonZero = nonZeroSettlements.filter((s) => s.status !== 'netted');
             if (nonZeroSettlements.length === 0) {
               return <p style={{ textAlign: 'center', padding: 20, opacity: 0.6 }}>No settlements — everyone is even.</p>;
             }
-            const totalAmt = nonZeroSettlements.reduce((sum, s) => sum + s.amount, 0);
-            const hasFx = nonZeroSettlements.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
+            const totalAmt = plannedNonZero.reduce((sum, s) => sum + s.amount, 0);
+            const hasFx = plannedNonZero.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
             const settlCurrSym = hasFx ? (CURRENCY_SYMBOLS[(nonZeroSettlements[0] as any).settlementCurrency] || (nonZeroSettlements[0] as any).settlementCurrency || '') : '';
             const approvals = (event as any)?.settlementApprovals as Record<string, SettlementApproval> | undefined;
             const approvalEntries = approvals ? Object.entries(approvals) : [];
@@ -2460,7 +2463,7 @@ export default function EventDetailPage() {
                 <div style={{ marginBottom: 16 }}>
                   <strong>Status:</strong> <Badge $variant={statusBadgeVariant(event.status)}>{event.status}</Badge>
                   <span style={{ marginLeft: 12 }}><strong>Total:</strong> {currSym}{totalAmt.toFixed(2)}</span>
-                  {hasFx && <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.7 }}>≈ {settlCurrSym}{nonZeroSettlements.reduce((s, t) => s + (t.settlementAmount || t.amount), 0).toFixed(2)}</span>}
+                  {hasFx && <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.7 }}>≈ {settlCurrSym}{plannedNonZero.reduce((s, t) => s + (t.settlementAmount || t.amount), 0).toFixed(2)}</span>}
                 </div>
 
                 {approvalEntries.length > 0 && (
@@ -2494,7 +2497,7 @@ export default function EventDetailPage() {
                           </span>
                           <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{displayAmt}</span>
                           <Badge $variant={s.status === 'completed' ? 'success' : s.status === 'initiated' ? 'warning' : 'default'} style={{ fontSize: 10 }}>
-                            {s.status}
+                            {s.status === 'netted' ? `${poolLegLabel(s) || 'Pool payment'} · included in the payments above` : s.status}
                           </Badge>
                         </div>
                         <div style={{ marginTop: 8, paddingLeft: 4 }}>

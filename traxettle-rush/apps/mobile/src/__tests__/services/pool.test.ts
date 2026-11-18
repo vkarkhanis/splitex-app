@@ -74,6 +74,25 @@ describe('poolService', () => {
     expect(mockApi.post).toHaveBeenCalledWith('/api/uploads', { scope: 'expense_receipt', eventId: 'e1', ...file });
     await poolService.uploadContributionProof('c1', file);
     expect(mockApi.post).toHaveBeenCalledWith('/api/uploads', { scope: 'pool_contribution_proof', contributionId: 'c1', ...file });
+    await poolService.uploadAdvanceProof('e1', file);
+    expect(mockApi.post).toHaveBeenCalledWith('/api/uploads', { scope: 'pool_advance_proof', eventId: 'e1', ...file });
+  });
+
+  it('maps hand-overs (§9.3, §10.6) to their endpoints', async () => {
+    await poolService.recordAdvance('e1', { kind: 'advance', userId: 'bob', amountMinor: 100 });
+    await poolService.recordAdvance('e1', { kind: 'return', amountMinor: 50 });
+    await poolService.confirmAdvance('a1');
+    await poolService.rejectAdvance('a1');
+    await poolService.rejectAdvance('a1', 'never came');
+    await poolService.cancelAdvance('a1');
+    expect(mockApi.post.mock.calls.map((c) => [c[0], c[1]])).toEqual([
+      ['/api/pools/event/e1/advances', { kind: 'advance', userId: 'bob', amountMinor: 100 }],
+      ['/api/pools/event/e1/advances', { kind: 'return', amountMinor: 50 }],
+      ['/api/pools/advances/a1/confirm', {}],
+      ['/api/pools/advances/a1/reject', {}],
+      ['/api/pools/advances/a1/reject', { reason: 'never came' }],
+      ['/api/pools/advances/a1/cancel', {}],
+    ]);
   });
 });
 

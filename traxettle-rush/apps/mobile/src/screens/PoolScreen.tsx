@@ -14,14 +14,18 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { readAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import {
+  ADVANCE_KIND_LABEL,
   CONTRIBUTION_STATUS,
+  advanceStatusText,
   canApproveDraw,
+  describeSettleUpRow,
+  earlyRepaymentImpact,
   entityKey,
   formatMinor,
   fromMinor,
   isPoolSideLeg,
   lentTopUps,
-  openPoolSideLegs,
+  outstandingLoans,
   poolErrorText,
   poolLegLabel,
   poolNoun,
@@ -31,12 +35,14 @@ import {
   REPAYMENT_STATUS,
   reimbursementStatus,
   repaymentStatus,
+  settleUpRows,
   toMinor,
 } from '@traxettle/shared';
 import type {
   Event as TraxettleEvent,
   EventParticipant,
   Group,
+  PoolAdvance,
   PoolContribution,
   PoolDrawStatus,
   PoolLedger,
@@ -56,7 +62,11 @@ type Sheet =
   | { kind: 'amount'; title: string; hint?: string; initialMinor: number; giftChoice?: { loanLabel: string }; submit: (minor: number, gift: boolean) => Promise<unknown> }
   | { kind: 'markPaid'; contribution: PoolContribution }
   | { kind: 'amounts' }
-  | { kind: 'reconcile'; mode: 'close' | 'settle' };
+  | { kind: 'reconcile'; mode: 'close' | 'settle' }
+  // Money handed over (§9.3, §10.6).
+  | { kind: 'giveMoney' }
+  | { kind: 'returnMoney'; byCustodian: boolean }
+  | { kind: 'payBack'; userId: string };
 
 export default function PoolScreen({ route, navigation }: any) {
   const { eventId } = route.params as { eventId: string };
@@ -135,6 +145,38 @@ export default function PoolScreen({ route, navigation }: any) {
     return p?.displayName || p?.email || 'Member';
   };
 
+  // ── Money handed over (§9.3, §10.6) ──
+  const advances: PoolAdvance[] = ledger.advances || [];
+  const holdings = summary.holdings;
+  const userKeyOf = (uid: string) => {
+    const group = groups.find((g) => (g.members || []).includes(uid));
+    return group ? entityKey('group', group.id) : entityKey('user', uid);
+  };
+  /** The person who hands over for an entity key (a group's payer). */
+  const userForKey = (key: string) => {
+    const [type, ...rest] = key.split(':');
+    const id = rest.join(':');
+    if (type !== 'group') return id;
+    const group = groups.find((g) => g.id === id);
+    return group?.payerUserId || group?.representative || group?.members?.[0] || id;
+  };
+  const keyLabel = (key: string) => {
+    const [type, ...rest] = key.split(':');
+    return nameOf(type as 'user' | 'group', rest.join(':'));
+  };
+  const myHeld = me && holdings ? holdings.heldBy[userKeyOf(me)] || 0 : 0;
+  const handOverOpen = canAct && event.status === 'active' && Boolean(holdings);
+  const holders = holdings ? Object.entries(holdings.heldBy).filter(([, v]) => v > 0) : [];
+  const loans = outstandingLoans(contributions, advances, config.custodianUserId);
+  // Who can be handed money: anyone allowed to spend from the pool, except the custodian.
+  const adminIds = [event.createdBy, ...(event.admins || [])];
+  const spenderIds = participants.map((p) => p.userId).filter((uid) => uid !== config.custodianUserId && (!sponsor
+    || adminIds.includes(uid)
+    || (config.authorizedSpenders || []).includes(uid)
+    || groups.some((g) => (config.authorizedSpenderGroups || []).includes(g.id) && (g.members || []).includes(uid))));
+  const custodianName = nameOf('user', config.custodianUserId);
+  const showHoldings = Boolean(holdings) && (Object.keys(holdings!.heldBy).length > 0 || holdings!.pendingOutMinor > 0 || advances.length > 0);
+
   const run = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(true);
     try {
@@ -171,6 +213,27 @@ export default function PoolScreen({ route, navigation }: any) {
             collected {money(summary.totals.confirmedRegularMinor + summary.totals.confirmedTopUpMinor)} · spent {money(summary.totals.poolSpendMinor)}
             {summary.totals.reimbursementsMinor ? ` · reimbursed ${money(summary.totals.reimbursementsMinor)}` : ''}
           </Text>
+          {showHoldings && holdings && (
+            <Text style={[meta, { marginTop: spacing.xs }]} testID="pool-holdings">
+              {isCustodian
+                ? `With you ${money(holdings.withCustodianMinor)} · With spenders ${money(holdings.withSpendersMinor)}${holdings.pendingOutMinor > 0 ? ` · ${money(holdings.pendingOutMinor)} waiting to be confirmed` : ''}`
+                : myHeld > 0
+                  ? `You're holding ${money(myHeld)} of the ${noun.toLowerCase()}'s money.`
+                  : myHeld < 0
+                    ? `The ${noun.toLowerCase()} owes you ${money(-myHeld)} for spends beyond the money you held.`
+                    : `With ${custodianName} ${money(holdings.withCustodianMinor)} · With spenders ${money(holdings.withSpendersMinor)}`}
+            </Text>
+          )}
+          {isCustodian && handOverOpen && loans.totalMinor > 0 && (
+            <View testID="pool-loans">
+              {Object.entries(loans.byUser).map(([uid, owed]) => (
+                <View key={uid} style={[st.row, { borderColor: colors.border }]}>
+                  <Text style={[meta, { flex: 1 }]}>{nameOf('user', uid)} lent the {noun.toLowerCase()} money: {money(owed)} still to pay back.</Text>
+                  <Btn testID={`pay-back-${uid}`} label="Pay back now" color={colors.primary} small outline onPress={() => setSheet({ kind: 'payBack', userId: uid })} />
+                </View>
+              ))}
+            </View>
+          )}
           {lent.totalMinor > 0 && (
             <Text style={[meta, { marginTop: spacing.xs }]} testID="pool-lent">
               {isCustodian
@@ -214,6 +277,15 @@ export default function PoolScreen({ route, navigation }: any) {
                   if (!isCustodian && c?.id) await poolService.markPaid(c.id, { amountMinor: minor });
                 },
               })} />
+              {isCustodian && handOverOpen && spenderIds.length > 0 && (
+                <Btn testID="pool-give-money" label="Give money" color={colors.primary} outline onPress={() => setSheet({ kind: 'giveMoney' })} />
+              )}
+              {isCustodian && handOverOpen && holders.length > 0 && (
+                <Btn testID="pool-record-returned" label="Money returned" color={colors.primary} outline onPress={() => setSheet({ kind: 'returnMoney', byCustodian: true })} />
+              )}
+              {!isCustodian && handOverOpen && myHeld > 0 && (
+                <Btn testID="pool-return-money" label="Return money" color={colors.primary} outline onPress={() => setSheet({ kind: 'returnMoney', byCustodian: false })} />
+              )}
               {isManager && !sponsor && <Btn testID="pool-set-amounts" label="Set amounts" color={colors.primary} outline onPress={() => setSheet({ kind: 'amounts' })} />}
               {isManager && config.cycleMode === 'recurring' && <Btn testID="pool-close-cycle" label={`Close ${cycle.label}`} color={colors.secondary} onPress={() => setSheet({ kind: 'reconcile', mode: 'close' })} />}
               {isAdmin && event.status === 'active' && <Btn testID="pool-settle-up" label={sponsor ? 'Finish & report' : 'Settle up'} color={colors.primary} onPress={() => setSheet({ kind: 'reconcile', mode: 'settle' })} />}
@@ -234,7 +306,7 @@ export default function PoolScreen({ route, navigation }: any) {
               <View key={leg.id} style={[st.row, { borderColor: colors.border }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={[st.rowTitle, { color: colors.text }]}>{nameOf('user', leg.fromUserId)} → {nameOf('user', leg.toUserId)}</Text>
-                  <Text style={meta}>{poolLegLabel(leg) || 'Payment'} · {leg.status === 'completed' ? 'Done' : leg.status === 'initiated' ? 'Paid — awaiting confirmation' : 'To pay'}</Text>
+                  <Text style={meta}>{poolLegLabel(leg) || 'Payment'} · {leg.status === 'completed' ? 'Done' : leg.status === 'netted' ? 'In final settlement' : leg.status === 'initiated' ? 'Paid — awaiting confirmation' : 'To pay'}</Text>
                 </View>
                 <Text style={[st.amount, { color: colors.text }]}>{money(toMinor(leg.amount, currency))}</Text>
                 {me === leg.fromUserId && (leg.status === 'pending' || leg.status === 'failed') && (
@@ -260,7 +332,9 @@ export default function PoolScreen({ route, navigation }: any) {
                 <View style={{ flex: 1 }}>
                   <Text style={[st.rowTitle, { color: colors.text }]}>{e.title}</Text>
                   <Text style={meta}>
-                    {e.fundingSource === 'pool_reimbursement' ? 'Reimbursement' : e.alreadyIncurred ? 'Pool spend · already paid' : 'Pool spend · asking first'} · {nameOf('user', e.actorUserId)}{e.receiptUrls.length ? ` · ${e.receiptUrls.length} receipt(s)` : ''}
+                    {e.fundingSource === 'pool_reimbursement' ? 'Reimbursement' : e.alreadyIncurred ? 'Pool spend · already paid' : 'Pool spend · asking first'}
+                    {e.paidFrom === 'advance' ? ' · money they hold' : e.paidFrom === 'sponsor_card' ? ` · ${custodianName === 'You' ? 'your' : `${custodianName}'s`} card or UPI` : ''}
+                    {' · '}{nameOf('user', e.actorUserId)}{e.receiptUrls.length ? ` · ${e.receiptUrls.length} receipt(s)` : ''}
                   </Text>
                 </View>
                 <Text style={[st.amount, { color: colors.text }]}>{money(-e.amountMinor)}</Text>
@@ -269,10 +343,14 @@ export default function PoolScreen({ route, navigation }: any) {
                 <Btn testID={`reject-${e.id}`} label="Reject" color={colors.error} small outline disabled={busy || !canAct}
                   onPress={() => {
                     const reject = () => run('Reject', () => poolService.rejectDraw(e.id));
-                    // Rejecting money already spent from the pool means the spender owes it back (§9.2).
+                    // Rejecting money already spent from the pool means the spender owes it back (§9.2):
+                    // as a repayment, or (paid from money they hold) as part of what they hold (§9.3).
                     if (e.fundingSource === 'pool' && e.alreadyIncurred && e.actorUserId !== config.custodianUserId) {
                       const who = nameOf('user', e.actorUserId);
-                      Alert.alert('Reject this spend?', `${who} says this was already paid with the ${noun.toLowerCase()}'s money. If you reject it, ${who} owes ${money(-e.amountMinor)} back to ${nameOf('user', config.custodianUserId).replace(/^You$/, 'you')}.`, [
+                      const text = e.paidFrom === 'advance'
+                        ? `${who} paid this with ${noun.toLowerCase()} money they hold. If you reject it, the ${money(-e.amountMinor)} stays with them, to be returned or settled at the end.`
+                        : `${who} says this was already paid with the ${noun.toLowerCase()}'s money. If you reject it, ${who} owes ${money(-e.amountMinor)} back to ${custodianName.replace(/^You$/, 'you')}.`;
+                      Alert.alert('Reject this spend?', text, [
                         { text: 'Cancel', style: 'cancel' },
                         { text: 'Reject', style: 'destructive', onPress: () => { void reject(); } },
                       ]);
@@ -282,6 +360,41 @@ export default function PoolScreen({ route, navigation }: any) {
                   }} />
               </View>
             ))}
+          </View>
+        )}
+
+        {/* Money handed over (§9.3, §10.6) */}
+        {advances.length > 0 && (
+          <View style={card} testID="pool-movements">
+            <Text style={h2}>Money handed over</Text>
+            <Text style={meta}>Advances to spenders, money returned and loans paid back early</Text>
+            {[...advances].reverse().map((a) => {
+              const waiting = a.status === 'initiated' && handOverOpen;
+              return (
+                <View key={a.id} style={[st.row, { borderColor: colors.border }]} testID={`advance-${a.id}`}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[st.rowTitle, { color: colors.text }]}>
+                      {ADVANCE_KIND_LABEL[a.kind]} · {advanceStatusText(a, me ?? '', (uid) => nameOf('user', uid))}
+                    </Text>
+                    <Text style={meta}>
+                      {nameOf('user', a.fromUserId)} → {nameOf('user', a.toUserId)} · {new Date(a.confirmedAt || a.createdAt).toLocaleDateString()}
+                      {a.note ? ` · ${a.note}` : ''}{a.proofUrl ? ' · proof attached' : ''}
+                      {a.status === 'rejected' && a.rejectionReason ? ` · ${a.rejectionReason}` : ''}
+                    </Text>
+                  </View>
+                  <Text style={[st.amount, { color: a.status === 'rejected' || a.status === 'cancelled' ? colors.muted : colors.text }]}>{money(a.amountMinor)}</Text>
+                  {waiting && a.toUserId === me && (
+                    <>
+                      <Btn testID={`advance-confirm-${a.id}`} label="Received" color={colors.success} small disabled={busy} onPress={() => run('Confirm', () => poolService.confirmAdvance(a.id))} />
+                      <Btn testID={`advance-reject-${a.id}`} label="Not received" color={colors.error} small outline disabled={busy} onPress={() => run('Not received', () => poolService.rejectAdvance(a.id))} />
+                    </>
+                  )}
+                  {waiting && a.createdBy === me && a.toUserId !== me && (
+                    <Btn testID={`advance-cancel-${a.id}`} label="Cancel" color={colors.muted} small outline disabled={busy} onPress={() => run('Cancel', () => poolService.cancelAdvance(a.id))} />
+                  )}
+                </View>
+              );
+            })}
           </View>
         )}
 
@@ -350,6 +463,17 @@ export default function PoolScreen({ route, navigation }: any) {
               );
             })}
             {participants.length <= 1 && <Text style={[meta, { marginTop: spacing.sm }]}>Invite people from the event screen, then allow them here.</Text>}
+            {/* Spends on the sponsor's card or UPI (§9.3): on unless the sponsor turns it off. */}
+            <View style={[st.row, { borderColor: colors.border }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[st.rowTitle, { color: colors.text }]}>Spenders can pay with my card or UPI</Text>
+                <Text style={meta}>Turn off if you never share them: spenders then only see money they hold and their own money.</Text>
+              </View>
+              <Btn testID="allow-card-spends" label={config.allowSponsorCardSpends === false ? 'Off' : 'On ✓'}
+                color={config.allowSponsorCardSpends === false ? colors.muted : colors.success} small outline={config.allowSponsorCardSpends === false}
+                disabled={!isAdmin || busy || event.status !== 'active'}
+                onPress={() => run('Update setting', () => poolService.updateConfig(eventId, { allowSponsorCardSpends: config.allowSponsorCardSpends === false }))} />
+            </View>
           </View>
         )}
 
@@ -360,7 +484,10 @@ export default function PoolScreen({ route, navigation }: any) {
             {spenders.map((sp) => (
               <View key={`${sp.spenderType}:${sp.spenderId}`} style={[st.row, { borderColor: colors.border }]}>
                 <Text style={[st.rowTitle, { color: colors.text, flex: 1 }]}>{nameOf(sp.spenderType, sp.spenderId)}</Text>
-                <Text style={meta}>{money(sp.spentMinor)}{sp.capMinor !== null ? ` / ${money(sp.capMinor)}` : ''}{sp.pendingMinor ? ` (+${money(sp.pendingMinor)} pending)` : ''}</Text>
+                <Text style={meta}>
+                  {money(sp.spentMinor)}{sp.capMinor !== null ? ` / ${money(sp.capMinor)}` : ''}{sp.pendingMinor ? ` (+${money(sp.pendingMinor)} pending)` : ''}
+                  {sp.heldMinor ? (sp.heldMinor > 0 ? ` · holding ${money(sp.heldMinor)}` : ` · owed ${money(-sp.heldMinor)}`) : ''}
+                </Text>
               </View>
             ))}
           </View>
@@ -370,21 +497,30 @@ export default function PoolScreen({ route, navigation }: any) {
         <View style={card} testID="pool-ledger">
           <Text style={h2}>Activity</Text>
           {entries.length === 0 && <Text style={[meta, { marginTop: spacing.sm }]}>Contributions and pool expenses will appear here.</Text>}
-          {entries.map((e) => (
-            <View key={`${e.type}-${e.id}`} style={[st.row, { borderColor: colors.border }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={[st.rowTitle, { color: colors.text }]}>{e.title}</Text>
-                <Text style={meta}>
-                  {e.entityType ? nameOf(e.entityType, e.entityId!) : nameOf('user', e.actorUserId)} · {new Date(e.at).toLocaleDateString()}
-                  {e.status === 'pending' ? ' · awaiting approval' : e.status === 'rejected' ? ' · rejected' : ''}
-                  {e.fundingSource === 'pool_reimbursement' ? payBackText(e.status, e.settlementStatus) : repayText(e.status, e.settlementStatus)}
-                  {e.flags?.includes('exceeds_tolerance') ? ' · over the limit' : ''}
-                  {e.receiptUrls.length ? ` · ${e.receiptUrls.length} receipt(s)` : ''}
-                </Text>
+          {entries.map((e) => {
+            const handOver = e.type === 'advance';
+            return (
+              <View key={`${e.type}-${e.id}`} style={[st.row, { borderColor: colors.border }]} testID={`ledger-${e.id}`}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[st.rowTitle, { color: colors.text }]}>{e.title}</Text>
+                  <Text style={meta}>
+                    {handOver
+                      ? `${nameOf('user', e.fromUserId || e.actorUserId)} → ${nameOf('user', e.toUserId || '')}`
+                      : e.entityType ? nameOf(e.entityType, e.entityId!) : nameOf('user', e.actorUserId)} · {new Date(e.at).toLocaleDateString()}
+                    {e.status === 'pending' ? ' · awaiting approval' : e.status === 'rejected' ? ' · rejected' : e.status === 'initiated' ? ' · awaiting confirmation' : ''}
+                    {e.paidFrom === 'advance' ? ' · paid with money they hold' : e.paidFrom === 'sponsor_card' ? " · on the custodian's card or UPI" : ''}
+                    {e.fundingSource === 'pool_reimbursement' ? payBackText(e.status, e.settlementStatus, event.status) : repayText(e.status, e.settlementStatus, event.status)}
+                    {e.flags?.includes('exceeds_tolerance') ? ' · over the limit' : ''}
+                    {e.receiptUrls.length ? ` · ${e.receiptUrls.length} ${handOver ? 'proof' : 'receipt(s)'}` : ''}
+                  </Text>
+                </View>
+                {/* Advances and returns move money between holders: shown plainly, not as money in or out. */}
+                {handOver && e.advanceKind !== 'repayment'
+                  ? <Text style={[st.amount, { color: colors.text }]}>{money(Math.abs(e.amountMinor))}</Text>
+                  : <Text style={[st.amount, { color: !e.counted ? colors.muted : e.amountMinor > 0 ? colors.success : colors.text }]}>{money(e.amountMinor, true)}</Text>}
               </View>
-              <Text style={[st.amount, { color: !e.counted ? colors.muted : e.amountMinor > 0 ? colors.success : colors.text }]}>{money(e.amountMinor, true)}</Text>
-            </View>
-          ))}
+            );
+          })}
         </View>
 
         {/* Cycle history */}
@@ -423,10 +559,45 @@ export default function PoolScreen({ route, navigation }: any) {
       {sheet.kind === 'reconcile' && (
         <ReconcileSheet eventId={eventId} mode={sheet.mode} currency={currency} noun={noun} busy={busy} nameOf={nameOf}
           custodianKey={entityKey('user', config.custodianUserId)}
-          separateLegs={openPoolSideLegs(legs)}
+          keyOf={userKeyOf}
+          waitingHandOvers={advances.filter((a) => a.status === 'initiated').length}
           onClose={() => setSheet({ kind: 'none' })}
           onSubmit={(cover) => run(sheet.mode === 'close' ? 'Close cycle' : 'Settle up',
             () => (sheet.mode === 'close' ? poolService.closeCycle(eventId, { cover }) : poolService.dissolve(eventId, { cover })))} />
+      )}
+      {sheet.kind === 'giveMoney' && holdings && (
+        <HandOverSheet title="Give money to a spender" eventId={eventId} currency={currency} busy={busy} submitLabel="Give money"
+          people={spenderIds.map((uid) => ({ id: uid, label: nameOf('user', uid) }))}
+          maxMinor={holdings.withCustodianMinor - holdings.pendingOutMinor}
+          blocked={summary.overdraft.latched || summary.totals.balanceMinor <= 0
+            ? `There's no ${noun.toLowerCase()} money to hand out: spending is paused or the ${noun.toLowerCase()} is empty.` : undefined}
+          hint="They confirm once they have it. Moving money between spenders? Record a return from one and an advance to the other. The cash can go directly."
+          onClose={() => setSheet({ kind: 'none' })}
+          onSubmit={(body) => run('Give money', () => poolService.recordAdvance(eventId, { kind: 'advance', ...body }))} />
+      )}
+      {sheet.kind === 'returnMoney' && holdings && (
+        <HandOverSheet title={sheet.byCustodian ? 'Money returned to you' : `Return ${noun.toLowerCase()} money`} eventId={eventId} currency={currency} busy={busy}
+          submitLabel={sheet.byCustodian ? 'Record' : 'Return money'}
+          people={sheet.byCustodian ? holders.map(([key, held]) => ({ id: userForKey(key), label: `${keyLabel(key)} (holds ${money(held)})`, maxMinor: held })) : undefined}
+          maxMinor={sheet.byCustodian ? undefined : myHeld}
+          hint={sheet.byCustodian ? 'Recorded straight away: you are the one receiving it.' : `${custodianName} confirms once it arrives.`}
+          onClose={() => setSheet({ kind: 'none' })}
+          onSubmit={(body) => run('Return money', () => poolService.recordAdvance(eventId, { kind: 'return', ...body }))} />
+      )}
+      {sheet.kind === 'payBack' && (
+        <HandOverSheet title={`Pay ${nameOf('user', sheet.userId)} back now`} eventId={eventId} currency={currency} busy={busy} submitLabel="I've paid"
+          fixedUserId={sheet.userId}
+          maxMinor={loans.byUser[sheet.userId] || 0}
+          initialMinor={loans.byUser[sheet.userId] || 0}
+          warningFor={(amountMinor) => {
+            const impact = earlyRepaymentImpact(config, cycle.openingBalanceMinor, summary.totals, cycle.overdraftLatchedAt, amountMinor);
+            if (impact.alreadyPaused) return `Spending is paused. Paying ${nameOf('user', sheet.userId)} ${money(amountMinor)} now means you'll need to add ${money(impact.addToResumeMinor)} before anyone can spend again.`;
+            if (impact.pauses) return `This pauses spending. You'll need to add ${money(impact.addToResumeMinor)} before anyone can spend again.`;
+            return null;
+          }}
+          hint={`Pay them outside the app, then record it here. ${nameOf('user', sheet.userId)} confirms they received it.`}
+          onClose={() => setSheet({ kind: 'none' })}
+          onSubmit={(body) => run('Pay back', () => poolService.recordAdvance(eventId, { kind: 'repayment', ...body, userId: sheet.userId }))} />
       )}
     </View>
   );
@@ -461,13 +632,14 @@ function Sheet(props: { title: string; children: React.ReactNode; onClose: () =>
   );
 }
 
-function payBackText(status: string, settlementStatus?: string | null): string {
-  const payBack = reimbursementStatus({ status: status as PoolDrawStatus }, settlementStatus);
+/** `eventStatus` decides how a payment folded into the final settlement reads (§11). */
+function payBackText(status: string, settlementStatus?: string | null, eventStatus?: string): string {
+  const payBack = reimbursementStatus({ status: status as PoolDrawStatus }, settlementStatus, eventStatus);
   return payBack ? ` · ${REIMBURSEMENT_STATUS[payBack].label.toLowerCase()}` : '';
 }
 
-function repayText(status: string, settlementStatus?: string | null): string {
-  const repay = repaymentStatus(status, settlementStatus);
+function repayText(status: string, settlementStatus?: string | null, eventStatus?: string): string {
+  const repay = repaymentStatus(status, settlementStatus, eventStatus);
   return repay ? ` · ${REPAYMENT_STATUS[repay].label.toLowerCase()}` : '';
 }
 
@@ -581,14 +753,19 @@ function AmountsSheet(props: {
 
 function ReconcileSheet(props: {
   eventId: string; mode: 'close' | 'settle'; currency: string; noun: string; busy: boolean; custodianKey: string;
-  /** Pool payments still open. They aren't netted into the final settlement (design doc §11). */
-  separateLegs: Settlement[];
+  /** A user's entity key (their group's, if they're in one), as the settlement plan uses. */
+  keyOf: (userId: string) => string;
+  /** Hand-overs still waiting for confirmation: closing waits for them (§9.3). */
+  waitingHandOvers: number;
   nameOf: (t: 'user' | 'group', id: string) => string; onClose: () => void; onSubmit: (cover?: CoverEntry[]) => void;
 }) {
   const { colors } = useTheme().theme;
-  // Only the final settle-up lists them: closing a cycle moves no money now.
-  const separate = props.mode === 'settle' ? props.separateLegs : [];
   const [preview, setPreview] = useState<ClosePreview | null>(null);
+  // Settle-up only (§11): repayments and claims folded into the final payments, and pool payments
+  // that stay separate. Closing a cycle moves no money now.
+  const folded = props.mode === 'settle' ? preview?.folded ?? [] : [];
+  const separate = props.mode === 'settle' ? preview?.separate ?? [] : [];
+  const rows = preview ? settleUpRows(preview.settlementBalances, folded, props.keyOf) : [];
   const [error, setError] = useState('');
   useEffect(() => {
     let cancelled = false;
@@ -612,12 +789,17 @@ function ReconcileSheet(props: {
   return (
     <Sheet title={props.mode === 'close' ? 'Close this cycle' : `Settle up the ${props.noun.toLowerCase()}`} onClose={props.onClose}
       footer={<Btn testID="reconcile-submit" label={props.mode === 'close' ? 'Close cycle' : 'Settle up'} color={colors.primary}
-        disabled={props.busy || !preview || preview.pendingDraws > 0} onPress={() => props.onSubmit(cover())} />}>
+        disabled={props.busy || !preview || preview.pendingDraws > 0 || props.waitingHandOvers > 0} onPress={() => props.onSubmit(cover())} />}>
       {error ? <Text style={{ color: colors.error }}>{error}</Text> : null}
       {!preview && !error && <ActivityIndicator color={colors.primary} />}
       {preview && (
         <View testID="reconcile-preview">
           {preview.pendingDraws > 0 && <Text style={{ color: colors.error, marginBottom: spacing.sm }}>Approve or reject the pending expenses first.</Text>}
+          {props.waitingHandOvers > 0 && (
+            <Text testID="reconcile-waiting-handovers" style={{ color: colors.error, marginBottom: spacing.sm }}>
+              {props.waitingHandOvers} hand-over{props.waitingHandOvers === 1 ? ' is' : 's are'} waiting for confirmation. Confirm, reject or cancel {props.waitingHandOvers === 1 ? 'it' : 'them'} first.
+            </Text>
+          )}
           <Text style={{ color: colors.text }}>Collected {money(preview.confirmedContributionsMinor)} · spent {money(preview.poolSpendMinor + preview.reimbursementsMinor)}</Text>
           <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.xs }}>
             {preview.preCoverBalanceMinor >= 0 ? `Left over ${money(preview.preCoverBalanceMinor)}` : `Short by ${money(-preview.preCoverBalanceMinor)}`}
@@ -632,30 +814,132 @@ function ReconcileSheet(props: {
                 {props.nameOf(sh.entityType, sh.entityId)}: {sh.netMinor > 0 ? `in credit ${money(sh.netMinor)}` : `owes ${money(-sh.netMinor)}`}
               </Text>
             ))
-            : Object.entries(preview.settlementBalances).map(([k, v]) => (
-              <Text key={k} style={{ color: colors.text }}>{keyName(k)}: {v > 0 ? `gets back ${money(v)}` : `pays ${money(-v)}`}</Text>
-            ))}
-          {preview.disposition === 'settle' && Object.keys(preview.settlementBalances).length === 0 && (
+            : rows.map((row) => {
+              const words = describeSettleUpRow(row, props.currency, props.noun);
+              return (
+                <View key={row.key} testID={`reconcile-row-${row.key}`} style={{ marginTop: 2 }}>
+                  <Text style={{ color: colors.text }}>{keyName(row.key)}: {words.headline}</Text>
+                  {words.detail && <Text style={{ color: colors.textSecondary, fontSize: fontSizes.xs }}>{words.detail}</Text>}
+                </View>
+              );
+            })}
+          {preview.disposition === 'settle' && rows.length === 0 && (
             <Text style={{ color: colors.text }}>
               {separate.length > 0 ? `Nothing to pay out of the ${props.noun.toLowerCase()}.` : 'Nobody owes anybody anything.'}
             </Text>
+          )}
+          {folded.length > 0 && (
+            <View testID="reconcile-folded">
+              <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.md }}>Included in the final settlement</Text>
+              {folded.map((f) => (
+                <Text key={f.settlementId || f.expenseId || `${f.fromUserId}-${f.toUserId}-${f.amountMinor}`} style={{ color: colors.text }}>
+                  {props.nameOf('user', f.fromUserId)} → {props.nameOf('user', f.toUserId)}: {money(f.amountMinor)} · {poolLegLabel({ kind: f.kind })}{f.title ? ` · ${f.title}` : ''}
+                </Text>
+              ))}
+              <Text style={{ color: colors.textSecondary, marginTop: spacing.xs }}>
+                These are included in the payments above instead of being paid on their own.
+              </Text>
+            </View>
           )}
           {separate.length > 0 && (
             <View testID="reconcile-separate">
               <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.md }}>Paid separately</Text>
               {separate.map((leg) => (
-                <Text key={leg.id} style={{ color: colors.text }}>
-                  {props.nameOf('user', leg.fromUserId)} → {props.nameOf('user', leg.toUserId)}: {money(toMinor(leg.amount, props.currency))} · {poolLegLabel(leg)}
+                <Text key={leg.settlementId} style={{ color: colors.text }}>
+                  {props.nameOf('user', leg.fromUserId)} → {props.nameOf('user', leg.toUserId)}: {money(leg.amountMinor)} · {poolLegLabel({ kind: leg.kind as Settlement['kind'] })}
                   {leg.status === 'initiated' ? ' · sent, awaiting confirmation' : ''}
                 </Text>
               ))}
               <Text style={{ color: colors.textSecondary, marginTop: spacing.xs }}>
-                These stay as they are and are paid on their own. They aren't combined with the amounts above.
+                These are already being paid, or belong to an earlier cycle, so they're paid on their own.
               </Text>
             </View>
           )}
         </View>
       )}
+    </Sheet>
+  );
+}
+
+/**
+ * Record money handed over (§9.3, §10.6): an advance, a return, or paying a lender back early.
+ * Proof is optional (decision D4: one file, as on contributions).
+ */
+function HandOverSheet(props: {
+  title: string; eventId: string; currency: string; busy: boolean; submitLabel: string;
+  people?: Array<{ id: string; label: string; maxMinor?: number }>;
+  fixedUserId?: string;
+  maxMinor?: number;
+  initialMinor?: number;
+  blocked?: string;
+  hint?: string;
+  warningFor?: (amountMinor: number) => string | null;
+  onClose: () => void;
+  onSubmit: (body: { userId?: string; amountMinor: number; note?: string; proofUrl?: string }) => void;
+}) {
+  const { colors } = useTheme().theme;
+  const [userId, setUserId] = useState(props.fixedUserId || props.people?.[0]?.id || '');
+  const [text, setText] = useState(props.initialMinor && props.initialMinor > 0 ? String(fromMinor(props.initialMinor, props.currency)) : '');
+  const [note, setNote] = useState('');
+  const [proofUrl, setProofUrl] = useState<string | undefined>(undefined);
+  const [uploading, setUploading] = useState(false);
+  const minor = parseMinor(text, props.currency);
+  const person = props.people?.find((p) => p.id === userId);
+  const max = person?.maxMinor ?? props.maxMinor;
+  const tooMuch = minor !== null && max !== undefined && minor > max;
+  const warning = minor !== null && props.warningFor ? props.warningFor(minor) : null;
+
+  const attach = async () => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const imagePicker = require('expo-image-picker') as ImagePickerLike;
+      const file = await pickReceiptImage('library', {
+        imagePicker,
+        readAsBase64: (uri) => readAsStringAsync(uri, { encoding: EncodingType.Base64 }),
+        alert: (t, m) => Alert.alert(t, m),
+      });
+      if (!file) return;
+      setUploading(true);
+      setProofUrl(await poolService.uploadAdvanceProof(props.eventId, file));
+    } catch (err) {
+      Alert.alert('Upload failed', poolErrorText(err, props.currency));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <Sheet title={props.title} onClose={props.onClose}
+      footer={<Btn testID="handover-submit" label={props.submitLabel} color={colors.primary}
+        disabled={props.busy || uploading || minor === null || tooMuch || Boolean(props.blocked) || (Boolean(props.people) && !userId)}
+        onPress={() => minor !== null && props.onSubmit({
+          ...(props.people || props.fixedUserId ? { userId } : {}),
+          amountMinor: minor,
+          note: note.trim() || undefined,
+          proofUrl,
+        })} />}>
+      {props.blocked && <Text testID="handover-blocked" style={[st.banner, { color: colors.error, backgroundColor: colors.errorBg, marginTop: 0, marginBottom: spacing.sm }]}>{props.blocked}</Text>}
+      {props.people && (
+        <View style={{ gap: spacing.xs, marginBottom: spacing.sm }} testID="handover-who">
+          {props.people.map((p) => (
+            <TouchableOpacity key={p.id} testID={`handover-who-${p.id}`} onPress={() => setUserId(p.id)}
+              style={[st.choice, { borderColor: userId === p.id ? colors.primary : colors.border, backgroundColor: userId === p.id ? colors.primary + '12' : 'transparent' }]}>
+              <Text style={{ color: userId === p.id ? colors.primary : colors.text, fontWeight: userId === p.id ? '700' : '400' }}>{userId === p.id ? '◉' : '○'}  {p.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+      <TextInput testID="handover-amount" autoFocus={!props.people} keyboardType="decimal-pad" value={text} onChangeText={setText}
+        style={[st.input, { borderColor: colors.border, color: colors.text }]} placeholder={`Amount (${props.currency})`} placeholderTextColor={colors.muted} />
+      {max !== undefined && <Text style={[st.meta, { color: colors.textSecondary }]}>Up to {formatMinor(Math.max(0, max), props.currency)}</Text>}
+      <TextInput testID="handover-note" value={note} onChangeText={setNote} maxLength={500}
+        style={[st.input, { borderColor: colors.border, color: colors.text, marginTop: spacing.sm }]} placeholder="Note (optional)" placeholderTextColor={colors.muted} />
+      <View style={[st.actions, { marginTop: spacing.sm }]}>
+        <Btn label={proofUrl ? 'Proof attached ✓' : uploading ? 'Uploading…' : 'Attach proof'} color={colors.primary} outline disabled={uploading} onPress={() => void attach()} />
+      </View>
+      {tooMuch && <Text testID="handover-too-much" style={[st.banner, { color: colors.error, backgroundColor: colors.errorBg }]}>That's more than {formatMinor(Math.max(0, max!), props.currency)}.</Text>}
+      {warning && <Text testID="handover-warning" style={[st.banner, { color: colors.warning, backgroundColor: colors.warningBg }]}>{warning}</Text>}
+      {props.hint && <Text style={[st.meta, { color: colors.textSecondary, marginTop: spacing.sm }]}>{props.hint}</Text>}
     </Sheet>
   );
 }

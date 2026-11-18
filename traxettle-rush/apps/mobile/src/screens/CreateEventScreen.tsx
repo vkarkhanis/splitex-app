@@ -17,7 +17,7 @@ import { useTheme } from '../context/ThemeContext';
 import { api, ApiRequestError, isStagingModeEnabled } from '../api';
 import { ENV } from '../config/env';
 import { useAuth } from '../context/AuthContext';
-import { buildFundingPayload, contributorPoolsAvailable, DEFAULT_FUNDING_CHOICE, validateFundingChoice } from '@traxettle/shared';
+import { buildFundingPayload, contributorPoolsAvailable, DEFAULT_FUNDING_CHOICE, proRequiredMessage, validateFundingChoice } from '@traxettle/shared';
 import type { FundingChoice } from '@traxettle/shared';
 import { FundingStepView } from '../components/pool/PoolViews';
 import { FxRatesAttribution } from '../components/FxRatesAttribution';
@@ -92,6 +92,13 @@ export default function CreateEventScreen({ navigation }: any) {
   const canUseFx = capabilities.multiCurrencySettlement;
   const needsFx = settlementCurrency && settlementCurrency !== currency;
   const isFxProFeature = needsFx && !canUseFx;
+  // "Several of us" pools need Pro (design doc §12); only an explicit `false` from the server locks it.
+  const groupPoolsLocked = capabilities.contributorPools === false;
+  const groupPoolBlocked = groupPoolsLocked && funding.kind === 'pool' && funding.funder === 'contributors';
+  const offerUpgrade = (message: string) => Alert.alert('Pro Feature', message, [
+    { text: 'Not now', style: 'cancel' },
+    { text: 'Upgrade', onPress: () => navigation.navigate('ProUpgrade') },
+  ]);
 
   const handleSubmit = async () => {
     if (!name.trim()) {
@@ -101,6 +108,10 @@ export default function CreateEventScreen({ navigation }: any) {
 
     if (isFxProFeature) {
       Alert.alert('Pro Feature', 'Multi-currency settlement requires a Pro subscription. Upgrade to unlock this feature.');
+      return;
+    }
+    if (groupPoolBlocked) {
+      offerUpgrade(`${proRequiredMessage('contributor_pools')} Only you need Pro: everyone you invite joins free.`);
       return;
     }
 
@@ -165,7 +176,9 @@ export default function CreateEventScreen({ navigation }: any) {
       navigation.replace('EventDetail', { eventId: createdEventId, eventName: name });
     } catch (err: any) {
       if (err instanceof ApiRequestError && err.code === 'FEATURE_REQUIRES_PRO') {
-        Alert.alert('Pro Feature', 'Multi-currency settlement requires a Pro subscription. Upgrade to unlock this feature.');
+        // Name the feature the API refused, not always multi-currency.
+        if (err.feature === 'contributor_pools') offerUpgrade(proRequiredMessage('contributor_pools'));
+        else Alert.alert('Pro Feature', 'Multi-currency settlement requires a Pro subscription. Upgrade to unlock this feature.');
         return;
       }
       Alert.alert('Error', err.message || 'Failed to create event');
@@ -252,7 +265,8 @@ export default function CreateEventScreen({ navigation }: any) {
         ))}
       </View>
 
-      <FundingStepView value={funding} onChange={setFunding} currency={currency} allowContributorPools={allowContributorPools} />
+      <FundingStepView value={funding} onChange={setFunding} currency={currency} allowContributorPools={allowContributorPools}
+        contributorPoolsLocked={groupPoolsLocked} onUpgrade={() => navigation.navigate('ProUpgrade')} />
 
       {/* Settlement Currency */}
       <Text style={[styles.label, { color: colors.textSecondary }]}>

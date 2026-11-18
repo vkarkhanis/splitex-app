@@ -3,16 +3,16 @@ import { ActivityIndicator, Alert, Linking, StyleSheet, Text, TextInput, Touchab
 import { readAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import {
   POOL_PRESET_LABELS,
-  allowedFundingSources,
   formatMinor,
   meterCaption,
   meterGeometry,
   needsTarget,
   withPreset,
   choosePool,
+  paidWithOptions,
   CONTRIBUTOR_PRESETS,
 } from '@traxettle/shared';
-import type { EventFundingModel, ExpenseFundingSource, FundingChoice, PoolCycleSummary, PoolOverdraftState } from '@traxettle/shared';
+import type { EventFundingModel, ExpenseFundingSource, FundingChoice, PaidWithChoice, PoolCycleSummary, PoolOverdraftState } from '@traxettle/shared';
 import { useTheme } from '../../context/ThemeContext';
 import { fontSizes, radii, spacing } from '../../theme';
 import { pickReceiptImage, poolService } from '../../services/pool';
@@ -49,28 +49,36 @@ export function PoolMeterView({ overdraft, currency }: { overdraft: PoolOverdraf
 
 // ── Paid with ─────────────────────────────────────────────────────────────
 
-const PAID_WITH_COPY: Record<ExpenseFundingSource, { title: string; text: string }> = {
-  pool: { title: 'Pool funds', text: 'Paid from the pool.' },
-  pool_reimbursement: { title: 'My money — claim it back', text: 'The pool reimburses you.' },
-  self: { title: 'My money — split it', text: 'A regular split.' },
-};
-
-/** First question on the expense form for pool-funded events. */
+/**
+ * First question on the expense form for pool-funded events. The custodian pays from the pool
+ * directly; anyone else says how they paid with pool money (§9.3), or uses their own.
+ */
 export function PaidWithSelector(props: {
   model: EventFundingModel;
-  value: ExpenseFundingSource;
-  onChange: (v: ExpenseFundingSource) => void;
+  value: PaidWithChoice;
+  onChange: (v: PaidWithChoice) => void;
   summary: PoolCycleSummary | null;
   currency: string;
   noun: string;
   amountMinor: number;
   /** Listed first and marked "Suggested" (spenders in a sponsor pool: claiming back is risk-free). */
   preferred?: ExpenseFundingSource;
+  isCustodian: boolean;
+  /** `poolConfig.allowSponsorCardSpends !== false`. */
+  allowCardSpends: boolean;
+  /** What this person holds of the pool's money now. */
+  heldMinor?: number;
+  /** They've been handed money this cycle. */
+  hasAdvances?: boolean;
+  custodianName?: string;
 }) {
   const { colors } = useTheme().theme;
   const o = props.summary?.overdraft;
-  const options = allowedFundingSources(props.model);
-  if (props.preferred && options.includes(props.preferred)) options.sort((a, b) => Number(b === props.preferred) - Number(a === props.preferred));
+  const options = paidWithOptions({
+    model: props.model, isCustodian: props.isCustodian, currency: props.currency, noun: props.noun,
+    allowCardSpends: props.allowCardSpends, heldMinor: props.heldMinor, hasAdvances: props.hasAdvances,
+    custodianName: props.custodianName, preferred: props.preferred,
+  });
   let status: { color: string; text: string } | null = null;
   if (o && props.value !== 'self') {
     const projected = o.balanceMinor - props.amountMinor;
@@ -81,23 +89,31 @@ export function PaidWithSelector(props: {
     else if (o.balanceMinor < 0) status = { color: colors.warning, text: `The ${noun} is overdrawn by ${formatMinor(-o.balanceMinor, props.currency)} · ${formatMinor(o.headroomMinor, props.currency)} of headroom left` };
     else status = { color: colors.textSecondary, text: `${formatMinor(o.balanceMinor, props.currency)} in the ${noun}${props.amountMinor > 0 ? ` · ${formatMinor(projected, props.currency)} after this` : ''}` };
   }
+  // Spending more than they hold is fine: the pool pays them back the difference (§9.3).
+  const held = Math.max(0, props.heldMinor || 0);
+  const overHeld = props.value === 'pool_held' && props.amountMinor > held;
   return (
     <View testID="paid-with" style={{ marginBottom: spacing.md }}>
       <Text style={[s.label, { color: colors.textSecondary }]}>Paid with</Text>
       <View style={s.optionRow} accessibilityRole="radiogroup">
         {options.map((opt) => {
-          const selected = props.value === opt;
+          const selected = props.value === opt.value;
           return (
-            <TouchableOpacity key={opt} testID={`paid-with-${opt}`} accessibilityRole="radio" accessibilityState={{ selected }}
-              onPress={() => props.onChange(opt)}
+            <TouchableOpacity key={opt.value} testID={`paid-with-${opt.value}`} accessibilityRole="radio" accessibilityState={{ selected }}
+              onPress={() => props.onChange(opt.value)}
               style={[s.option, { borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.infoBg : colors.surface }]}>
-              <Text style={[s.optionTitle, { color: colors.text }]}>{PAID_WITH_COPY[opt].title}{opt === props.preferred ? '  · Suggested' : ''}</Text>
-              <Text style={[s.optionText, { color: colors.muted }]}>{PAID_WITH_COPY[opt].text}</Text>
+              <Text style={[s.optionTitle, { color: colors.text }]}>{opt.title}{opt.suggested ? '  · Suggested' : ''}</Text>
+              <Text style={[s.optionText, { color: colors.muted }]}>{opt.text}</Text>
             </TouchableOpacity>
           );
         })}
       </View>
       {status && <Text testID="paid-with-status" style={[s.status, { color: status.color }]}>{status.text}</Text>}
+      {overHeld && (
+        <Text testID="paid-with-over-held" style={[s.status, { color: colors.warning }]}>
+          That's more than you hold. The {props.noun.toLowerCase()} pays you back the {formatMinor(props.amountMinor - held, props.currency)} difference.
+        </Text>
+      )}
     </View>
   );
 }
@@ -175,10 +191,14 @@ type FundingStepViewProps = {
   currency: string;
   /** Offer "Several of us" pools; otherwise only "Just me" (see contributorPoolsAvailable). */
   allowContributorPools: boolean;
+  /** "Several of us" is Pro and this person doesn't have it (design doc §12): shown with a PRO badge. */
+  contributorPoolsLocked?: boolean;
+  /** Opens the Pro upgrade screen. */
+  onUpgrade?: () => void;
 };
 
 /** "How is this event funded?" — split expenses (default) or a pool preset. */
-export function FundingStepView({ value, onChange, currency, allowContributorPools }: FundingStepViewProps) {
+export function FundingStepView({ value, onChange, currency, allowContributorPools, contributorPoolsLocked, onUpgrade }: FundingStepViewProps) {
   const { colors } = useTheme().theme;
   const preset = value.funder === 'sponsor' ? 'sponsor_budget' : value.preset;
   const card = (selected: boolean) => [s.option, { borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.infoBg : colors.surface }];
@@ -205,7 +225,10 @@ export function FundingStepView({ value, onChange, currency, allowContributorPoo
             {allowContributorPools && (
               <TouchableOpacity testID="funder-contributors" style={card(value.funder === 'contributors')}
                 onPress={() => onChange(withPreset({ ...value, funder: 'contributors' }, CONTRIBUTOR_PRESETS.includes(value.preset) ? value.preset : 'trip_kitty'))}>
-                <Text style={[s.optionTitle, { color: colors.text }]}>Several of us</Text>
+                <Text style={[s.optionTitle, { color: colors.text }]}>
+                  Several of us
+                  {contributorPoolsLocked && <Text testID="funder-contributors-pro" style={{ color: colors.warning, fontSize: fontSizes.xs, fontWeight: '800' }}>  PRO</Text>}
+                </Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity testID="funder-sponsor" style={card(value.funder === 'sponsor')}
@@ -213,6 +236,17 @@ export function FundingStepView({ value, onChange, currency, allowContributorPoo
               <Text style={[s.optionTitle, { color: colors.text }]}>Just me</Text>
             </TouchableOpacity>
           </View>
+
+          {allowContributorPools && value.funder === 'contributors' && contributorPoolsLocked && (
+            <View testID="funding-pro-notice" style={{ marginTop: spacing.sm, padding: spacing.sm, borderRadius: radii.sm, backgroundColor: colors.warningBg }}>
+              <Text style={{ color: colors.warning, fontSize: fontSizes.sm }}>Group pools are a Pro feature. Only you need Pro: everyone you invite joins free.</Text>
+              {onUpgrade && (
+                <TouchableOpacity testID="funding-upgrade" onPress={onUpgrade} style={{ marginTop: spacing.xs }}>
+                  <Text style={{ color: colors.warning, fontWeight: '700', textDecorationLine: 'underline' }}>Upgrade to Pro</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
 
           {allowContributorPools && value.funder === 'contributors' && (
             <View style={[s.optionRow, { marginTop: spacing.sm }]}>

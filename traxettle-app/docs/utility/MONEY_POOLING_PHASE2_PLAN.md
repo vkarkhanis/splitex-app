@@ -784,3 +784,15 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
   - the Review list after settling up: one ₹4,900 payment plus the netted ₹600;
   - the PRO badge for a new free user.
 - **End-to-end (Playwright) checks added** to `e2e/tests/tier-entitlements.spec.ts`: a free user is refused a Kitty and allowed a "Just me" budget; the create page marks "Several of us" PRO. **Not run here:** Playwright browsers aren't installed on this Mac. The API part matches the live check in WP5.
+
+**WP7 (2026-11-18)**
+- **Mobile mirrors web:**
+  - **pool screen:** the holdings line, **Give money**, **Money returned**, **Return money** and **Pay back now** (all through one `HandOverSheet`), the "Money handed over" card, holding figures, and hand-overs and payment methods in Activity;
+  - **settle-up sheet:** the per-person breakdown, "Included in the final settlement" and "Paid separately", and it waits for hand-overs;
+  - **other screens:** the shared "Paid with" options; spenders can switch the method on Edit expense; netted rows are muted and left out of the counter.
+- **Wording:** the custodian's "Record money returned" button reads **"Money returned"** on mobile, to fit the button row.
+- **Upgrading from create event:** a free user who picks "Several of us" sees PRO and a notice with **Upgrade to Pro** (opens the upgrade screen). Submitting offers the same choice.
+- **Capabilities:** the mobile app tracks `contributorPools` as unknown until a server that reports it answers, so an older server never locks the option.
+- **Also fixed on web:** the "Settlement Details" popup (missed in WP6) now leaves netted rows out of its total and lists them last, labelled.
+- **Tests:** a new `src/__tests__/screens/PoolScreen.test.tsx` renders the pool screen with React Native stand-ins and checks the holdings, hand-overs, loan, actions and settle-up breakdown. Also new: tests for the hand-over client calls and for the capability in the auth context.
+- **Not checked on a device or simulator:** the mobile app needs the Firebase emulators to sign in locally. The web popup fix was checked in a browser.
