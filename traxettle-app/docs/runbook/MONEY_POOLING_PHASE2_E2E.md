@@ -75,7 +75,9 @@ On web, use three browser profiles, or Chrome, Safari and Firefox (incognito win
 ```
 
 The Playwright suite is optional (see [MONEY_POOLING_TESTING.md §2](MONEY_POOLING_TESTING.md#2-automated-tests)).
-Its `tier-entitlements.spec.ts` covers the Pro refusal and the PRO badge.
+`pool-phase2.spec.ts` runs Scenario 1, Scenario 3, and Phase 1's Scenarios 3 and 4 with netting in a
+browser (data set up through the API). `tier-entitlements.spec.ts` covers the Pro refusal and the PRO badge.
+What they don't cover: Scenario 2's Phase 1 Scenario 1 re-run, Scenarios 4 and 5, and the mobile pass.
 
 ---
 

@@ -891,3 +891,12 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
 
   Checked in a browser against a local API: Collected ₹14,000 · Paid back early −₹4,000 · Spent −₹9,000 · Left over ₹1,000.
 
+**Browser tests (2026-11-18): new `e2e/tests/pool-phase2.spec.ts`**
+- **What it covers:**
+  - Scenario 1 of the Phase 2 test plan: giving money in the app, the spender confirming, held-money and card rejections with their warnings, settle-up waiting for a hand-over, and the preview through to one ₹6,400 payment, with the netted row in Review, the 0/1 counter and *Repaid*;
+  - Scenario 3: the pay-back-early pre-fill and both pause warnings, refusal while paused, resuming above zero, and the settle-up figures;
+  - Phase 1's kitty Scenario 3 re-run: Anita → Priya ₹1,300 and Ravi → Priya ₹100;
+  - Phase 1's Scenario 4 re-run: going to Review with one payment.
+- **How:** data is set up through the API with `e2e/helpers/pool.ts`, which sets names so the screens say Anita, Ravi and Priya.
+- **Results:** all four pass, and the full suite gives 78 passed and 1 conditional skip. Hiding the *Paid back early* row made Scenario 3 fail at that check, so the tests do catch regressions.
+
