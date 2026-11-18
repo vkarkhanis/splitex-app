@@ -826,3 +826,29 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
   - new `services/purchases.test.ts`: the check runs on iOS only; an error, ineligible, or no offer gives the normal price;
   - new `context/PurchaseContext.test.tsx`: renders the provider with the real upgrade screen and checks "Start free trial", "Subscribe for ₹999/year", a re-check after a purchase and after a customer-info change, and that sign-out clears the offer.
 - **Not checked on a device or simulator.** The store setup and the live checks are release steps (§10A.4–10A.5).
+
+**WP9 final pass (2026-11-18)**
+- **Every package type-checks and passes:**
+
+  | Package | Tests |
+  |---|---|
+  | shared | 243 |
+  | API | 896 |
+  | web | 115 |
+  | mobile | 153 |
+
+  The two mobile failures the testing guide lists as known didn't appear. The shared library's compiled output was rebuilt first; it matched what the apps were already using.
+- **The §12 list checked against the tests.** Two gaps were filled:
+  - API: closing a payment for a deleted account is refused once it's folded into the final settlement (the code already refused it; nothing tested it).
+  - Web: the settle-up preview with something in both "Included in the final settlement" and "Paid separately", and the row breakdown (₹5,000 from the budget, less ₹600 → gets back ₹4,400). Mobile already tested this.
+- **Covered elsewhere, no unit test:**
+  - the create-event page refusing to submit "Several of us" for a free user: the API refuses the same request (tested and checked live), and the page was checked in a browser in WP6;
+  - netted rows and counters on the event page: checked in a browser in WP6/WP7.
+- **Unchanged and still passing:** the split-expenses settlement suites, which Phase 2 didn't edit. So plans for split-expenses events are unchanged.
+- **Live, against a fresh local API:**
+  - `pool-smoke.mjs` passed all 16 checks;
+  - a free user's Kitty got 403 `FEATURE_REQUIRES_PRO` (`contributor_pools`);
+  - their "Just me" budget got 201.
+- **One API run out of four had 3 failures in one suite,** and its output wasn't kept. Three full runs after it were clean. It looks like the timing problem seen in WP5, when timed-out tests left handles open.
+- **Lint:** no new problems in the files touched.
+- **Not run: Playwright.** Its browsers aren't installed on this Mac.

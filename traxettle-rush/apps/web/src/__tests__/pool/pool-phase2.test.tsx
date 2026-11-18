@@ -294,6 +294,25 @@ describe('PoolTab — the custodian hands money over (§9.3)', () => {
     expect((q('reconcile-submit') as HTMLButtonElement).disabled).toBe(true);
     expect(q('reconcile-row-user:bob')!.textContent).toMatch(/gets back ₹8,000\.00/);
   });
+
+  it('lists what the final settlement includes and what is paid separately (§11.4)', async () => {
+    mockApi.post.mockResolvedValue({
+      success: true,
+      data: {
+        openingBalanceMinor: 0, confirmedContributionsMinor: 9000000, poolSpendMinor: 500000, reimbursementsMinor: 0,
+        preCoverBalanceMinor: 8500000, closingBalanceMinor: 8500000, uncoveredDeficitMinor: 0, coverNeededMinor: 0, overdraftCoverMinor: 0,
+        outcome: 'surplus', shareBasis: 'custodian', disposition: 'settle', entityShares: [],
+        settlementBalances: { 'user:bob': 500000, 'user:alice': -500000 }, pendingDraws: 0, cycleId: 'c1',
+        folded: [{ settlementId: 'rep1', expenseId: 'd3', kind: 'pool_repayment', fromUserId: BOB, toUserId: ALICE, amountMinor: 60000, title: 'Band' }],
+        separate: [{ settlementId: 'rb1', kind: 'pool_reimbursement', status: 'initiated', expenseId: 'x1', fromUserId: ALICE, toUserId: BOB, amountMinor: 30000 }],
+      },
+    });
+    await mount(ALICE, weddingLedger({ held: 0 }));
+    await click(q('pool-settle-up'));
+    expect(q('reconcile-row-user:bob')!.textContent).toMatch(/₹5,000\.00 from the budget, less ₹600\.00 for Band \(repayment\).*gets back ₹4,400\.00/);
+    expect(q('reconcile-folded')!.textContent).toMatch(/Bob → You · Repayment \(spend not approved\) · Band.*₹600\.00/);
+    expect(q('reconcile-separate')!.textContent).toMatch(/You → Bob · .*sent, awaiting confirmation.*₹300\.00/);
+  });
 });
 
 describe('PoolTab — paying a lender back early (§10.6)', () => {
