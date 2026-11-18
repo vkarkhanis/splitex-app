@@ -4,13 +4,59 @@
  * Policy next to an auto-renewable subscription. Prices come from the store so
  * the screen never disagrees with what the user is charged.
  */
-import type { PurchasesIntroPrice } from 'react-native-purchases';
+import type { PricingPhase, PurchasesIntroPrice } from 'react-native-purchases';
 
 export const PRIVACY_POLICY_URL = 'https://traxettle-prod.web.app/privacy.html';
 /** Apple's standard licensed application EULA, used as the app's Terms of Use on iOS. */
 export const TERMS_OF_USE_URL = 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
 
 export type IntroOffer = Pick<PurchasesIntroPrice, 'price' | 'priceString' | 'cycles' | 'periodUnit' | 'periodNumberOfUnits'>;
+
+/**
+ * RevenueCat's `INTRO_ELIGIBILITY_STATUS_ELIGIBLE`. A plain number keeps this file free of the
+ * native module, so it can be tested without one. The other values: 0 unknown, 1 ineligible,
+ * 3 no offer exists.
+ */
+export const INTRO_ELIGIBLE = 2;
+
+/** The parts of a RevenueCat store product that describe an introductory offer. */
+export interface IntroOfferSource {
+  introPrice?: IntroOffer | null;
+  defaultOption?: { freePhase?: PricingPhase | null; introPhase?: PricingPhase | null } | null;
+}
+
+function offerFromPhase(phase: PricingPhase): IntroOffer {
+  return {
+    price: phase.price.amountMicros / 1e6,
+    priceString: phase.price.formatted,
+    periodUnit: phase.billingPeriod.unit,
+    periodNumberOfUnits: phase.billingPeriod.value,
+    cycles: phase.billingCycleCount ?? 1,
+  };
+}
+
+/**
+ * The introductory offer (free trial or first-period price) this user would get, or null to
+ * show the normal price (plan §10A.2).
+ * - iOS: Apple gives an introductory offer once per account per subscription group, but
+ *   `introPrice` is filled in for everyone. Show it only when RevenueCat says the user is
+ *   eligible; unknown, ineligible, no offer, or a failed check all show the normal price.
+ * - Android: Google returns only the offers the user qualifies for, and RevenueCat's default
+ *   option already applies them, so read its free phase, then its paid intro phase, then
+ *   `introPrice`.
+ */
+export function resolveIntroOffer(input: {
+  platform: string;
+  product: IntroOfferSource;
+  /** iOS only: the eligibility status RevenueCat returned for this product. */
+  iosEligibility?: number | null;
+}): IntroOffer | null {
+  const { platform, product, iosEligibility } = input;
+  if (platform === 'ios') return iosEligibility === INTRO_ELIGIBLE ? product.introPrice ?? null : null;
+  const phase = product.defaultOption?.freePhase ?? product.defaultOption?.introPhase ?? null;
+  if (phase) return offerFromPhase(phase);
+  return product.introPrice ?? null;
+}
 
 /** How long an introductory price lasts: "first year", "first 3 months". */
 export function introPeriodLabel(intro: IntroOffer): string {

@@ -26,10 +26,11 @@ function openLegalLink(url: string) {
 export default function ProUpgradeScreen({ navigation }: any) {
   const { theme } = useTheme();
   const c = theme.colors;
-  const { isPro, purchasing, priceString, proPackage, handlePurchase, handleRestore } = usePurchase();
+  const { isPro, purchasing, priceString, introOffer, handlePurchase, handleRestore } = usePurchase();
   const PRO_FEATURES = featuresFor(useContributorPoolsAvailable());
-  // Both prices come from the store, so the screen matches what the user is charged.
-  const intro = proPackage?.product.introPrice ?? null;
+  // Both prices come from the store, so the screen matches what the user is charged. The
+  // offer is only shown to people who can still get it (plan §10A).
+  const intro = introOffer;
   const offerText = introOfferText(intro, priceString);
   const purchaseLabel = !intro
     ? `Subscribe for ${priceString}/year`

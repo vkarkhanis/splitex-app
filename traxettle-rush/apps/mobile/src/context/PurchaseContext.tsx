@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Alert } from 'react-native';
 import { useAuth } from './AuthContext';
 import {
@@ -12,11 +12,14 @@ import {
   restorePurchases,
   isPurchasesConfigured,
   getPurchasesConfigDebug,
+  getIntroOffer,
+  onCustomerInfoChanged,
 } from '../services/purchases';
 import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import { ENV } from '../config/env';
 import { waitForServerPro } from '../services/serverPro';
 import { proReadyMessage } from '../utils/proFeatures';
+import type { IntroOffer } from '../utils/subscriptionTerms';
 import { useContributorPoolsAvailable } from '../hooks/useContributorPoolsAvailable';
 
 interface PurchaseContextType {
@@ -32,6 +35,11 @@ interface PurchaseContextType {
   proPackage: PurchasesPackage | null;
   /** Localised price string from the store (e.g. "₹199.00" or "$9.99") */
   priceString: string;
+  /**
+   * The free trial or first-period price this user would get, or null to show the normal
+   * price. On iOS only when Apple still offers it to this account (plan §10A).
+   */
+  introOffer: IntroOffer | null;
   /** Purchase the Pro upgrade */
   handlePurchase: () => Promise<void>;
   /** Restore previous purchases */
@@ -70,6 +78,7 @@ const PurchaseContext = createContext<PurchaseContextType>({
   offering: null,
   proPackage: null,
   priceString: '$5.99',
+  introOffer: null,
   handlePurchase: async () => {},
   handleRestore: async () => {},
   refreshStatus: async () => {},
@@ -86,14 +95,23 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [offering, setOffering] = useState<PurchasesOffering | null>(null);
   const [proPackage, setProPackage] = useState<PurchasesPackage | null>(null);
   const [storePriceString, setStorePriceString] = useState<string | null>(null);
+  const [introOffer, setIntroOffer] = useState<IntroOffer | null>(null);
+  const proPackageRef = useRef<PurchasesPackage | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
   const priceString = storePriceString ?? fallbackPrice();
 
   // Note: We don't sync with tier alone - both RevenueCat AND server must agree
 
+  // Eligibility for the free trial ends once someone subscribes, so this runs again after a
+  // purchase, a restore, or any change RevenueCat reports.
+  const refreshIntroOffer = useCallback(async () => {
+    setIntroOffer(await getIntroOffer(proPackageRef.current));
+  }, []);
+
   // Initialise RevenueCat when user logs in
   useEffect(() => {
     let mounted = true;
+    let stopListening: (() => void) | null = null;
     async function init() {
       if (!user?.userId) return;
       try {
@@ -127,10 +145,15 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           setOffering(off);
           const pkg = await getProPackage();
           setProPackage(pkg);
+          proPackageRef.current = pkg;
           if (pkg?.product?.priceString) {
             setStorePriceString(pkg.product.priceString);
           }
+          const offer = await getIntroOffer(pkg);
+          if (mounted) setIntroOffer(offer);
         }
+
+        if (mounted) stopListening = onCustomerInfoChanged(() => { refreshIntroOffer().catch(() => {}); });
 
         if (mounted) setIsReady(true);
       } catch (err) {
@@ -142,7 +165,10 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     }
     init();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+      stopListening?.();
+    };
   }, [user?.userId]);
 
   // Log out from RevenueCat when user logs out
@@ -151,6 +177,7 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       logoutPurchaseUser().catch(() => {});
       setIsPro(false);
       setIsReady(false);
+      setIntroOffer(null);
     }
   }, [user]);
 
@@ -160,7 +187,8 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Both RevenueCat AND server must agree for pro status
     const pro = tier === 'pro' && revenueCatPro;
     setIsPro(pro);
-  }, [tier]);
+    await refreshIntroOffer();
+  }, [tier, refreshIntroOffer]);
 
   const handlePurchase = useCallback(async () => {
     if (!isPurchasesConfigured()) {
@@ -195,6 +223,7 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // User cancelled — do nothing
       } else if (result.success) {
         setIsPro(true);
+        refreshIntroOffer().catch(() => {});
         const serverPro = await waitForServerPro(refreshProfile);
         Alert.alert('🎉 Welcome to Pro!', serverPro ? proReadyMessage(groupPoolsReleased) : PRO_PENDING);
       } else if (result.error) {
@@ -205,7 +234,7 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } finally {
       setPurchasing(false);
     }
-  }, [refreshProfile]);
+  }, [refreshProfile, groupPoolsReleased, initError, user?.userId, refreshIntroOffer]);
 
   const handleRestore = useCallback(async () => {
     if (!isPurchasesConfigured()) {
@@ -218,6 +247,7 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const result = await restorePurchases();
       if (result.success) {
         setIsPro(true);
+        refreshIntroOffer().catch(() => {});
         const serverPro = await waitForServerPro(refreshProfile);
         Alert.alert('Restored!', serverPro ? 'Your Pro purchase has been restored.' : PRO_PENDING);
       } else {
@@ -228,7 +258,7 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } finally {
       setPurchasing(false);
     }
-  }, [refreshProfile]);
+  }, [refreshProfile, refreshIntroOffer]);
 
   return (
     <PurchaseContext.Provider
@@ -239,6 +269,7 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         offering,
         proPackage,
         priceString,
+        introOffer,
         handlePurchase,
         handleRestore,
         refreshStatus,

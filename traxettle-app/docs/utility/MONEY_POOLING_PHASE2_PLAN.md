@@ -806,3 +806,23 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
 - **A build with no app environment counts as production,** so group pools stay out of the lists unless the build says it's local or staging, or the switch is on. Tested.
 - **Checked in a browser (local build):** the Pro page and Help show Unlimited events, Multi-currency settlement, Group pools, Analytics (coming soon), More power-user features, plus the pooling line.
 - **Left for the release commit** (§11): the static user guide (`apps/web/public/traxettle/index.html`) and the store and RevenueCat text.
+
+**WP11 (2026-11-18)**
+- **`resolveIntroOffer`** in `apps/mobile/src/utils/subscriptionTerms.ts`, as planned:
+  - **iOS:** the offer only when the eligibility status is 2 (eligible); anything else shows the normal price.
+  - **Android:** the default option's free phase, then its paid intro phase, then `introPrice`.
+  - The eligible value is a plain constant (`INTRO_ELIGIBLE = 2`), so the file still doesn't load the native module.
+- **The RevenueCat calls live in `services/purchases.ts`:**
+  - `getIntroOffer(pkg)` runs the iOS check and turns any error into "no offer". It skips the call when the store has no offer at all.
+  - `onCustomerInfoChanged(listener)` wraps RevenueCat's customer-info listener.
+- **`PurchaseContext`** exposes `introOffer`. It's worked out when the package loads, and again:
+  - after a purchase, a restore, or `refreshStatus`;
+  - whenever RevenueCat reports a customer-info change.
+
+  It's cleared on sign-out. The upgrade screen reads it instead of `product.introPrice`; the button and text logic are unchanged.
+- **Bug fixed along the way (from WP8):** the after-purchase message read the release switch from the first render. In a release build switched to staging it could leave group pools out. The purchase callback now picks up the current value; it also picks up the current sign-in error, which had the same problem.
+- **Tests (mobile 153):**
+  - `subscriptionTerms.test.ts`: the cases in §10A.3;
+  - new `services/purchases.test.ts`: the check runs on iOS only; an error, ineligible, or no offer gives the normal price;
+  - new `context/PurchaseContext.test.tsx`: renders the provider with the real upgrade screen and checks "Start free trial", "Subscribe for ₹999/year", a re-check after a purchase and after a customer-info change, and that sign-out clears the offer.
+- **Not checked on a device or simulator.** The store setup and the live checks are release steps (§10A.4–10A.5).
