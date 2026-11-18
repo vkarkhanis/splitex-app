@@ -13,34 +13,11 @@ import { spacing, radii, fontSizes } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { usePurchase } from '../context/PurchaseContext';
 import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL, introOfferText, renewalTerms } from '../utils/subscriptionTerms';
+import { proFeatureList } from '../utils/proFeatures';
+import { useContributorPoolsAvailable } from '../hooks/useContributorPoolsAvailable';
 
-const PRO_FEATURES = [
-  {
-    icon: '✨',
-    title: 'No Ads — Even in Free Version',
-    desc: 'Traxettle is completely ad-free. No banners, no pop-ups, no interruptions — ever.',
-  },
-  {
-    icon: '📅',
-    title: 'Unlimited Events',
-    desc: 'Free plan is limited to 3 events. Go Pro for unlimited events.',
-  },
-  {
-    icon: '💱',
-    title: 'Multi-Currency Settlement',
-    desc: 'Split expenses across currencies with automatic FX conversion at EOD rates.',
-  },
-  {
-    icon: '📊',
-    title: 'Analytics (Coming soon)',
-    desc: 'We’re rebuilding analytics for a future major release to make it more accurate, more useful, and easier to understand.',
-  },
-  {
-    icon: '⚡',
-    title: 'Priority Support',
-    desc: 'Get faster responses and early access to new features.',
-  },
-];
+// What Pro includes; "Group pools" appears once "Several of us" is released (design doc §12).
+const featuresFor = proFeatureList;
 
 function openLegalLink(url: string) {
   Linking.openURL(url).catch(() => {});
@@ -50,6 +27,7 @@ export default function ProUpgradeScreen({ navigation }: any) {
   const { theme } = useTheme();
   const c = theme.colors;
   const { isPro, purchasing, priceString, proPackage, handlePurchase, handleRestore } = usePurchase();
+  const PRO_FEATURES = featuresFor(useContributorPoolsAvailable());
   // Both prices come from the store, so the screen matches what the user is charged.
   const intro = proPackage?.product.introPrice ?? null;
   const offerText = introOfferText(intro, priceString);

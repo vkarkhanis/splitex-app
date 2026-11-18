@@ -16,6 +16,8 @@ import {
 import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import { ENV } from '../config/env';
 import { waitForServerPro } from '../services/serverPro';
+import { proReadyMessage } from '../utils/proFeatures';
+import { useContributorPoolsAvailable } from '../hooks/useContributorPoolsAvailable';
 
 interface PurchaseContextType {
   /** Whether the user has an active Pro entitlement via RevenueCat */
@@ -52,7 +54,6 @@ function fallbackPrice(): string {
   return isIndiaLocale() ? '₹299' : '$5.99';
 }
 
-const PRO_READY = 'You now have access to all Pro features including multi-currency settlement.';
 const PRO_PENDING =
   'Your purchase is complete. Pro features are being switched on and should be ready in a moment. ' +
   'If a Pro feature still looks locked, close and reopen the app.';
@@ -79,6 +80,7 @@ export const usePurchase = () => useContext(PurchaseContext);
 export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, tier, refreshProfile } = useAuth();
   const [isPro, setIsPro] = useState(tier === 'pro');
+  const groupPoolsReleased = useContributorPoolsAvailable();
   const [isReady, setIsReady] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
   const [offering, setOffering] = useState<PurchasesOffering | null>(null);
@@ -194,7 +196,7 @@ export const PurchaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       } else if (result.success) {
         setIsPro(true);
         const serverPro = await waitForServerPro(refreshProfile);
-        Alert.alert('🎉 Welcome to Pro!', serverPro ? PRO_READY : PRO_PENDING);
+        Alert.alert('🎉 Welcome to Pro!', serverPro ? proReadyMessage(groupPoolsReleased) : PRO_PENDING);
       } else if (result.error) {
         Alert.alert('Purchase Failed', result.error);
       }

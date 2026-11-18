@@ -796,3 +796,13 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
 - **Also fixed on web:** the "Settlement Details" popup (missed in WP6) now leaves netted rows out of its total and lists them last, labelled.
 - **Tests:** a new `src/__tests__/screens/PoolScreen.test.tsx` renders the pool screen with React Native stand-ins and checks the holdings, hand-overs, loan, actions and settle-up breakdown. Also new: tests for the hand-over client calls and for the capability in the auth context.
 - **Not checked on a device or simulator:** the mobile app needs the Firebase emulators to sign in locally. The web popup fix was checked in a browser.
+
+**WP8 (2026-11-18)**
+- **Release check, one place per app:**
+  - **mobile:** a new hook `useContributorPoolsAvailable` (the app environment, or the staging switch in release builds). It replaces the copy in create-event and drives every Pro list.
+  - **web:** `GROUP_POOLS_RELEASED` in `apps/web/src/utils/proFeatures.ts`.
+- **Mobile lists** come from pure helpers in `src/utils/proFeatures.ts`: the upgrade screen's list (group pools after multi-currency), the Profile row, the after-purchase message, and a new **Pool Money** card in Help (placed after Groups).
+- **Web Pro and Help pages** share one badge list. It now includes **Unlimited events**, which web had been missing although mobile lists it. *Advanced analytics* became **Analytics (coming soon)**, as on mobile. Help's feature list gains a pooling line.
+- **A build with no app environment counts as production,** so group pools stay out of the lists unless the build says it's local or staging, or the switch is on. Tested.
+- **Checked in a browser (local build):** the Pro page and Help show Unlimited events, Multi-currency settlement, Group pools, Analytics (coming soon), More power-user features, plus the pooling line.
+- **Left for the release commit** (§11): the static user guide (`apps/web/public/traxettle/index.html`) and the store and RevenueCat text.
