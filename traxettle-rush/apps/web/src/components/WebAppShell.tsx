@@ -306,10 +306,12 @@ const Separator = styled.div`
   }
 `;
 
+// Above the guided tour (950–961) and modals (1000), so nothing covers Continue or Log out
+// while the session is locked; below toasts (9999).
 const LockOverlay = styled.div`
   position: fixed;
   inset: 0;
-  z-index: 500;
+  z-index: 1100;
   background: rgba(15, 23, 42, 0.58);
   display: flex;
   align-items: center;
