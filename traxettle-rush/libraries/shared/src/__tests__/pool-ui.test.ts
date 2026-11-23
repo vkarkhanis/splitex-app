@@ -462,7 +462,36 @@ describe('settle-up preview rows (§11.4 step 5)', () => {
     const ravi = describeSettleUpRow(rows[0], 'INR', 'Budget');
     expect(ravi.headline).toBe(`gets back ${formatMinor(940000, 'INR')}`);
     expect(ravi.detail).toBe(`${formatMinor(1000000, 'INR')} from the budget, less ${formatMinor(60000, 'INR')} for Snacks (repayment)`);
-    expect(describeSettleUpRow(rows[1], 'INR', 'Budget').detail).toBe(`${formatMinor(1000000, 'INR')} to the budget, plus ${formatMinor(60000, 'INR')} for Snacks (repayment)`);
+    // For the one paying, the repayment owed to them lowers what they pay: "less", not "plus".
+    expect(describeSettleUpRow(rows[1], 'INR', 'Budget').detail).toBe(`${formatMinor(1000000, 'INR')} to the budget, less ${formatMinor(60000, 'INR')} for Snacks (repayment)`);
+  });
+
+  it('"plus" and "less" follow the direction of the row\'s first figure (Scenario 6.14, Kitty 3.7)', () => {
+    const taxi = { settlementId: 't1', expenseId: 'e3', kind: 'pool_reimbursement' as const, fromUserId: 'anita', toUserId: 'ravi', amountMinor: 80000, title: 'Taxi' };
+    const cake = { settlementId: 'c1', expenseId: 'e4', kind: 'pool_repayment' as const, fromUserId: 'ravi', toUserId: 'anita', amountMinor: 30000, title: 'Cake' };
+    const rows = settleUpRows({ 'user:ravi': 200000, 'user:anita': -200000 }, [taxi, cake], keyOf);
+    expect(describeSettleUpRow(rows[0], 'INR', 'Budget')).toEqual({
+      headline: `gets back ${formatMinor(250000, 'INR')}`,
+      detail: `${formatMinor(200000, 'INR')} from the budget, plus ${formatMinor(80000, 'INR')} for Taxi (claim), less ${formatMinor(30000, 'INR')} for Cake (repayment)`,
+    });
+    expect(describeSettleUpRow(rows[1], 'INR', 'Budget')).toEqual({
+      headline: `pays ${formatMinor(250000, 'INR')}`,
+      detail: `${formatMinor(200000, 'INR')} to the budget, plus ${formatMinor(80000, 'INR')} for Taxi (claim), less ${formatMinor(30000, 'INR')} for Cake (repayment)`,
+    });
+
+    const dj = { settlementId: 'd1', expenseId: 'e5', kind: 'pool_repayment' as const, fromUserId: 'ravi', toUserId: 'anita', amountMinor: 150000, title: 'DJ' };
+    const kitty = settleUpRows({ 'user:ravi': 140000, 'user:priya': 140000, 'user:anita': -280000 }, [dj], keyOf);
+    const anita = kitty.find((r) => r.key === 'user:anita')!;
+    expect(describeSettleUpRow(anita, 'INR', 'Kitty')).toEqual({
+      headline: `pays ${formatMinor(130000, 'INR')}`,
+      detail: `${formatMinor(280000, 'INR')} to the kitty, less ${formatMinor(150000, 'INR')} for DJ (repayment)`,
+    });
+
+    // Only folded payments: the first sets the direction.
+    const lunch = { settlementId: 'l1', expenseId: 'e6', kind: 'pool_repayment' as const, fromUserId: 'ravi', toUserId: 'anita', amountMinor: 50000, title: 'Lunch' };
+    const both = settleUpRows({}, [lunch, taxi], keyOf);
+    expect(describeSettleUpRow(both.find((r) => r.key === 'user:ravi')!, 'INR', 'Budget').detail)
+      .toBe(`Owes ${formatMinor(50000, 'INR')} for Lunch (repayment), less ${formatMinor(80000, 'INR')} for Taxi (claim)`);
   });
 
   it('works with only folded payments, and maps group members to their group', () => {

@@ -219,7 +219,7 @@ test.describe('Money pooling Phase 2', () => {
     await expect(ravi).toContainText('pays ₹100.00');
     await expect(page.getByTestId(`reconcile-row-user:${p.priya}`)).toContainText('gets back ₹1,400.00');
     const anita = page.getByTestId(`reconcile-row-user:${p.anita}`);
-    await expect(anita).toContainText('₹2,800.00 to the kitty, plus ₹1,500.00 for DJ (repayment)');
+    await expect(anita).toContainText('₹2,800.00 to the kitty, less ₹1,500.00 for DJ (repayment)');
     await expect(anita).toContainText('pays ₹1,300.00');
     await settleUp(page);
 

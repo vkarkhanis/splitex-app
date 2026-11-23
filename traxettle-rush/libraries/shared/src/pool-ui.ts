@@ -249,15 +249,28 @@ export function settleUpRows(
 /**
  * Words for one row: "gets back ₹9,400" and, when something was folded in,
  * "₹10,000 from the budget, less ₹600 for Snacks (repayment)".
+ * "plus" and "less" follow the row's first figure, so they read the same way for someone paying:
+ * "₹10,000 to the budget, less ₹600 for Snacks (repayment)" → pays ₹9,400.
  */
 export function describeSettleUpRow(row: SettleUpRow, currency: string, noun: string): { headline: string; detail: string | null } {
   const money = (v: number) => formatMinor(Math.abs(v), currency);
   const headline = row.totalMinor > 0 ? `gets back ${money(row.totalMinor)}` : row.totalMinor < 0 ? `pays ${money(row.totalMinor)}` : 'is square';
   if (row.adjustments.length === 0) return { headline, detail: null };
   const parts: string[] = [];
-  if (row.poolMinor !== 0) parts.push(`${money(row.poolMinor)} ${row.poolMinor > 0 ? 'from' : 'to'} the ${noun.toLowerCase()}`);
+  // The direction of the first figure: receiving (> 0) or paying (< 0).
+  let direction = 0;
+  if (row.poolMinor !== 0) {
+    parts.push(`${money(row.poolMinor)} ${row.poolMinor > 0 ? 'from' : 'to'} the ${noun.toLowerCase()}`);
+    direction = Math.sign(row.poolMinor);
+  }
   for (const a of row.adjustments) {
-    const word = parts.length === 0 ? (a.amountMinor > 0 ? 'Owed' : 'Owes') : a.amountMinor > 0 ? 'plus' : 'less';
+    let word: string;
+    if (direction === 0) {
+      word = a.amountMinor > 0 ? 'Owed' : 'Owes';
+      direction = Math.sign(a.amountMinor);
+    } else {
+      word = Math.sign(a.amountMinor) === direction ? 'plus' : 'less';
+    }
     parts.push(`${word} ${money(a.amountMinor)} for ${a.text}`);
   }
   return { headline, detail: parts.join(', ') };
