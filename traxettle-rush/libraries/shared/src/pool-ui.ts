@@ -4,7 +4,7 @@
  * rule (mirrors the API), the create-event funding choice, and the balance
  * meter geometry. Keeping these here means both clients always agree.
  */
-import { POOL_PRESETS, allowedFundingSources, currencyExponent, fromMinor, toMinor } from './pool';
+import { POOL_PRESETS, allowedFundingSources, currencyExponent, entityKey, fromMinor, toMinor } from './pool';
 import type {
   CreatePoolConfigDto,
   EventFundingModel,
@@ -13,7 +13,9 @@ import type {
   PoolAdvanceKind,
   PoolBalanceZone,
   PoolConfig,
+  PoolContribution,
   PoolContributionStatus,
+  PoolCycle,
   PoolDrawState,
   PoolExpenseApprovalMode,
   PoolFoldedItem,
@@ -418,6 +420,32 @@ export function isReceiptRequired(
   if (opts.askingFirst) return false;
   const threshold = config.receiptRequiredAboveMinor;
   return threshold !== null && threshold !== undefined && amountMinor > threshold;
+}
+
+/**
+ * A Fund squares up when its members change once money has moved, and the rest of that month has
+ * no dues (design doc §0, "Membership change in a rolling fund"). This says so on the contributions
+ * card, so nobody looks for something to pay; null for any other month. `viewerKey` is the viewer's
+ * entity key (their group's, if they're in one).
+ */
+export function partMonthNote(input: {
+  cycle: Pick<PoolCycle, 'sequence' | 'status'>;
+  cycles: Array<Pick<PoolCycle, 'sequence' | 'closeReason' | 'roster'>>;
+  contributions: Array<Pick<PoolContribution, 'kind'>>;
+  viewerKey: string | null;
+  isManager?: boolean;
+}): string | null {
+  if (input.cycle.status !== 'open') return null;
+  const previous = input.cycles.find((c) => c.sequence === input.cycle.sequence - 1);
+  if (previous?.closeReason !== 'membership_change') return null;
+  // Someone set dues for the rest of the month after all.
+  if (input.contributions.some((c) => c.kind === 'regular')) return null;
+  const joined = input.viewerKey !== null
+    && !(previous.roster || []).some((r) => entityKey(r.entityType, r.entityId) === input.viewerKey);
+  const text = joined
+    ? 'You joined mid-month: your dues start next month.'
+    : 'The members changed mid-month, so the month was squared up. There are no dues for the rest of it: they start again next month.';
+  return input.isManager ? `${text} To ask for dues now, use “Set amounts”.` : text;
 }
 
 /**

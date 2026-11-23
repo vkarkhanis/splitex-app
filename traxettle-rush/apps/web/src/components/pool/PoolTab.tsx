@@ -35,6 +35,7 @@ import {
   isPoolSideLeg,
   lentTopUps,
   outstandingLoans,
+  partMonthNote,
   poolLegLabel,
   reimbursementStatus,
   repaymentStatus,
@@ -270,6 +271,8 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
     const group = groups.find((g) => (g.members || []).includes(uid));
     return group ? entityKey('group', group.id) : entityKey('user', uid);
   };
+  // A Fund's part-month after its members changed has no dues: say so (design doc §0).
+  const partMonth = partMonthNote({ cycle, cycles, contributions, viewerKey: currentUserId ? userKeyOf(currentUserId) : null, isManager });
   /** The person who hands over for an entity key (a group's payer). */
   const userForKey = (key: string) => {
     const [type, ...rest] = key.split(':');
@@ -508,8 +511,9 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
           )}
         </CardHeader>
         <CardBody>
+          {partMonth && <Banner $tone="info" data-testid="pool-part-month">{partMonth}</Banner>}
           {contributions.length === 0 ? (
-            <EmptyState title="No contributions yet" description={isManager ? 'Use “Set amounts” to decide what each person puts in.' : 'The custodian will set what each person puts in.'} />
+            partMonth ? null : <EmptyState title="No contributions yet" description={isManager ? 'Use “Set amounts” to decide what each person puts in.' : 'The custodian will set what each person puts in.'} />
           ) : (
             <List>
               {contributions.map((c) => {

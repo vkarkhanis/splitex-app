@@ -160,6 +160,22 @@ describe('PoolScreen — Phase 2', () => {
     expect(Linking.openURL).toHaveBeenLastCalledWith('http://api.test/api/uploads/transfer.jpg');
   });
 
+  it("tells someone who joined a Fund mid-month that their dues start next month", async () => {
+    const part = ledger();
+    const earlier = { ...part.summary.cycle, id: 'c0', sequence: 1, status: 'closed', closeReason: 'membership_change', roster: [{ entityType: 'user', entityId: 'anita' }] };
+    part.summary.cycle = { ...part.summary.cycle, sequence: 2 };
+    part.cycles = [earlier as any, part.summary.cycle];
+    part.contributions = part.contributions.filter((c) => c.kind !== 'regular') as any;
+    mockPool.ledger.mockResolvedValue(part);
+    me = 'ravi';
+    mockGet.mockImplementation(async (path: string) => ({
+      data: path.endsWith('/participants') ? participants : path.startsWith('/api/groups') || path.startsWith('/api/settlements') ? [] : event,
+    }));
+    await act(async () => { renderer = create(<PoolScreen route={{ params: { eventId: 'e1' } }} navigation={{ navigate: jest.fn() }} />); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(textOf(byId('pool-part-month'))).toBe('You joined mid-month: your dues start next month.');
+  });
+
   it('waits for hand-overs before settling up, and shows folded payments', async () => {
     mockPool.previewClose.mockResolvedValue({
       openingBalanceMinor: 0, confirmedContributionsMinor: 9000000, poolSpendMinor: 1500000, reimbursementsMinor: 0,

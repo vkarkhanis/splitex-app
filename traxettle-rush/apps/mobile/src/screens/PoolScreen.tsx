@@ -26,6 +26,7 @@ import {
   isPoolSideLeg,
   lentTopUps,
   outstandingLoans,
+  partMonthNote,
   poolErrorText,
   poolLegLabel,
   poolNoun,
@@ -158,6 +159,8 @@ export default function PoolScreen({ route, navigation }: any) {
     const group = groups.find((g) => (g.members || []).includes(uid));
     return group ? entityKey('group', group.id) : entityKey('user', uid);
   };
+  // A Fund's part-month after its members changed has no dues: say so (design doc §0).
+  const partMonth = partMonthNote({ cycle, cycles, contributions, viewerKey: me ? userKeyOf(me) : null, isManager });
   /** The person who hands over for an entity key (a group's payer). */
   const userForKey = (key: string) => {
     const [type, ...rest] = key.split(':');
@@ -414,7 +417,8 @@ export default function PoolScreen({ route, navigation }: any) {
         <View style={card} testID="pool-contributions">
           <Text style={h2}>{sponsor ? 'Budget' : 'Contributions'}</Text>
           {!sponsor && <Text style={meta}>{money(summary.totals.confirmedRegularMinor)} of {money(summary.totals.expectedRegularMinor)} received</Text>}
-          {contributions.length === 0 && <Text style={[meta, { marginTop: spacing.sm }]}>No contributions yet{isManager ? ' — use “Set amounts”.' : '.'}</Text>}
+          {partMonth && <Text testID="pool-part-month" style={[st.banner, { color: colors.info, backgroundColor: colors.infoBg, marginTop: spacing.sm }]}>{partMonth}</Text>}
+          {contributions.length === 0 && !partMonth && <Text style={[meta, { marginTop: spacing.sm }]}>No contributions yet{isManager ? ' — use “Set amounts”.' : '.'}</Text>}
           {contributions.map((c) => {
             const status = CONTRIBUTION_STATUS[c.status];
             const mine = c.fromUserId === me;

@@ -26,6 +26,7 @@ import {
   needsTarget,
   openPoolSideLegs,
   POOL_LEGS_PAID_SEPARATELY_NOTE,
+  partMonthNote,
   poolErrorText,
   poolExpenseByline,
   poolLegLabel,
@@ -152,6 +153,25 @@ describe('pool formatting', () => {
     expect(isReceiptRequired(cfg, 'pool', 400000, { askingFirst: false })).toBe(true);
     // A claim is always for money already spent.
     expect(isReceiptRequired(cfg, 'pool_reimbursement', 80000, { askingFirst: true })).toBe(true);
+  });
+
+  it("explains a Fund's part-month after the members changed: no dues until next month", () => {
+    const anita = { entityType: 'user' as const, entityId: 'anita' };
+    const ravi = { entityType: 'user' as const, entityId: 'ravi' };
+    const cycles = [
+      { sequence: 1, closeReason: 'membership_change' as const, roster: [anita] },
+      { sequence: 2, closeReason: null, roster: [anita, ravi] },
+    ];
+    const open = { sequence: 2, status: 'open' as const };
+    expect(partMonthNote({ cycle: open, cycles, contributions: [], viewerKey: 'user:ravi' }))
+      .toBe('You joined mid-month: your dues start next month.');
+    expect(partMonthNote({ cycle: open, cycles, contributions: [{ kind: 'top_up' }], viewerKey: 'user:anita', isManager: true }))
+      .toBe('The members changed mid-month, so the month was squared up. There are no dues for the rest of it: they start again next month. To ask for dues now, use “Set amounts”.');
+    // Dues were set after all, the month ended normally, or it's closed: nothing to say.
+    expect(partMonthNote({ cycle: open, cycles, contributions: [{ kind: 'regular' }], viewerKey: 'user:ravi' })).toBeNull();
+    expect(partMonthNote({ cycle: open, cycles: [{ ...cycles[0], closeReason: 'scheduled' }, cycles[1]], contributions: [], viewerKey: 'user:ravi' })).toBeNull();
+    expect(partMonthNote({ cycle: { sequence: 2, status: 'closed' }, cycles, contributions: [], viewerKey: 'user:ravi' })).toBeNull();
+    expect(partMonthNote({ cycle: { sequence: 1, status: 'open' }, cycles, contributions: [], viewerKey: 'user:ravi' })).toBeNull();
   });
 
   it('describes a pool expense in the expense list, by whether it has been paid', () => {

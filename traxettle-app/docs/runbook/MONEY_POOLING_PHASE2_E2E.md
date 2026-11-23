@@ -357,7 +357,7 @@ the currently deployed web app still hide them until the Phase 2 release.
 
 | # | Who | Do | Expect | Balance |
 |---|---|---|---|---|
-| 5.1 | Anita (Pro) | Create "Flat 4B": **Several of us → Fund**, ₹5,000 per person per month. Invite Ravi. Both pay in; Anita confirms Ravi's. | | ₹10,000 |
+| 5.1 | Anita (Pro) | Create "Flat 4B": **Several of us → Fund**, ₹5,000 per person per month. Invite Ravi and **wait until he has joined before either of you pays in**. Then both pay in; Anita confirms Ravi's. | Ravi has a ₹5,000 row with **Mark paid**. If someone paid before Ravi joined, his joining closes the month (a Fund squares up when its members change) and starts a part-month, *Flat 4B (from …)*, with no dues: he can only **Add money**, and the contributions card says *You joined mid-month: your dues start next month.* That's by design. Create a fresh Fund and keep this order. | ₹10,000 |
 | 5.2 | Ravi | Add expense: **Anita's card or UPI**, **already paid**, "Groceries", ₹2,000. | Saved and approved: a Fund doesn't ask for approval. | ₹8,000 |
 | 5.3 | Anita, then Ravi | Anita taps **Give money**: ₹1,000 to Ravi for the cleaner. Ravi confirms. | Anita sees *With you ₹7,000.00 · With spenders ₹1,000.00*. Ravi sees *You're holding ₹1,000.00 of the fund's money.* | ₹8,000 |
 | 5.4 | Anita | Switch to **Free**. | | |

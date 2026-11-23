@@ -488,6 +488,28 @@ test.describe('Money pooling Phase 2', () => {
     expect((await pool.event(eventId, p.anita)).status).toBe('settled');
   });
 
+  test('Joining a Fund after money has moved starts a part-month with no dues, and says so', async ({ page }) => {
+    const p = await pool.cast('pm', { anitaPro: true });
+    const eventId = await pool.createPool(p.anita, 'Flat 4B', { preset: 'household', defaultContributionMinor: 500_000 });
+    // Anita pays in before Ravi joins (the order the hand test warns about in 5.1).
+    await pool.payIn(eventId, p.anita, p.anita);
+    await pool.join(eventId, p.anita, p.ravi);
+
+    const after = await pool.ledger(eventId, p.anita);
+    expect(after.cycles.map((c: any) => [c.sequence, c.status, c.closeReason])).toEqual([[1, 'closed', 'membership_change'], [2, 'open', null]]);
+    expect(after.contributions.filter((c: any) => c.kind === 'regular')).toEqual([]);
+
+    await openPool(page, p.ravi, eventId);
+    await expect(page.getByTestId('pool-part-month')).toHaveText('You joined mid-month: your dues start next month.');
+    await expect(page.locator('[data-testid^="mark-paid-"]')).toHaveCount(0);
+    await expect(page.getByTestId('pool-add-money')).toBeVisible();
+
+    await openPool(page, p.anita, eventId);
+    await expect(page.getByTestId('pool-part-month')).toHaveText(
+      'The members changed mid-month, so the month was squared up. There are no dues for the rest of it: they start again next month. To ask for dues now, use “Set amounts”.',
+    );
+  });
+
   test('Asking before spending needs no receipt, and reads "Requested" until it is approved', async ({ page }) => {
     const p = await pool.cast('ask');
     const eventId = await pool.createPool(p.anita, 'Goa wedding', {
