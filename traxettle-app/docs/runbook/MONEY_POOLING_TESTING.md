@@ -198,7 +198,7 @@ sponsor (**custodian**).
 
 All three need a **Pro** creator (hybrid only when built on a "Several of us" pool).
 
-- **Treasury**: set tiered amounts with **Set amounts** (e.g. 2,000 / 500 / 200); joiners don't close the cycle; surplus always carries.
+- **Treasury**: set tiered amounts with **Set amounts** (e.g. 2,000 / 500 / 200); joiners don't close the cycle; surplus always carries, and so do the tiers (the next month asks for the same amounts).
 - **Collection**: target 20,000 → pool spends are refused until the target is collected, then allowed only up to the balance.
 - **Hybrid** (Advanced → *Also allow regular split expenses*): the expense form offers a third option, *My money — split it* (the classic form). **Settle up** produces **one** plan covering pool refunds and peer debts.
 
@@ -223,12 +223,13 @@ still to pay back"* and taps **Pay back now**. If that would pause spending, the
 **Netting (§11).** Run Phase 1 step 7 above: one payment instead of two.
 
 **Pro (§12).**
-1. As a **free** user: on create event, "Several of us" shows **PRO** and a notice with an upgrade link. Submitting is
-   refused with *"Group pools ("Several of us") are a Pro feature."* "Just me" and split expenses still work.
+1. As a **free** user: on create event, "Several of us" is shown **locked** (greyed, dashed border, **PRO**,
+   *🔒 Pro feature*). Tapping it doesn't select it; it shows *"Group pools are a Pro feature…"* with an upgrade link.
+   "Just me" and split expenses still work.
 2. Switch the user to **Pro** → no badge, and creating works. Add a **free** member: they pay in, spend and settle up.
 3. Switch the creator back to **free** mid-cycle → the pool keeps working: close the cycle, settle up, dissolve.
-4. The Pro page and Help list **Group pools** on local and staging builds. They don't on production until
-   `CONTRIBUTOR_POOLS_IN_PRODUCTION` is turned on.
+4. The Pro page and Help list **Group pools**, in every environment from the Phase 2 release on
+   (`CONTRIBUTOR_POOLS_IN_PRODUCTION` is on). Older production builds still hide them.
 
 ### Regression: split-expenses events are unchanged
 

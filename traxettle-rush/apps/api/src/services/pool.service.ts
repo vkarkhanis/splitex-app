@@ -1824,11 +1824,23 @@ export class PoolService {
       roster,
     });
     // Mid-period rollovers start with no new expectations: this period's money is already in.
-    if (reason !== 'membership_change' && Number(config.defaultContributionMinor) > 0) {
+    if (reason !== 'membership_change') {
+      // Each member's dues carry over: tiers set with "Set amounts" (a treasury's full / student /
+      // patron rates) stay until changed. A waived or zero amount isn't a tier, so the default applies,
+      // as it does for anyone new.
+      const lastDues = new Map<string, number>();
+      for (const c of await this.listContributions(previous.id)) {
+        if (c.kind === 'regular' && c.status !== 'waived' && c.expectedMinor > 0) {
+          lastDues.set(entityKey(c.fromEntityType, c.fromEntityId), c.expectedMinor);
+        }
+      }
+      const fallback = Number(config.defaultContributionMinor) > 0 ? Number(config.defaultContributionMinor) : 0;
       for (const ref of roster) {
+        const expectedMinor = lastDues.get(entityKey(ref.entityType, ref.entityId)) ?? fallback;
+        if (expectedMinor <= 0) continue;
         await this.writeContribution(event, next, ref, this.payerForEntity(ref, groups), {
           kind: 'regular',
-          expectedMinor: Number(config.defaultContributionMinor),
+          expectedMinor,
           createdBy: actorId,
         });
       }

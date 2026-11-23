@@ -387,6 +387,82 @@ test.describe('Money pooling Phase 2', () => {
     await expect(page.getByTestId(`repayment-badge-${snacks.id}`)).toHaveText('Repaid');
   });
 
+  test('Scenario 7A: a Treasury with tiered dues; joining doesn\'t close the month; what\'s left carries over', async ({ page }) => {
+    const p = await pool.cast('s7a', { anitaPro: true });
+    const eventId = await pool.createPool(p.anita, 'Chess club', { preset: 'club_treasury', defaultContributionMinor: 50_000 });
+    await pool.join(eventId, p.anita, p.ravi);
+    await pool.payIn(eventId, p.anita, p.ravi);
+    await pool.join(eventId, p.anita, p.priya);
+    expect(await pool.call<any[]>('GET', `/api/pools/event/${eventId}/cycles`, p.anita)).toHaveLength(1);
+    await pool.call('PUT', `/api/pools/event/${eventId}/contributions`, p.anita, { contributions: [
+      { entityId: p.anita, entityType: 'user', expectedMinor: 200_000 },
+      { entityId: p.priya, entityType: 'user', expectedMinor: 20_000 },
+    ] });
+    for (const uid of [p.anita, p.priya]) await pool.payIn(eventId, p.anita, uid);
+    let s = await pool.summary(eventId, p.anita);
+    expect([s.totals.expectedRegularMinor, s.totals.balanceMinor]).toEqual([270_000, 270_000]);
+    await pool.spend(eventId, p.anita, 'Chess boards', 900);
+
+    await openPool(page, p.anita, eventId);
+    await page.getByTestId('pool-close-cycle').click();
+    await expect(page.getByTestId('reconcile-figure-collected')).toContainText('₹2,700.00');
+    await expect(page.getByTestId('reconcile-figure-spent')).toContainText('₹900.00');
+    await expect(page.getByTestId('reconcile-figure-result')).toHaveText('Left over₹1,800.00');
+    await settleUp(page);
+    s = await pool.summary(eventId, p.anita);
+    // Next month: the ₹1,800 carried over, and the tiered dues (₹2,000 / ₹500 / ₹200) carry over too.
+    expect([s.cycle.sequence, s.cycle.openingBalanceMinor, s.totals.expectedRegularMinor]).toEqual([2, 180_000, 270_000]);
+  });
+
+  test('Scenario 7B: a Collection refuses spending until the target is reached, then only up to what is left', async ({ page }) => {
+    const p = await pool.cast('s7b', { anitaPro: true });
+    const eventId = await pool.createPool(p.anita, 'Office gift', { preset: 'target_collection', targetAmountMinor: 300_000, defaultContributionMinor: 100_000 });
+    await pool.join(eventId, p.anita, p.ravi);
+    await pool.join(eventId, p.anita, p.priya);
+    await pool.payIn(eventId, p.anita, p.anita);
+    const early = await apiRequestWithStatus('POST', '/api/expenses', { eventId, title: 'Gift', amount: 500, currency: 'INR', fundingSource: 'pool' }, p.anita);
+    expect([early.body.code, early.body.data?.shortfall]).toEqual(['POOL_UNDERFUNDED', 200_000]);
+    for (const uid of [p.ravi, p.priya]) await pool.payIn(eventId, p.anita, uid);
+    await pool.spend(eventId, p.anita, 'Gift', 2_400);
+    const tooMuch = await apiRequestWithStatus('POST', '/api/expenses', { eventId, title: 'Card', amount: 700, currency: 'INR', fundingSource: 'pool' }, p.anita);
+    expect([tooMuch.body.code, tooMuch.body.data?.shortfall]).toEqual(['POOL_INSUFFICIENT_FUNDS', 10_000]);
+
+    await openPool(page, p.anita, eventId);
+    await openSettleUp(page);
+    await expect(page.getByTestId('reconcile-figure-result')).toHaveText('Left over₹600.00');
+    await expect(page.getByTestId(`reconcile-row-user:${p.ravi}`)).toContainText('gets back ₹200.00');
+    await expect(page.getByTestId(`reconcile-row-user:${p.priya}`)).toContainText('gets back ₹200.00');
+    await expect(page.getByTestId(`reconcile-row-user:${p.anita}`)).toContainText('pays ₹400.00');
+    await settleUp(page);
+    expect(planLegs(await pool.settlements(eventId, p.anita))).toEqual([[p.anita, p.priya, 200], [p.anita, p.ravi, 200]].sort());
+  });
+
+  test('Scenario 7C: a hybrid Kitty settles pool money and a split dinner in one plan', async ({ page }) => {
+    const p = await pool.cast('s7c', { anitaPro: true });
+    const eventId = (await pool.call('POST', '/api/events', p.anita, {
+      name: 'Weekend trip', type: 'trip', startDate: '2026-12-01', currency: 'INR', fundingModel: 'hybrid',
+      pool: { preset: 'trip_kitty', defaultContributionMinor: 100_000, allowPeerExpenses: true },
+    })).id as string;
+    expect((await pool.event(eventId, p.anita)).fundingModel).toBe('hybrid');
+    await pool.join(eventId, p.anita, p.ravi);
+    await pool.join(eventId, p.anita, p.priya);
+    for (const uid of [p.anita, p.ravi, p.priya]) await pool.payIn(eventId, p.anita, uid);
+    await pool.spend(eventId, p.anita, 'Fuel', 1_500);
+    await pool.call('POST', '/api/expenses', p.ravi, {
+      eventId, title: 'Dinner', amount: 900, currency: 'INR', splitType: 'equal',
+      splits: [p.anita, p.ravi, p.priya].map((entityId) => ({ entityType: 'user', entityId, amount: 300 })),
+    });
+
+    // The preview shows the pool's part; the plan adds the split dinner.
+    await openPool(page, p.anita, eventId);
+    await openSettleUp(page);
+    await expect(page.getByTestId(`reconcile-row-user:${p.ravi}`)).toContainText('gets back ₹500.00');
+    await expect(page.getByTestId(`reconcile-row-user:${p.priya}`)).toContainText('gets back ₹500.00');
+    await expect(page.getByTestId(`reconcile-row-user:${p.anita}`)).toContainText('pays ₹1,000.00');
+    await settleUp(page);
+    expect(planLegs(await pool.settlements(eventId, p.anita))).toEqual([[p.anita, p.priya, 200], [p.anita, p.ravi, 1100]].sort());
+  });
+
   test('A close with only a repayment open goes to Review with one payment (Phase 1 Scenario 4, re-run)', async ({ page }) => {
     const p = await pool.cast('s4');
     const eventId = await pool.createPool(p.anita, 'Stage lights', {

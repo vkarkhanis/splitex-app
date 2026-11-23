@@ -10,7 +10,7 @@
   - a free-trial eligibility check (§12.3).
 
   Phase 2 test plan: [MONEY_POOLING_PHASE2_E2E.md](../runbook/MONEY_POOLING_PHASE2_E2E.md).
-- **Not yet released:** "Several of us" stays hidden in production until `CONTRIBUTOR_POOLS_IN_PRODUCTION` is turned on. That release also updates the store text, RevenueCat descriptions and the web user guide, and switches on the trial offers (plan §11).
+- **Released with Phase 2, as a Pro feature (decided 2026-11-23):** the Phase 2 branch sets `CONTRIBUTOR_POOLS_IN_PRODUCTION = true`, with the web user guide, the Play Store text, the review notes and the RevenueCat descriptions updated. It reaches users when the Phase 2 web and app builds ship. The App Store text, the trial offers and the other console steps are in plan §11.
 **Date:** 2026-09-15
 **Scope:** Additive feature. The existing peer-to-peer split model remains fully supported and unchanged.
 
@@ -65,6 +65,7 @@ Decided while planning ([MONEY_POOLING_PHASE2_PLAN.md](MONEY_POOLING_PHASE2_PLAN
 | **Pro check (§12)** | — | One shared check (`groupPoolRefusal`) for creating and converting. If the subscription lookup fails, the API returns a server error rather than "needs Pro". No exception for `mock-` users. | — |
 | **Pro lists (§12.4)** | Add group pools | Group pools appear in every in-app Pro list only where "Several of us" is released (`contributorPoolsAvailable`), so turning the switch on stays the single release step. Web's lists also gain *Unlimited events* and *Analytics (coming soon)*, matching mobile. | Pro never advertises a feature before it ships. |
 | **Free trial (§12.3)** | Not decided | A 7-day trial for new subscribers, offered only after the Phase 2 build is live. The app shows it on iOS only when RevenueCat says the account is eligible, and reads Google Play's trial from the default option ([plan §10A](MONEY_POOLING_PHASE2_PLAN.md)). | Apple gives an introductory offer once per subscription group. |
+| **Next month's dues** | Per-member tiers (UC-4) | Closing a month gives each member the same dues as the month before; newcomers, and anyone whose dues were waived, get the default. Fixed 2026-11-23: until then, every month reset to the default, so a treasury lost its tiers at each close. | Found by the Phase 2 test plan's Scenario 7. |
 | **Optional fields** | — | `earlyRepaymentsMinor` (left out when 0), `holdings`, `advances`, `heldMinor` and `UserCapabilities.contributorPools` are optional. A missing amount or list means none. A missing `contributorPools` means unknown: the apps lock "Several of us" only on an explicit `false`, and the API decides. | Older servers and existing data keep working. |
 
 ---
@@ -1238,7 +1239,7 @@ The final settle-up already finds the fewest payments across everyone's balances
    - settle up, dissolve the pool, and remove people.
 
    The lapse only stops that person creating new "Several of us" pools. Money that people have already put in must never get stuck.
-4. **Show the option with a Pro badge; don't hide it.** On both create-event screens, a free user who picks "Several of us" sees a **PRO** badge and a link to upgrade: the Pro upgrade screen on mobile, and `/pro` on web (Pro is bought in the mobile app). Seeing the option is what makes people upgrade.
+4. **Show the option locked; don't hide it.** On both create-event screens, a free user sees "Several of us" greyed out, with a dashed border, a **PRO** badge and *"🔒 Pro feature"*. It can't be picked: "Pool money" starts on "Just me", and tapping the locked card shows the Pro notice with a link to upgrade (the Pro upgrade screen on mobile, `/pro` on web; Pro is bought in the mobile app). Seeing what Pro adds is what makes people upgrade. *(As built in Phase 2 the card could be picked, with a notice and Create disabled. It was changed to locked on 2026-11-23, at the user's request.)*
 5. **The API enforces it, not just the apps.**
    - Add a capability `contributorPools` to `UserCapabilities` (shared) and `computeCapabilities`, following `multiCurrencySettlement`.
    - Add the feature code `contributor_pools` to `PRO_FEATURE_CODES`.

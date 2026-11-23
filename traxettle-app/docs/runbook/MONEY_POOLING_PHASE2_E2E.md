@@ -166,7 +166,7 @@ the staging account you're signed in as.
 - **Balance** is what's left in the pool. Handing money over doesn't change it: it only moves the
   money between **With you** (the custodian) and **With spenders**.
 - Run the scenarios in order. Each one ends with its event **Settled**.
-- **Already automated** (`e2e/tests/pool-phase2.spec.ts`, run with Playwright): Scenarios 1, 3, 5 and 6,
+- **Already automated** (`e2e/tests/pool-phase2.spec.ts`, run with Playwright): Scenarios 1, 3, 5, 6 and 7,
   and Phase 1's Scenarios 3 and 4 with netting. Running them by hand is still worth it: the automated
   tests set up most data through the API and run on web only, while here you click every step, on web
   and mobile.
@@ -326,9 +326,9 @@ so far, and money paid back early comes off it (design doc §0).
 
 | # | Who | Do | Expect |
 |---|---|---|---|
-| 4.1 | Priya (free) | **Create event → Pool money**. | **Several of us** has a **PRO** badge. **Just me** doesn't. |
-| 4.2 | Priya | Pick **Several of us**. | A notice: *Group pools are a Pro feature. Only you need Pro: everyone you invite joins free.* with **Learn how to get Pro** (web). Mobile shows **Upgrade to Pro**, which opens the upgrade screen. |
-| 4.3 | Priya | Choose **Kitty** and fill in the rest of the form. | **Web:** **Create Event** stays disabled while "Several of us" is picked. **Mobile:** tapping Create shows **Pro Feature**: *Group pools ("Several of us") are a Pro feature. Only you need Pro: everyone you invite joins free.* with **Not now** and **Upgrade**. No event is created. |
+| 4.1 | Priya (free) | **Create event → Pool money**. | **Just me** is selected. **Several of us** is shown **locked**: greyed out, dashed border, a **PRO** badge and *🔒 Pro feature*. |
+| 4.2 | Priya | Tap **Several of us**. | It **doesn't get selected**: Just me stays selected, and no Kitty / Fund choices appear. A notice: *Group pools are a Pro feature. Only you need Pro: everyone you invite joins free.* with **Learn how to get Pro** (web), or **Upgrade to Pro** on mobile, which opens the upgrade screen. |
+| 4.3 | Priya | Tap **Just me** again. | The notice goes away. There's no way to create a group pool without Pro. |
 | 4.4 | Priya | Follow **Learn how to get Pro**. | The Pro page lists **Unlimited events · Multi-currency settlement · Group pools · Analytics (coming soon) · More power-user features**. Help's Pro card shows the same, and its feature list has a pooling line. |
 | 4.5 | Priya | Create a **Just me** budget, and a **Split expenses** event. | Both are created: they're free. |
 | 4.6 | Priya | Switch to **Pro** (see "Making someone Pro"). Open create event again. | No PRO badge or notice. Create "Book club" as a **Kitty**, ₹1,000 each. It's created. |
@@ -338,8 +338,9 @@ so far, and money paid back early comes off it (design doc §0).
 **Mobile:** the upgrade screen lists **Group pools** after Multi-Currency Settlement. Profile's upgrade
 row reads *Unlimited events, group pools, multi-currency & more*. Help has a **Pool Money** card.
 
-**Production builds** (TestFlight, App Store, the live web app) hide "Several of us" and leave group
-pools out of every Pro list until `CONTRIBUTOR_POOLS_IN_PRODUCTION` is turned on. That's expected.
+**Production builds:** this branch turns `CONTRIBUTOR_POOLS_IN_PRODUCTION` on, so production builds made
+from it offer "Several of us" (Pro only) and list group pools. Builds already installed from 1.0.40 and
+the currently deployed web app still hide them until the Phase 2 release.
 
 ---
 
@@ -354,7 +355,7 @@ pools out of every Pro list until `CONTRIBUTOR_POOLS_IN_PRODUCTION` is turned on
 | 5.5 | Ravi | Add expense: **Anita's card or UPI**, already paid, "Electricity", ₹1,000. | Still works: the lapse doesn't block an existing pool. | ₹7,000 |
 | 5.6 | Anita | Tap **Close <month>** (the button names the month) and confirm. | The cycle closes. A new month opens with ₹7,000 carried (₹3,500 each) and fresh dues of ₹5,000 each. Ravi **still holds ₹1,000**: held money carries over. | ₹7,000 |
 | 5.7 | Anita, Ravi | Both pay the new month; Anita confirms Ravi's. | Works on the free plan. | ₹17,000 |
-| 5.8 | Anita | Try to create a new **Kitty**. | **PRO** badge, and Create stays disabled. Only *new* group pools need Pro. | |
+| 5.8 | Anita | Try to create a new **Kitty**. | **Several of us** is locked (PRO, *🔒 Pro feature*) and can't be picked. Only *new* group pools need Pro. | |
 | 5.9 | Anita | Back in "Flat 4B", tap **Settle up**. | Carried in ₹7,000, Collected ₹10,000, Spent from the pool ₹0, Left over ₹17,000. Ravi **gets back ₹7,500.00**: his ₹8,500 share less the ₹1,000 he holds. You **pay ₹7,500.00**. | |
 | 5.10 | Everyone | Settle up, approve, pay, confirm. Then switch Anita back to **Pro**. | **Settled**. | |
 
@@ -423,6 +424,68 @@ said he'd paid it.
 
 ---
 
+## Scenario 7: Treasury, Collection and a hybrid event ("Several of us", Pro)
+
+The two pool types Scenarios 2–5 don't use, and an event that mixes pool money with ordinary split
+expenses. Anita is **Pro**; Ravi and Priya stay free.
+
+### A. Treasury: tiered dues, and what's left carries over
+
+| # | Who | Do | Expect | Balance |
+|---|---|---|---|---|
+| 7.1 | Anita | Create "Chess club": **Pool money → Several of us → Treasury**, "Each person puts in" **500**. Invite Ravi. Ravi pays; Anita confirms. | | ₹500 |
+| 7.2 | Anita | Invite Priya. | Joining **doesn't close the month**: Cycle history still shows one month, and Priya gets a ₹500 contribution. | ₹500 |
+| 7.3 | Anita | Tap **Set amounts**: Anita **2,000**, Priya **200** (Ravi stays 500). Save. | The contributions show ₹2,000 / ₹500 / ₹200. | |
+| 7.4 | Anita, Priya | Anita marks hers paid (confirmed at once). Priya pays; Anita confirms. | | ₹2,700 |
+| 7.5 | Anita | Add a pool expense "Chess boards", ₹900. | | ₹1,800 |
+| 7.6 | Anita | Tap **Close <month>**, check the preview, and confirm. | Collected **₹2,700**, Spent **−₹900**, Left over **₹1,800**. A new month opens with **₹1,800 carried** (a Treasury always keeps its surplus) and **the same tiers: ₹2,000 / ₹500 / ₹200**, all *Not paid*. | ₹1,800 |
+
+Leave "Chess club" open: a treasury runs on with no end date. Delete it when you're done, if you like.
+
+### B. Collection: nothing is spent until the target is reached
+
+| # | Who | Do | Expect | Balance |
+|---|---|---|---|---|
+| 7.7 | Anita | Create "Office gift": **Collection**, target **3,000**, "Each person puts in" **1,000**. Invite Ravi and Priya. Anita marks hers paid. | | ₹1,000 |
+| 7.8 | Anita | Add a pool expense "Gift", ₹500. | Refused: *The collection hasn't reached its target yet (₹2,000.00 still to collect).* Don't press *record it anyway*. | ₹1,000 |
+| 7.9 | Ravi, Priya | Both pay; Anita confirms. | Funded. | ₹3,000 |
+| 7.10 | Anita | Add "Gift", ₹2,400. Then add "Card", ₹700. | The gift is saved. The card is refused: *Not enough money in the pool. Add at least ₹100.00 first.* A collection can't go below zero. Don't record it anyway. | ₹600 |
+| 7.11 | Anita | Tap **Settle up**. | Left over **₹600**. Ravi **gets back ₹200**, Priya **gets back ₹200**, you **pay ₹400**: the ₹600 is refunded in proportion to what each person put in. | |
+| 7.12 | Everyone | Settle up, approve, pay, confirm. | **Settled**. | |
+
+### C. Hybrid: pool money and a split dinner in one settle-up
+
+| # | Who | Do | Expect | Balance |
+|---|---|---|---|---|
+| 7.13 | Anita | Create "Weekend trip": **Kitty**, "Each person puts in" **1,000**. Open **Advanced** and tick **Also allow regular split expenses**. Invite Ravi and Priya. Everyone pays in; Anita confirms. | | ₹3,000 |
+| 7.14 | Anita | Add a pool expense "Fuel", ₹1,500. | | ₹1,500 |
+| 7.15 | Ravi | **Add expense**: Paid with offers a third option, **My money — split it**. Choose it: "Dinner", ₹900, split equally between all three. | The classic split form. The pool balance doesn't change. | ₹1,500 |
+| 7.16 | Anita | Tap **Settle up**. | The preview shows the **pool's part**: Ravi gets back ₹500, Priya gets back ₹500, you pay ₹1,000. | |
+| 7.17 | Anita | Tap **Settle up**. | Review has **one plan covering both**: **Anita → Ravi ₹1,100** and **Anita → Priya ₹200**. | |
+| 7.18 | Everyone | Approve, pay, confirm. | **Settled**. | |
+
+**Why these numbers (7.17):** from the pool, each person paid ₹1,000 and their share of the ₹1,500 fuel is
+₹500, so each is owed ₹500. Anita holds the ₹1,500 cash, so she pays out ₹1,000. From the dinner, Ravi
+paid ₹900 and each share is ₹300: Ravi is owed ₹600; Anita and Priya owe ₹300 each. Together: Ravi
++₹1,100, Priya +₹200, Anita −₹1,300.
+
+---
+
+## Release-day checks (production)
+
+These local builds always offer "Several of us". Only production shows that this release really turns it
+on. Run these right after release, in this order: the API is deployed first, then the web, then the new
+app builds. Use real accounts; a sandbox purchase or the trial (plan §10A.5) gives Pro.
+
+| # | Where | Do | Expect |
+|---|---|---|---|
+| R1 | Live web app, free account | Create event → **Pool money**. | **Several of us** is shown locked (PRO, *🔒 Pro feature*). The Pro page lists **Group pools**. |
+| R2 | New TestFlight / Play internal-testing build, free account | The same, plus the upgrade screen and Profile. | Locked card; the upgrade screen lists **Group pools**; Profile reads *Unlimited events, group pools, multi-currency & more*. |
+| R3 | A Pro account, or one on the trial | Create a **Kitty**; invite a free account, which pays in and spends. | Works. |
+| R4 | The 1.0.40 App Store app, still installed | Open an event, add an expense, settle up. | Works against the new API. 1.0.40 still hides "Several of us": it predates this switch. |
+
+---
+
 ## Other changes on this branch
 
 | # | Where | Do | Expect |
@@ -455,7 +518,7 @@ the event screen.
 | Settle-up sheet | The figures on one line (*Collected ₹60,000.00 · spent from the pool ₹15,000.00*, plus *carried in* or *paid back early* when there are any), then *Left over …* in bold. *Ravi: gets back ₹6,400.00*, with the breakdown under it. Then **Included in the final settlement**: *Ravi → You: ₹600.00 · Repayment (spend not approved) · Band* |
 | A hand-over still waiting at settle-up | *1 hand-over is waiting for confirmation…*, and the button is disabled |
 | Netted rows in Review and Settlements | Greyed out, labelled *included in the payments above*, and left out of the counter |
-| Create event, free user | **PRO** on "Several of us", and a notice with **Upgrade to Pro**. Tapping Create shows the **Pro Feature** alert |
+| Create event, free user | "Several of us" locked (greyed, dashed, **PRO**, *🔒 Pro feature*); tapping it shows the notice with **Upgrade to Pro** and doesn't select it |
 | Rejecting a spend | An alert with the same warning text as web, Cancel / Reject, and **no reason field** |
 | Spending beyond what you hold | *The budget owes you ₹1,000.00 for spends beyond the money you held.* |
 | Edit expense, a spender's pool spend | **Paid with** can switch between *money I'm holding* and *Anita's card or UPI* |
@@ -517,5 +580,10 @@ one changed before release.
 | ☐ | Settlement Details doesn't count folded rows | S6 6.16 |
 | ☐ | Forgiving a folded spend during Review asks to regenerate, and the plan changes | S6 6.17–6.18 |
 | ☐ | Held money carries into a Fund's next month and is settled at the end | S5 5.3, 5.6, 5.9 |
+| ☐ | A Treasury keeps tiered dues and its surplus month to month, and someone joining doesn't close the month | S7 7.1–7.6 |
+| ☐ | A Collection refuses spending until the target is reached, then only up to what's left, and refunds the rest | S7 7.7–7.12 |
+| ☐ | A hybrid event settles pool money and split expenses in one plan | S7 7.13–7.18 |
+| ☐ | Production offers "Several of us" locked to free users and open to Pro (release day) | R1–R3 |
+| ☐ | The 1.0.40 app keeps working against the new API (release day) | R4 |
 | ☐ | The session lock sits above the guided tour | X1 |
 | ☐ | The mobile app matches the web app | Mobile pass |

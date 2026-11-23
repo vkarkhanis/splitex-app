@@ -308,4 +308,29 @@ describe('UC-4 club treasury', () => {
     expect(share(BOB)).toBeGreaterThan(share(CAROL));
     expect(preview.disposition).toBe('carry_forward');
   });
+
+  it('carries each member\'s dues into the next month: tiers stay, newcomers and waived dues get the default', async () => {
+    const eventId = await api.createPool(ALICE, { preset: 'club_treasury', defaultContributionMinor: 50000 });
+    await api.join(eventId, ALICE, BOB);
+    await api.join(eventId, ALICE, CAROL);
+    await api.setContributions(eventId, ALICE, [
+      { entityId: ALICE, entityType: 'user', expectedMinor: 200000 }, // patron
+      { entityId: CAROL, entityType: 'user', expectedMinor: 20000 },  // student; Bob stays on the default
+    ]);
+    for (const m of [ALICE, BOB, CAROL]) await api.payIn(eventId, ALICE, m);
+    expect((await api.closeCycle(eventId, ALICE)).status).toBe(200);
+
+    const dues = async () => {
+      const ledger = await api.ledger(eventId, ALICE);
+      return Object.fromEntries(ledger.contributions.filter((c: any) => c.kind === 'regular').map((c: any) => [c.fromEntityId, c.expectedMinor]));
+    };
+    expect(await dues()).toEqual({ [ALICE]: 200000, [BOB]: 50000, [CAROL]: 20000 });
+
+    // A waived month isn't a new tier: the next month asks for the default again.
+    const carol = await api.contributionOf(eventId, ALICE, CAROL);
+    expect((await request(app).post(`/api/pools/contributions/${carol.id}/waive`).set(auth(ALICE)).send({})).status).toBe(200);
+    for (const m of [ALICE, BOB]) await api.payIn(eventId, ALICE, m);
+    expect((await api.closeCycle(eventId, ALICE)).status).toBe(200);
+    expect(await dues()).toEqual({ [ALICE]: 200000, [BOB]: 50000, [CAROL]: 50000 });
+  });
 });

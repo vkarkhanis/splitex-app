@@ -606,6 +606,68 @@ Done when "Several of us" is released, after App Review and after Phase 2 is in 
 5. **Free trial (D12):** once the Phase 2 build is live in both stores, create the offers (§10A.4) and run the release-day checks (§10A.5).
 6. **Before hand-testing on staging,** give the tester accounts Pro with the internal tester switch.
 
+**Decided (2026-11-23): the Phase 2 release turns "Several of us" on, for Pro only.** That means Pro subscribers, including anyone on the 7-day free trial. The release commit is on the Phase 2 branch:
+- `CONTRIBUTOR_POOLS_IN_PRODUCTION = true`, with its tests updated;
+- the web user guide gains a Pool Money section and a list of what Pro includes;
+- `play-store-assets/full-description.txt` gains Pool Money and an accurate Pro list. The old "Advanced exports" line is gone: exports are free;
+- the review notes ([APP_REVIEW_RESPONSE.md](../deployment/APP_REVIEW_RESPONSE.md) §3) cover "Several of us" and the PRO badge;
+- the RevenueCat descriptions ([REVENUECAT_SETUP.md](REVENUECAT_SETUP.md)) are corrected.
+
+The API enforces Pro whatever the switch says. Production users see "Several of us" once the web is deployed and the new app builds are installed.
+
+### 11.1 Text to paste into the consoles (when submitting the Phase 2 build)
+
+**App Store Connect → the new version → What's New.** Add a line for stage's expense-date and filter changes too.
+
+```text
+• Pool money with your group: a trip kitty, a shared fund, a club treasury or a collection. Group pools come with Traxettle Pro; people you invite join free.
+• Hand cash to the people who spend, and see who holds what.
+• Pay back money someone lent the pool before it closes.
+• Settling up now combines refunds, repayments and unpaid claims into one set of payments.
+```
+
+**App Store Connect → App Store → Description.** Add these two blocks, or replace the Pro block if the description already has one. They match the Play Store text.
+
+```text
+POOL MONEY
+• Just me (free): fund a budget for a wedding or family event, choose who can spend, and approve their spends and claims
+• Several of us (Pro): a trip kitty, a monthly shared fund, a club treasury, or a collection towards a target
+• Hand cash to spenders and see who holds what
+• Spending pauses when the pool runs low, until more money is added
+• Refunds, repayments and unpaid claims combine into one final set of payments
+
+PRO FEATURES
+• Unlimited events
+• Multi-currency settlement
+• Group pools: kitty, shared fund, club treasury and collection. Only the person who creates the pool needs Pro; everyone else joins free
+```
+
+Add "Free trial for new subscribers" to the Pro block only once the trial offer exists (§10A.4).
+
+**App Store Connect → Subscriptions → Traxettle Pro → Pro Yearly → App Store Localization → Description.** Apple allows 55 characters; this is 48:
+
+```text
+Unlimited events, multi-currency and group pools
+```
+
+**Optional: Promotional Text** (170 characters; it can change without a new build):
+
+```text
+New: pool money with your group. Collect first, spend from the pool, and settle up in one go. Group pools come with Traxettle Pro.
+```
+
+**Google Play Console → Store presence → Main store listing → Full description:** paste `play-store-assets/full-description.txt` (3,129 of 4,000 characters). If the Pro subscription's listing in Play Console lists benefits, add "Group pools".
+
+**RevenueCat → Products:** if a description is set, use `Unlimited events, multi-currency settlement and group pools`. The app doesn't show RevenueCat's descriptions, so this is housekeeping.
+
+**Pro Yearly promotional image:** replace it in the same submission. The new description already sends the subscription back to review, and both are reviewed with the new build. The current image says "Unlimited events · Multi-currency settling". Use a version that adds group pools (1024×1024, not a screenshot: guideline 2.3.2). Then put the version, the Traxettle Pro group and Pro Yearly into one draft with **Add for Review**, as in November.
+
+**Left as is:** the App Store screenshots, which don't list features.
+
+**After the build is live:**
+- create the 7-day trial offers (§10A.4);
+- then add *"Pro Yearly includes a 1-week free trial for new subscribers."* to the next submission's review notes.
+
 ---
 
 ## 12. WP9: Tests
@@ -908,4 +970,23 @@ Small differences from the plan, recorded as each package is built. WP10 copies 
   - New "Other changes" checks (the session lock), a list of what only automated tests check, a longer mobile pass, and more sign-off rows.
   - Two steps fixed: *Record money returned* only appears once someone holds money, and on web a free user's Create button is disabled rather than refused on submit.
 - **`pool-phase2.spec.ts` gained Scenarios 5 and 6.** Writing them checked the plan's new expectations: the Settlement Details total shows *₹2900.00* (no thousands separator), and that step is fixed. Six pool tests now run in the browser.
+
+**Locked card for free users (2026-11-23, the user's request)**
+- **What changed:** on both create-event screens, a free user sees "Several of us" locked: greyed out, with a dashed border, the PRO badge and *"🔒 Pro feature"*. It can't be picked, and tapping it shows the Pro notice with the upgrade link. For a free user, "Pool money" starts on "Just me".
+- **What it replaced:** before, the card could be picked, which showed the notice and the Kitty / Fund choices, but Create stayed disabled.
+- **Unchanged:** the submit check and the API refusal remain as safety nets, for example when Pro lapses while the form is open.
+- **Accessibility:** the card isn't marked disabled, because tapping it does something (it explains Pro). The visible "Pro feature" text, and a hint on mobile, say what it is. Playwright also refuses to click elements marked `aria-disabled`.
+- **Tests:**
+  - web `pool-phase2.test.tsx`;
+  - new mobile `components/FundingStepView.test.tsx`;
+  - e2e `tier-entitlements.spec.ts`.
+
+  Checked in a browser.
+
+**Scenario 7, and a bug fix found by it (2026-11-23)**
+- **The test plan gains Scenario 7:** a Treasury (tiered dues, joining without closing the month, surplus carried), a Collection (refused until the target is reached, then capped at what's left, then refunds) and a hybrid Kitty (pool money and a split dinner in one plan). It also gains release-day production checks R1–R4, because local builds always show "Several of us".
+- **Bug:** closing a month gave everyone the default dues, so a treasury's tiers (₹2,000 / ₹500 / ₹200) were lost at every close. Now each member keeps last month's amount; newcomers and waived dues get the default. The bug predates Phase 2, and "Several of us" wasn't yet live in production.
+  - The fix: `openNextCycle` in `pool.service.ts`.
+  - The test: `pools.recurring.test.ts`.
+- **Browser tests:** `pool-phase2.spec.ts` gains Scenarios 7A, 7B and 7C.
 
