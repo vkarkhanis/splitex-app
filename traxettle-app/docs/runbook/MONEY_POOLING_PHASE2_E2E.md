@@ -69,29 +69,68 @@ bootstrap step at the start of each script lists anything missing.
    (cd libraries/shared && npm test) && (cd apps/api && npm test) && (cd apps/web && npm test) && (cd apps/mobile && npm test)
    ```
 
-4. **Web: start the API and web app against staging**, from `traxettle-rush/`:
+4. **Set the local-dev flags** to the free tier and mock payments. Every payment in this plan is
+   recorded with *I've Paid* and *Confirm Receipt*, so no payment gateway is needed:
 
    ```bash
-   bash scripts/local-dev/04_real_web.sh staging
+   bash scripts/local-dev/05_set-flags.sh --tier free --payments mock
    ```
 
-   Wait for the web app to report it's ready, then open http://localhost:3000. Leave the terminal
-   running; **Ctrl+C** stops both. This is the setup for Scenarios 1 to 6.
+   This rewrites `scripts/local-dev/.runtime.env`. The file is in git, so git will show it as changed;
+   put it back afterwards with `git checkout -- scripts/local-dev/.runtime.env` if you like.
 
-5. **Mobile: one at a time with web.** Both scripts start an API on port 3001, so stop the web script
-   first. Then, from `traxettle-rush/`:
+5. **Start one API for everything: web, the iOS simulator and the Android emulator.** Each device can
+   then be signed in as a different person, and they all update live.
 
-   ```bash
-   bash scripts/local-dev/03_real_mobile.sh staging
-   ```
+   1. **Start the devices:** an iPhone in the Simulator app, and an emulator from Android Studio
+      (Device Manager). Check that `adb devices` lists the emulator.
+   2. **Terminal 1, the API and Metro** (from `traxettle-rush/`). First clear Metro's cache once, because
+      the last Metro run on that Mac may have used a different API address:
 
-   This starts the API and Metro. Open the Traxettle debug app you installed for Phase 1 on the
-   simulator: it loads the new code from Metro (Phase 2 added no native libraries). If the app isn't
-   installed, or the script says the environment switched, build it once in a second terminal:
+      ```bash
+      rm -rf "${TMPDIR:-/tmp/}"metro-*
+      ```
 
-   ```bash
-   cd apps/mobile && npx expo run:ios --no-bundler
-   ```
+      ```bash
+      bash scripts/local-dev/03_real_mobile.sh staging
+      ```
+
+      Wait until the API is listening on port 3001 and Metro is waiting on port 8081. If the script says
+      the environment switched, press Enter, and add `--build` in step 4 below.
+   3. **Terminal 2, the web app** (from `traxettle-rush/`):
+
+      ```bash
+      bash scripts/local-dev/04_real_web.sh staging
+      ```
+
+      This script also tries to start an API on port 3001. Terminal 1's is already there, so this one
+      stops with *EADDRINUSE: address already in use* and *app crashed - waiting for file changes*.
+      **That's expected:** both scripts run the same API code against staging, and the web app uses
+      Terminal 1's. Open http://localhost:3000 once the web app is ready.
+   4. **Terminal 3, install and open the app** on the simulator and the emulator (from `traxettle-rush/`):
+
+      ```bash
+      bash scripts/local-dev/06_staging_mobile.sh ios --no-bundler
+      ```
+
+      ```bash
+      bash scripts/local-dev/06_staging_mobile.sh android --no-bundler
+      ```
+
+      With `--no-bundler`, this script only builds (if needed), installs and opens the app. It also
+      connects the emulator to Metro. The app loads its code from Terminal 1's Metro, which points it at
+      your local API. The script checks first that the deployed staging API answers, but only checks.
+      The first Android build takes several minutes. Add `--build` to force a fresh install, for example
+      when the app was built for a different Firebase project.
+   5. **Check all three use the branch's API.** Terminal 1 prints a request for each screen the apps
+      load. Create event offers *Several of us*, and Profile shows the tier switch: **Local Tier Switch**
+      on web, **Internal Tier Switch** in the app.
+   6. **Sign in:** **Anita on web, Ravi on the iOS simulator, Priya on the Android emulator.** One
+      account can be signed in on several devices at once. For the mobile pass's custodian steps, also
+      sign Anita into one of the apps.
+
+   **Ctrl+C** in Terminals 1 and 2 stops everything. Keep Terminal 1 running while you test: it owns
+   the API that all three use. Without mobile, Terminal 2 alone is enough: its API then starts normally.
 
 6. **When you're done:** switch the test accounts back to the plan they should keep. The test events
    can stay on staging, or you can delete them.

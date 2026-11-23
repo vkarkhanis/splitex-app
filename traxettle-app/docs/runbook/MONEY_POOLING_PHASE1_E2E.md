@@ -26,7 +26,8 @@ Run **the branch's own API on your Mac**. None of these options touch production
 | Mobile | `bash scripts/local-dev/03_real_mobile.sh staging` | Staging Firestore |
 | Fully offline | `sh scripts/local-dev/02_emulator_web.sh` | Firebase emulators on this Mac |
 
-- `03` and `04` both start the API on port 3001, so run only one at a time.
+- `03` and `04` both start the API on port 3001. They can run together (web plus the apps): whichever
+  starts second reports *EADDRINUSE* for its API, and everything uses the first one's.
 - **Don't open these test events in the TestFlight or App Store app.** Those apps use the deployed
   staging API. It runs older code that doesn't know about repayments or gifts.
 - After pulling the branch, rebuild the shared library, because the apps read its built `dist/`:
