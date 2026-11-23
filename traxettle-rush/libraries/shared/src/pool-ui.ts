@@ -491,11 +491,12 @@ export const DEFAULT_FUNDING_CHOICE: FundingChoice = {
 export const CONTRIBUTOR_PRESETS: PoolPreset[] = ['trip_kitty', 'household', 'club_treasury', 'target_collection'];
 
 /**
- * "Several of us" pools are held back from production for the first release:
- * production users can only create "Just me" budgets. The API supports both.
- * Set to true to release them.
+ * "Several of us" pools in production. Held back for the first release (only "Just me" budgets);
+ * released with Phase 2, as a Pro feature for whoever creates the pool (design doc §12). The API
+ * enforces Pro whatever this says; this decides whether production apps offer the option and list
+ * group pools among Pro features. Set to false to hide them again.
  */
-export const CONTRIBUTOR_POOLS_IN_PRODUCTION = false;
+export const CONTRIBUTOR_POOLS_IN_PRODUCTION = true;
 
 const PRE_PRODUCTION_ENVS = ['local', 'development', 'staging', 'internal'];
 

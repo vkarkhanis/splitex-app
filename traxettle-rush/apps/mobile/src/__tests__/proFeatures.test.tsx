@@ -42,10 +42,10 @@ describe('useContributorPoolsAvailable', () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
   };
 
-  it('is off in production until released', async () => {
+  it('is on in production now that group pools are released', async () => {
     mockStaging.mockResolvedValue(false);
     await render();
-    expect(value).toBe(false);
+    expect(value).toBe(true);
   });
 
   it('is on when a tester switches a release build to staging', async () => {

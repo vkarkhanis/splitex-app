@@ -230,10 +230,10 @@ describe('reimbursement status of a claim', () => {
   });
 });
 
-describe('"Several of us" pools in the first release', () => {
-  it('are held back from production', () => {
-    expect(CONTRIBUTOR_POOLS_IN_PRODUCTION).toBe(false);
-    expect(contributorPoolsAvailable('production')).toBe(false);
+describe('"Several of us" pools, released with Phase 2', () => {
+  it('are offered in production (the API still requires Pro to create one)', () => {
+    expect(CONTRIBUTOR_POOLS_IN_PRODUCTION).toBe(true);
+    expect(contributorPoolsAvailable('production')).toBe(true);
   });
 
   it('stay available everywhere before production, for testing', () => {
@@ -242,10 +242,10 @@ describe('"Several of us" pools in the first release', () => {
     }
   });
 
-  it('count a missing or unknown environment as production', () => {
-    expect(contributorPoolsAvailable(undefined)).toBe(false);
-    expect(contributorPoolsAvailable('')).toBe(false);
-    expect(contributorPoolsAvailable('prod')).toBe(false);
+  it('count a missing or unknown environment as production, where they are now released', () => {
+    expect(contributorPoolsAvailable(undefined)).toBe(true);
+    expect(contributorPoolsAvailable('')).toBe(true);
+    expect(contributorPoolsAvailable('prod')).toBe(true);
   });
 
   it('start "Pool money" on "Just me" when that is the only funder offered', () => {

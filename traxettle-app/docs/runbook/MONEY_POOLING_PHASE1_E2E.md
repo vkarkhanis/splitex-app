@@ -183,7 +183,8 @@ The **Balance** column shows the budget balance after each step, when it changes
 
 ## Scenario 2: Trip kitty ("Several of us") with a loan and a gift
 
-Production builds hide "Several of us". Local and staging builds show it.
+Production builds of 1.0.40 hide "Several of us"; local and staging builds show it. From the Phase 2
+release on, production shows it too, as a Pro feature for the person creating the pool.
 
 ### Setup
 

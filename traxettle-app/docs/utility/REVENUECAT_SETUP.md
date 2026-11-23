@@ -43,7 +43,7 @@ This guide walks you through configuring RevenueCat for in-app purchases in the 
 - Click **Create product**:
   - **Product ID**: `traxettle_pro_lifetime`
   - **Name**: `Traxettle Pro`
-  - **Description**: `Unlock multi-currency settlement, analytics, unlimited groups, and more`
+  - **Description**: `Unlimited events, multi-currency settlement and group pools`
   - **Default price**: `₹199` (INR) — Google Play will auto-convert to ~$9.99 for other regions
 - **Activate** the product
 
@@ -55,7 +55,7 @@ This guide walks you through configuring RevenueCat for in-app purchases in the 
   - **Product ID**: `traxettle_pro_lifetime`
   - **Price**: Tier 10 ($9.99 USD) — which maps to ₹199 INR
   - **Display Name**: `Traxettle Pro`
-  - **Description**: `Unlock multi-currency settlement, analytics, unlimited groups, and more`
+  - **Description**: `Unlimited events, multi-currency settlement and group pools`
 - Submit for review
 
 ---

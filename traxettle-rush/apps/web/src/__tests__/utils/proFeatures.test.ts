@@ -16,8 +16,8 @@ describe('Pro features on web (design doc §12)', () => {
     expect(poolingHelpLine(true)).toMatch(/"Several of us", Pro for the person who creates it; everyone else joins free/);
   });
 
-  it('treats a build without an app environment as production: group pools stay hidden', () => {
+  it('treats a build without an app environment as production, where group pools are released', () => {
     expect(process.env.NEXT_PUBLIC_APP_ENV).toBeUndefined();
-    expect(proBadges()).not.toContain('Group pools');
+    expect(proBadges()).toContain('Group pools');
   });
 });
