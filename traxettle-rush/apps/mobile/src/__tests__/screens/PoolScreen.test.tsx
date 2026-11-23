@@ -30,6 +30,8 @@ jest.mock('../../context/ThemeContext', () => ({
 }));
 jest.mock('../../context/AuthContext', () => ({ useAuth: () => ({ user: { userId: mockMe() } }) }));
 jest.mock('../../hooks/useSocket', () => ({ useEventSocket: jest.fn() }));
+const mockPushToast = jest.fn();
+jest.mock('../../context/FeedbackContext', () => ({ useFeedback: () => ({ pushToast: mockPushToast }) }));
 
 let me = 'anita';
 const mockMe = () => me;
@@ -65,11 +67,11 @@ function ledger() {
     },
     contributions: [
       { id: 's1', fromEntityId: 'anita', fromEntityType: 'user', fromUserId: 'anita', kind: 'regular', expectedMinor: 8000000, receivedMinor: 8000000, status: 'confirmed' },
-      { id: 'l1', fromEntityId: 'ravi', fromEntityType: 'user', fromUserId: 'ravi', kind: 'top_up', expectedMinor: 1000000, receivedMinor: 1000000, status: 'confirmed' },
+      { id: 'l1', fromEntityId: 'ravi', fromEntityType: 'user', fromUserId: 'ravi', kind: 'top_up', expectedMinor: 1000000, receivedMinor: 1000000, status: 'confirmed', proofUrl: '/api/uploads/transfer.jpg' },
     ],
     advances: [
       { id: 'a1', kind: 'advance', fromUserId: 'anita', toUserId: 'ravi', amountMinor: 100000, status: 'initiated', createdBy: 'anita', createdAt: '2026-11-10' },
-      { id: 'a2', kind: 'advance', fromUserId: 'anita', toUserId: 'ravi', amountMinor: 2000000, status: 'confirmed', createdBy: 'anita', createdAt: '2026-11-09', confirmedAt: '2026-11-09', note: 'Decor cash' },
+      { id: 'a2', kind: 'advance', fromUserId: 'anita', toUserId: 'ravi', amountMinor: 2000000, status: 'confirmed', createdBy: 'anita', createdAt: '2026-11-09', confirmedAt: '2026-11-09', note: 'Decor cash', proofUrl: '/api/uploads/cash.jpg' },
     ],
     entries: [
       { id: 'a2', type: 'advance', advanceKind: 'advance', at: '2026-11-09', title: 'Advance', amountMinor: 2000000, status: 'confirmed', actorUserId: 'anita', fromUserId: 'anita', toUserId: 'ravi', receiptUrls: [], counted: false },
@@ -130,12 +132,32 @@ describe('PoolScreen — Phase 2', () => {
     expect(textOf(byId('pool-holdings'))).toBe("You're holding ₹5,000.00 of the budget's money.");
     await act(async () => { byId('advance-confirm-a1').props.onPress(); });
     expect(mockPool.confirmAdvance).toHaveBeenCalledWith('a1');
+    expect(mockPushToast).toHaveBeenCalledWith('success', 'Confirmed', 'Recorded as received.');
     await act(async () => { byId('pool-return-money').props.onPress(); });
     await act(async () => { byId('handover-amount').props.onChangeText('6000'); });
     expect(byId('handover-too-much')).toBeDefined();
     await act(async () => { byId('handover-amount').props.onChangeText('2000'); });
     await act(async () => { byId('handover-submit').props.onPress(); });
     expect(mockPool.recordAdvance).toHaveBeenCalledWith('e1', { kind: 'return', amountMinor: 200000, note: undefined, proofUrl: undefined });
+    expect(mockPushToast).toHaveBeenLastCalledWith('success', 'Money returned', 'Waiting for Anita to confirm.');
+  });
+
+  it('confirms the custodian\'s hand-over with a message, like web', async () => {
+    await mount('anita');
+    await act(async () => { byId('pool-give-money').props.onPress(); });
+    await act(async () => { byId('handover-amount').props.onChangeText('500'); });
+    await act(async () => { byId('handover-submit').props.onPress(); });
+    expect(mockPushToast).toHaveBeenCalledWith('success', 'Money handed over', 'Waiting for them to confirm.');
+  });
+
+  it('opens the proof attached to a hand-over or a contribution', async () => {
+    const { Linking } = require('react-native');
+    await mount('ravi');
+    await act(async () => { await byId('advance-proof-a2').props.onPress(); });
+    expect(Linking.openURL).toHaveBeenCalledWith('http://api.test/api/uploads/cash.jpg');
+    await act(async () => { await byId('contribution-proof-l1').props.onPress(); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(Linking.openURL).toHaveBeenLastCalledWith('http://api.test/api/uploads/transfer.jpg');
   });
 
   it('waits for hand-overs before settling up, and shows folded payments', async () => {

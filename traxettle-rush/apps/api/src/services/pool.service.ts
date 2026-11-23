@@ -1082,7 +1082,10 @@ export class PoolService {
     if (fundingSource === 'pool_reimbursement' && config.claimReceiptRequired !== false && !hasReceipt) {
       throw new PoolError(400, 'A receipt is required to claim a reimbursement', 'POOL_RECEIPT_REQUIRED');
     }
-    if (fundingSource === 'pool' && config.receiptRequiredAboveMinor !== null && config.receiptRequiredAboveMinor !== undefined
+    // Someone asking before they spend has nothing to show yet: the receipt can be added after paying.
+    // The custodian isn't asked (their spends count as paid), so theirs still need one.
+    const askingFirst = fundingSource === 'pool' && actorId !== config.custodianUserId && !input.alreadyIncurred;
+    if (fundingSource === 'pool' && !askingFirst && config.receiptRequiredAboveMinor !== null && config.receiptRequiredAboveMinor !== undefined
       && amountMinor > config.receiptRequiredAboveMinor && !hasReceipt) {
       throw new PoolError(400, 'A receipt is required for this pool expense', 'POOL_RECEIPT_REQUIRED');
     }

@@ -389,16 +389,36 @@ export function canRecordAnyway(code?: string): boolean {
   return code === 'POOL_OVERDRAFT_BLOCKED' || code === 'POOL_INSUFFICIENT_FUNDS' || code === 'POOL_UNDERFUNDED' || code === 'POOL_SPENDER_CAP';
 }
 
-/** Mirrors the server rule: is a receipt mandatory for this pool expense? */
+/**
+ * Mirrors the server rule: is a receipt mandatory for this pool expense?
+ * `askingFirst`: someone other than the custodian asking before they spend. Nothing has been
+ * bought yet, so there's no receipt to attach; it can be added to the expense after paying.
+ */
 export function isReceiptRequired(
   config: Pick<PoolConfig, 'claimReceiptRequired' | 'receiptRequiredAboveMinor'> | null | undefined,
   fundingSource: 'self' | 'pool' | 'pool_reimbursement',
   amountMinor: number,
+  opts: { askingFirst?: boolean } = {},
 ): boolean {
   if (!config || fundingSource === 'self') return false;
   if (fundingSource === 'pool_reimbursement') return config.claimReceiptRequired !== false;
+  if (opts.askingFirst) return false;
   const threshold = config.receiptRequiredAboveMinor;
   return threshold !== null && threshold !== undefined && amountMinor > threshold;
+}
+
+/**
+ * How an expense list describes a pool expense, before "by <name>". A spend someone asked for
+ * first isn't paid until it's approved, so it reads "Requested" until then (and if it's rejected).
+ */
+export function poolExpenseByline(expense: {
+  fundingSource?: ExpenseFundingSource;
+  poolDraw?: Pick<PoolDrawState, 'status' | 'alreadyIncurred'> | null;
+}): string {
+  if (expense.fundingSource === 'pool_reimbursement') return 'Claimed from the pool';
+  const draw = expense.poolDraw;
+  if (draw && draw.alreadyIncurred === false && draw.status !== 'approved') return 'Requested from the pool';
+  return 'Paid from the pool';
 }
 
 export interface PoolErrorInfo {

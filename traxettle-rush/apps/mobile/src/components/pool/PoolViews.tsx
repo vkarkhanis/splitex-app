@@ -125,6 +125,26 @@ async function resolveHref(url: string): Promise<string> {
   return `${(await getResolvedApiBaseUrl()).replace(/\/$/, '')}${url}`;
 }
 
+/** Open a receipt or proof (an upload path or a full URL) in the browser or viewer. */
+export async function openPoolFile(url: string): Promise<void> {
+  try {
+    await Linking.openURL(await resolveHref(url));
+  } catch {
+    Alert.alert('Could not open', 'The file could not be opened. Try again later.');
+  }
+}
+
+/** A tappable "proof" link, for hand-overs and contributions. */
+export function ProofLink({ url, testID }: { url: string; testID?: string }) {
+  const { colors } = useTheme().theme;
+  return (
+    <Text testID={testID} accessibilityRole="link" onPress={() => { void openPoolFile(url); }}
+      style={{ color: colors.primary, textDecorationLine: 'underline' }}>
+      proof
+    </Text>
+  );
+}
+
 /** Photograph or pick receipts and attach them (uploads immediately). */
 export function ReceiptPicker(props: { eventId: string; value: string[]; onChange: (urls: string[]) => void; required?: boolean }) {
   const { colors } = useTheme().theme;

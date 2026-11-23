@@ -44,6 +44,7 @@ import {
   isPoolFundedEvent,
   isPoolFundedExpense,
   isPoolSideLeg,
+  poolExpenseByline,
   poolLegLabel,
   poolNoun,
   poolPaymentActions,
@@ -1174,7 +1175,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                       </View>
                       <Text style={[styles.listCardSub, { color: colors.muted }]}>
                         {formatExpenseDate(exp.date, exp.createdAt as any)} · {isPoolFundedExpense(exp)
-                          ? `${exp.fundingSource === 'pool' ? 'Paid from the pool' : 'Claimed from the pool'} by ${getUserName(exp.paidBy)}`
+                          ? `${poolExpenseByline(exp)} by ${getUserName(exp.paidBy)}`
                           : `Paid by ${getUserName(exp.paidBy)} · ${exp.paidOnBehalfOf && Array.isArray(exp.paidOnBehalfOf) && exp.paidOnBehalfOf.length > 0 ? 'On Behalf' : exp.splitType.charAt(0).toUpperCase() + exp.splitType.slice(1)}`}
                         {exp.attachments?.length ? ` · ${exp.attachments.length} receipt(s)` : ''}
                       </Text>

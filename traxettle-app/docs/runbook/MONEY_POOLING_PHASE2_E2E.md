@@ -159,7 +159,9 @@ the staging account you're signed in as.
 
 ### Good to know
 
-- A **Budget** needs a receipt on every pool expense and every claim. Keep a small image ready.
+- A **Budget** needs a receipt on every pool expense and every claim, except a spend someone *asks for
+  before spending*: nothing is bought yet, so the receipt is optional and can be added to the expense
+  after paying. Keep a small image ready.
 - Anita is Pro, so the free plan's 3-event limit doesn't apply to her. Ravi and Priya only join events,
   except in Scenario 4.
 - All amounts are in INR. People appear as **You** on their own screen.
@@ -265,11 +267,18 @@ Run [Phase 1's Scenario 1 and Scenario 3](MONEY_POOLING_PHASE1_E2E.md) as writte
 - Where Phase 1 says Ravi or Priya pick **Pool funds**, pick **Anita's card or UPI**: for anyone but the
   custodian, that's what "Pool funds" became. *Budget money I'm holding* (or *Kitty money…*) only appears
   once the custodian has handed them money.
+- **Asking first needs no receipt** (Phase 1 B2, C3 and F1). Until it's approved, such a spend reads
+  *Requested from the pool by Ravi* in Expenses; once approved, *Paid from the pool by Ravi*.
+- **B6 is two approvals:** Decorations (₹32,000), then Band advance (₹28,000). Settle-up is refused while
+  either is still waiting.
+- **Pool payments need both people.** For Taxi (B7) and Cake (E5), the payer taps **Mark as paid** and the
+  other person taps **Confirm received**. Check step I0 below before finishing.
 
-### Phase 1 Scenario 1, steps I1–I5 (Wedding budget)
+### Phase 1 Scenario 1, steps I0–I4 (Wedding budget)
 
 | # | Who | Do | Expect |
 |---|---|---|---|
+| I0 | Anita | Before finishing, open **Pool payments** on the Budget tab. | Taxi ₹800 and Cake ₹1,200 show **Done**; Snacks ₹600 shows **To pay**. Nothing is under "Waiting for your approval". **If not, finish those steps first.** Otherwise the figures below change: an unpaid Taxi is folded in too (Anita → Ravi becomes ₹10,200), and a Cake repayment marked paid but not confirmed stays a separate row, *paid on its own*, for Anita to confirm in Settlements. |
 | I1 | Anita | Tap **Finish & report**. | Collected **₹67,000**, Spent **−₹37,800**, Left over **₹29,200**, as before. Ravi's row: *₹10,000.00 from the budget, less ₹600.00 for Snacks (repayment)* → **gets back ₹9,400.00**. Your row: **pays ₹9,400.00**. **Included in the final settlement** lists *Ravi → You · Repayment (spend not approved) · Snacks* **₹600.00**. Nothing is under **Paid separately** (Taxi and Cake are already paid). |
 | I2 | Anita | Tap **Settle up**. | **Review** lists Anita → Ravi **₹9,400**, then Taxi ₹800 *Reimbursement · already paid*, Cake ₹1,200 *Repayment (spend not approved) · already paid*, and Snacks ₹600 *Repayment (spend not approved) · included in the payments above* (greyed out, last). |
 | I3 | Everyone | Approve. | **Payment**, with **2/3** complete (Taxi and Cake; Snacks isn't counted). |
@@ -492,6 +501,7 @@ app builds. Use real accounts; a sandbox purchase or the trial (plan §10A.5) gi
 |---|---|---|---|
 | X1 | Web | As a brand-new account, open the Dashboard so the guided tour starts. In the browser console, run `window.dispatchEvent(new CustomEvent('traxettle:webAuthUnauthorized'))`. | *Session locked* appears **on top of** the tour card, and **Log out** works. (Before this branch, the tour card covered it.) |
 | X2 | Web and mobile | Profile → upgrade row, Pro page, Help. | Covered in Scenario 4: group pools appear in every Pro list on local and staging builds. |
+| X3 | Mobile | In any Budget, as Ravi: **Add expense**, **Anita's card or UPI**, **I'm asking before I spend**, no receipt, save. Then Anita approves it. | No "receipt needed": it's saved. The receipt section says *Receipts (optional)* once asking first is chosen. The expense list reads *Requested from the pool by Ravi* until Anita approves, then *Paid from the pool by Ravi*. Choosing *I've already paid* still needs a receipt. |
 
 **Checked only by automated tests** (no screen for them, or they can't be set up by hand):
 - changing the custodian while spenders hold money is refused (no screen changes the custodian);
@@ -514,6 +524,8 @@ the event screen.
 | Custodian's buttons | **Give money** and **Money returned** (web: *Record money returned*) |
 | Spender's button | **Return money** |
 | Give / return / pay back | One sheet for all three, with amount, note and optional proof |
+| After each pool action | A toast with the same words as web, e.g. **Confirmed**: *Recorded as received.* (A5) |
+| Proof on a hand-over or a contribution | A tappable **proof** link that opens the photo (A5) |
 | Lender line | *Ravi lent the budget money: ₹10,000.00 still to pay back.* with **Pay back now** |
 | Settle-up sheet | The figures on one line (*Collected ₹60,000.00 · spent from the pool ₹15,000.00*, plus *carried in* or *paid back early* when there are any), then *Left over …* in bold. *Ravi: gets back ₹6,400.00*, with the breakdown under it. Then **Included in the final settlement**: *Ravi → You: ₹600.00 · Repayment (spend not approved) · Band* |
 | A hand-over still waiting at settle-up | *1 hand-over is waiting for confirmation…*, and the button is disabled |

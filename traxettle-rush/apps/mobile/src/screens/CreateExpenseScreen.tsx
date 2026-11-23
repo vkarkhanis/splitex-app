@@ -153,6 +153,8 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
   // way they paid with pool money (§9.3, decision D1).
   const paidWithPoolMoney = paidWith === 'pool' || paidWith === 'pool_held' || paidWith === 'pool_card';
   const needsSpendTiming = paidWithPoolMoney && Boolean(poolConfig) && Boolean(currentUserId) && !isCustodian;
+  // Nothing is bought yet when asking first, so the receipt is optional (added after paying).
+  const askingFirst = needsSpendTiming && spendTiming === 'asking';
   const fundingSourceOf = paidWithPayload(paidWith).fundingSource;
   // What this person holds of the pool's money (§9.3).
   const myKey = currentUserId ? (() => {
@@ -289,12 +291,13 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
     }
 
     if (paidWith !== 'self') {
-      if (isReceiptRequired(poolConfig, fundingSourceOf, toMinor(amt, expCurrency)) && receipts.length === 0) {
-        Alert.alert('Receipt needed', 'Attach a receipt to record this.');
-        return;
-      }
+      // Asked first: whether a receipt is needed depends on the answer.
       if (needsSpendTiming && !spendTiming) {
         Alert.alert('One more thing', `Have you already paid with the ${poolNoun(poolConfig).toLowerCase()}'s money, or are you asking before you spend?`);
+        return;
+      }
+      if (isReceiptRequired(poolConfig, fundingSourceOf, toMinor(amt, expCurrency), { askingFirst }) && receipts.length === 0) {
+        Alert.alert('Receipt needed', 'Attach a receipt to record this.');
         return;
       }
       await submitPoolDraw(amt, needsSpendTiming && spendTiming === 'paid');
@@ -417,7 +420,7 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
       <DateField testID="create-expense-date-input" value={date} onChange={setDate} />
 
       <ReceiptPicker eventId={eventId} value={receipts} onChange={setReceipts}
-        required={isReceiptRequired(poolConfig, fundingSourceOf, (() => { const n = parseFloat(amount); return Number.isFinite(n) && n > 0 ? toMinor(n, expCurrency) : 0; })())} />
+        required={isReceiptRequired(poolConfig, fundingSourceOf, (() => { const n = parseFloat(amount); return Number.isFinite(n) && n > 0 ? toMinor(n, expCurrency) : 0; })(), { askingFirst })} />
 
       {paidWith === 'pool_reimbursement' && parseFloat(amount) > 0 && (
         <Text testID="claim-note" style={{ color: c.textSecondary, marginBottom: spacing.md }}>

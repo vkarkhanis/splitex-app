@@ -52,15 +52,19 @@ import type {
 import { api } from '../api';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useFeedback } from '../context/FeedbackContext';
 import { useEventSocket } from '../hooks/useSocket';
 import { fontSizes, radii, spacing } from '../theme';
-import { PoolMeterView } from '../components/pool/PoolViews';
+import { PoolMeterView, ProofLink } from '../components/pool/PoolViews';
 import { pickReceiptImage, poolService } from '../services/pool';
 import type { ClosePreview, CoverEntry, ImagePickerLike } from '../services/pool';
 
+/** A success toast: title and message. */
+type Done = { title: string; message?: string };
+
 type Sheet =
   | { kind: 'none' }
-  | { kind: 'amount'; title: string; hint?: string; initialMinor: number; giftChoice?: { loanLabel: string }; submit: (minor: number, gift: boolean) => Promise<unknown> }
+  | { kind: 'amount'; title: string; hint?: string; initialMinor: number; giftChoice?: { loanLabel: string }; submit: (minor: number, gift: boolean) => Promise<unknown>; done?: (gift: boolean) => Done }
   | { kind: 'markPaid'; contribution: PoolContribution }
   | { kind: 'amounts' }
   | { kind: 'reconcile'; mode: 'close' | 'settle' }
@@ -85,6 +89,7 @@ export default function PoolScreen({ route, navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [sheet, setSheet] = useState<Sheet>({ kind: 'none' });
   const [busy, setBusy] = useState(false);
+  const { pushToast } = useFeedback();
 
   const load = useCallback(async () => {
     try {
@@ -178,10 +183,12 @@ export default function PoolScreen({ route, navigation }: any) {
   const custodianName = nameOf('user', config.custodianUserId);
   const showHoldings = Boolean(holdings) && (Object.keys(holdings!.heldBy).length > 0 || holdings!.pendingOutMinor > 0 || advances.length > 0);
 
-  const run = async (label: string, fn: () => Promise<unknown>) => {
+  /** `label` titles the error alert; `done`, when given, is the success toast (the same words as web). */
+  const run = async (label: string, fn: () => Promise<unknown>, done?: Done) => {
     setBusy(true);
     try {
       await fn();
+      if (done) pushToast('success', done.title, done.message);
       setSheet({ kind: 'none' });
       await load();
     } catch (err) {
@@ -277,6 +284,7 @@ export default function PoolScreen({ route, navigation }: any) {
                   const c = await poolService.topUp(eventId, { amountMinor: minor, ...(gift ? { gift: true } : {}) });
                   if (!isCustodian && c?.id) await poolService.markPaid(c.id, { amountMinor: minor });
                 },
+                done: () => ({ title: 'Money added', message: isCustodian ? `Added to the ${noun.toLowerCase()}.` : 'Waiting for the custodian to confirm.' }),
               })} />
               {isCustodian && handOverOpen && spenderIds.length > 0 && (
                 <Btn testID="pool-give-money" label="Give money" color={colors.primary} outline onPress={() => setSheet({ kind: 'giveMoney' })} />
@@ -311,12 +319,12 @@ export default function PoolScreen({ route, navigation }: any) {
                 </View>
                 <Text style={[st.amount, { color: colors.text }]}>{money(toMinor(leg.amount, currency))}</Text>
                 {me === leg.fromUserId && (leg.status === 'pending' || leg.status === 'failed') && (
-                  <Btn label="Mark paid" color={colors.primary} small disabled={busy} onPress={() => run('Mark paid', () => poolService.payLeg(leg.id))} />
+                  <Btn label="Mark paid" color={colors.primary} small disabled={busy} onPress={() => run('Mark paid', () => poolService.payLeg(leg.id), { title: 'Marked as paid', message: `Waiting for ${nameOf('user', leg.toUserId)} to confirm.` })} />
                 )}
                 {me === leg.toUserId && leg.status === 'initiated' && (
                   <>
-                    <Btn label="Received" color={colors.success} small disabled={busy} onPress={() => run('Confirm', () => poolService.confirmLeg(leg.id))} />
-                    <Btn label="Not received" color={colors.error} small outline disabled={busy} onPress={() => run('Reject', () => poolService.rejectLeg(leg.id))} />
+                    <Btn label="Received" color={colors.success} small disabled={busy} onPress={() => run('Confirm', () => poolService.confirmLeg(leg.id), { title: 'Confirmed', message: 'Recorded as received.' })} />
+                    <Btn label="Not received" color={colors.error} small outline disabled={busy} onPress={() => run('Reject', () => poolService.rejectLeg(leg.id), { title: 'Marked as not received' })} />
                   </>
                 )}
               </View>
@@ -340,10 +348,12 @@ export default function PoolScreen({ route, navigation }: any) {
                 </View>
                 <Text style={[st.amount, { color: colors.text }]}>{money(-e.amountMinor)}</Text>
                 <Btn testID={`approve-${e.id}`} label="Approve" color={colors.success} small disabled={busy || !canAct}
-                  onPress={() => run('Approve', () => poolService.approveDraw(e.id))} />
+                  onPress={() => run('Approve', () => poolService.approveDraw(e.id), {
+                    title: 'Approved', message: e.fundingSource === 'pool_reimbursement' ? 'A reimbursement payment was created.' : 'Deducted from the pool.',
+                  })} />
                 <Btn testID={`reject-${e.id}`} label="Reject" color={colors.error} small outline disabled={busy || !canAct}
                   onPress={() => {
-                    const reject = () => run('Reject', () => poolService.rejectDraw(e.id));
+                    const reject = () => run('Reject', () => poolService.rejectDraw(e.id), { title: 'Rejected' });
                     // Rejecting money already spent from the pool means the spender owes it back (§9.2):
                     // as a repayment, or (paid from money they hold) as part of what they hold (§9.3).
                     if (e.fundingSource === 'pool' && e.alreadyIncurred && e.actorUserId !== config.custodianUserId) {
@@ -379,19 +389,20 @@ export default function PoolScreen({ route, navigation }: any) {
                     </Text>
                     <Text style={meta}>
                       {nameOf('user', a.fromUserId)} → {nameOf('user', a.toUserId)} · {new Date(a.confirmedAt || a.createdAt).toLocaleDateString()}
-                      {a.note ? ` · ${a.note}` : ''}{a.proofUrl ? ' · proof attached' : ''}
+                      {a.note ? ` · ${a.note}` : ''}
+                      {a.proofUrl ? <>{' · '}<ProofLink url={a.proofUrl} testID={`advance-proof-${a.id}`} /></> : null}
                       {a.status === 'rejected' && a.rejectionReason ? ` · ${a.rejectionReason}` : ''}
                     </Text>
                   </View>
                   <Text style={[st.amount, { color: a.status === 'rejected' || a.status === 'cancelled' ? colors.muted : colors.text }]}>{money(a.amountMinor)}</Text>
                   {waiting && a.toUserId === me && (
                     <>
-                      <Btn testID={`advance-confirm-${a.id}`} label="Received" color={colors.success} small disabled={busy} onPress={() => run('Confirm', () => poolService.confirmAdvance(a.id))} />
-                      <Btn testID={`advance-reject-${a.id}`} label="Not received" color={colors.error} small outline disabled={busy} onPress={() => run('Not received', () => poolService.rejectAdvance(a.id))} />
+                      <Btn testID={`advance-confirm-${a.id}`} label="Received" color={colors.success} small disabled={busy} onPress={() => run('Confirm', () => poolService.confirmAdvance(a.id), { title: 'Confirmed', message: 'Recorded as received.' })} />
+                      <Btn testID={`advance-reject-${a.id}`} label="Not received" color={colors.error} small outline disabled={busy} onPress={() => run('Not received', () => poolService.rejectAdvance(a.id), { title: 'Marked as not received' })} />
                     </>
                   )}
                   {waiting && a.createdBy === me && a.toUserId !== me && (
-                    <Btn testID={`advance-cancel-${a.id}`} label="Cancel" color={colors.muted} small outline disabled={busy} onPress={() => run('Cancel', () => poolService.cancelAdvance(a.id))} />
+                    <Btn testID={`advance-cancel-${a.id}`} label="Cancel" color={colors.muted} small outline disabled={busy} onPress={() => run('Cancel', () => poolService.cancelAdvance(a.id), { title: 'Cancelled' })} />
                   )}
                 </View>
               );
@@ -418,6 +429,7 @@ export default function PoolScreen({ route, navigation }: any) {
                     {status.label} · {c.kind === 'regular' ? `${money(c.receivedMinor)} of ${money(c.expectedMinor)}` : money(c.receivedMinor || c.expectedMinor)}
                     {c.status === 'initiated' && c.claimedMinor ? ` · says ${money(c.claimedMinor)}` : ''}
                     {c.rejectionReason && c.status !== 'confirmed' ? ` · not received: ${c.rejectionReason}` : ''}
+                    {c.proofUrl ? <>{' · '}<ProofLink url={c.proofUrl} testID={`contribution-proof-${c.id}`} /></> : null}
                   </Text>
                 </View>
                 {canAct && mine && (c.status === 'pending' || c.status === 'partial' || c.status === 'initiated') && (
@@ -430,13 +442,14 @@ export default function PoolScreen({ route, navigation }: any) {
                       ? (c.gift ? `A gift from ${nameOf(c.fromEntityType, c.fromEntityId)}: it isn't paid back.` : `You'll pay this back to ${nameOf(c.fromEntityType, c.fromEntityId)} when the ${noun.toLowerCase()} closes.`)
                       : 'Only confirmed money counts toward the balance.',
                     submit: (minor) => poolService.confirm(c.id, minor),
+                    done: () => ({ title: 'Confirmed', message: `Added to the ${noun.toLowerCase()}.` }),
                   })} />
                 )}
                 {canAct && isCustodian && c.status === 'initiated' && (
-                  <Btn label="Not received" color={colors.error} small outline onPress={() => run('Not received', () => poolService.reject(c.id))} />
+                  <Btn label="Not received" color={colors.error} small outline onPress={() => run('Not received', () => poolService.reject(c.id), { title: 'Marked as not received' })} />
                 )}
                 {canAct && isManager && c.status === 'pending' && c.receivedMinor === 0 && c.kind === 'regular' && (
-                  <Btn label="Waive" color={colors.muted} small outline onPress={() => run('Waive', () => poolService.waive(c.id))} />
+                  <Btn label="Waive" color={colors.muted} small outline onPress={() => run('Waive', () => poolService.waive(c.id), { title: 'Waived', message: 'Excused for this cycle.' })} />
                 )}
               </View>
             );
@@ -459,7 +472,7 @@ export default function PoolScreen({ route, navigation }: any) {
                       authorizedSpenders: allowed
                         ? (config.authorizedSpenders || []).filter((id) => id !== p.userId)
                         : [...(config.authorizedSpenders || []), p.userId],
-                    }))} />
+                    }), { title: 'Saved', message: 'Spending permissions updated.' })} />
                 </View>
               );
             })}
@@ -473,7 +486,7 @@ export default function PoolScreen({ route, navigation }: any) {
               <Btn testID="allow-card-spends" label={config.allowSponsorCardSpends === false ? 'Off' : 'On ✓'}
                 color={config.allowSponsorCardSpends === false ? colors.muted : colors.success} small outline={config.allowSponsorCardSpends === false}
                 disabled={!isAdmin || busy || event.status !== 'active'}
-                onPress={() => run('Update setting', () => poolService.updateConfig(eventId, { allowSponsorCardSpends: config.allowSponsorCardSpends === false }))} />
+                onPress={() => run('Update setting', () => poolService.updateConfig(eventId, { allowSponsorCardSpends: config.allowSponsorCardSpends === false }), { title: 'Saved', message: 'Spending permissions updated.' })} />
             </View>
           </View>
         )}
@@ -545,17 +558,17 @@ export default function PoolScreen({ route, navigation }: any) {
 
       {sheet.kind === 'amount' && (
         <AmountSheet title={sheet.title} hint={sheet.hint} currency={currency} initialMinor={sheet.initialMinor} busy={busy} giftChoice={sheet.giftChoice}
-          onClose={() => setSheet({ kind: 'none' })} onSubmit={(minor, gift) => run(sheet.title, () => sheet.submit(minor, gift))} />
+          onClose={() => setSheet({ kind: 'none' })} onSubmit={(minor, gift) => run(sheet.title, () => sheet.submit(minor, gift), sheet.done?.(gift))} />
       )}
       {sheet.kind === 'markPaid' && (
         <MarkPaidSheet contribution={sheet.contribution} currency={currency} busy={busy}
           onClose={() => setSheet({ kind: 'none' })}
-          onSubmit={(body) => run('Mark as paid', () => poolService.markPaid(sheet.contribution.id, body))} />
+          onSubmit={(body) => run('Mark as paid', () => poolService.markPaid(sheet.contribution.id, body), { title: 'Marked as paid', message: `${custodianName} will confirm once it arrives.` })} />
       )}
       {sheet.kind === 'amounts' && (
         <AmountsSheet ledger={ledger} currency={currency} nameOf={nameOf} busy={busy}
           onClose={() => setSheet({ kind: 'none' })}
-          onSubmit={(rows) => run('Set amounts', () => poolService.setContributions(eventId, rows))} />
+          onSubmit={(rows) => run('Set amounts', () => poolService.setContributions(eventId, rows), { title: 'Amounts saved' })} />
       )}
       {sheet.kind === 'reconcile' && (
         <ReconcileSheet eventId={eventId} mode={sheet.mode} currency={currency} noun={noun} busy={busy} nameOf={nameOf}
@@ -564,7 +577,10 @@ export default function PoolScreen({ route, navigation }: any) {
           waitingHandOvers={advances.filter((a) => a.status === 'initiated').length}
           onClose={() => setSheet({ kind: 'none' })}
           onSubmit={(cover) => run(sheet.mode === 'close' ? 'Close cycle' : 'Settle up',
-            () => (sheet.mode === 'close' ? poolService.closeCycle(eventId, { cover }) : poolService.dissolve(eventId, { cover })))} />
+            () => (sheet.mode === 'close' ? poolService.closeCycle(eventId, { cover }) : poolService.dissolve(eventId, { cover })),
+            sheet.mode === 'close'
+              ? { title: 'Cycle closed', message: 'A new cycle has started.' }
+              : { title: 'Settling up', message: 'Everyone can now review the final payments.' })} />
       )}
       {sheet.kind === 'giveMoney' && holdings && (
         <HandOverSheet title="Give money to a spender" eventId={eventId} currency={currency} busy={busy} submitLabel="Give money"
@@ -574,7 +590,7 @@ export default function PoolScreen({ route, navigation }: any) {
             ? `There's no ${noun.toLowerCase()} money to hand out: spending is paused or the ${noun.toLowerCase()} is empty.` : undefined}
           hint="They confirm once they have it. Moving money between spenders? Record a return from one and an advance to the other. The cash can go directly."
           onClose={() => setSheet({ kind: 'none' })}
-          onSubmit={(body) => run('Give money', () => poolService.recordAdvance(eventId, { kind: 'advance', ...body }))} />
+          onSubmit={(body) => run('Give money', () => poolService.recordAdvance(eventId, { kind: 'advance', ...body }), { title: 'Money handed over', message: 'Waiting for them to confirm.' })} />
       )}
       {sheet.kind === 'returnMoney' && holdings && (
         <HandOverSheet title={sheet.byCustodian ? 'Money returned to you' : `Return ${noun.toLowerCase()} money`} eventId={eventId} currency={currency} busy={busy}
@@ -583,7 +599,8 @@ export default function PoolScreen({ route, navigation }: any) {
           maxMinor={sheet.byCustodian ? undefined : myHeld}
           hint={sheet.byCustodian ? 'Recorded straight away: you are the one receiving it.' : `${custodianName} confirms once it arrives.`}
           onClose={() => setSheet({ kind: 'none' })}
-          onSubmit={(body) => run('Return money', () => poolService.recordAdvance(eventId, { kind: 'return', ...body }))} />
+          onSubmit={(body) => run('Return money', () => poolService.recordAdvance(eventId, { kind: 'return', ...body }),
+            { title: 'Money returned', message: sheet.byCustodian ? 'Recorded.' : `Waiting for ${custodianName} to confirm.` })} />
       )}
       {sheet.kind === 'payBack' && (
         <HandOverSheet title={`Pay ${nameOf('user', sheet.userId)} back now`} eventId={eventId} currency={currency} busy={busy} submitLabel="I've paid"
@@ -598,7 +615,8 @@ export default function PoolScreen({ route, navigation }: any) {
           }}
           hint={`Pay them outside the app, then record it here. ${nameOf('user', sheet.userId)} confirms they received it.`}
           onClose={() => setSheet({ kind: 'none' })}
-          onSubmit={(body) => run('Pay back', () => poolService.recordAdvance(eventId, { kind: 'repayment', ...body, userId: sheet.userId }))} />
+          onSubmit={(body) => run('Pay back', () => poolService.recordAdvance(eventId, { kind: 'repayment', ...body, userId: sheet.userId }),
+            { title: 'Paid back', message: `Waiting for ${nameOf('user', sheet.userId)} to confirm.` })} />
       )}
     </View>
   );

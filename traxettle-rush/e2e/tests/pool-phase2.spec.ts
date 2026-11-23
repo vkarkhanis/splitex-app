@@ -487,4 +487,36 @@ test.describe('Money pooling Phase 2', () => {
     await pool.payAndConfirm(legs.find((l) => !l.kind).id, p.ravi, p.anita);
     expect((await pool.event(eventId, p.anita)).status).toBe('settled');
   });
+
+  test('Asking before spending needs no receipt, and reads "Requested" until it is approved', async ({ page }) => {
+    const p = await pool.cast('ask');
+    const eventId = await pool.createPool(p.anita, 'Goa wedding', {
+      preset: 'sponsor_budget', targetAmountMinor: 5_000_000, overrides: { authorizedSpenders: [p.ravi] },
+    });
+    await pool.join(eventId, p.anita, p.ravi);
+
+    await loginAsMockUser(page, p.ravi);
+    await page.goto(`/events/${eventId}/expenses/create`);
+    await page.getByTestId('paid-with-pool_card').click();
+    await page.getByTestId('expense-title-input').fill('Band advance');
+    await page.getByTestId('expense-amount-input').fill('4000');
+    // Already paid: a Budget needs the receipt.
+    await page.getByTestId('spend-timing-paid').click();
+    await expect(page.getByTestId('receipt-field')).toContainText('A receipt is required');
+    // Asking first: nothing is bought yet, so it doesn't.
+    await page.getByTestId('spend-timing-asking').click();
+    await expect(page.getByTestId('receipt-field')).not.toContainText('A receipt is required');
+    await page.getByTestId('create-expense-submit').click();
+    await page.waitForURL(new RegExp(`/events/${eventId}$`), { timeout: 15_000 });
+
+    const band = (await pool.ledger(eventId, p.anita)).entries.find((e: any) => e.title === 'Band advance');
+    expect(band).toMatchObject({ status: 'pending', alreadyIncurred: false, receiptUrls: [] });
+    await page.getByTestId('tab-expenses').click();
+    await expect(page.getByTestId(`expense-item-${band.id}`)).toContainText('Requested from the pool by Ravi');
+
+    await pool.approveDraw(band.id, p.anita);
+    await page.reload();
+    await page.getByTestId('tab-expenses').click();
+    await expect(page.getByTestId(`expense-item-${band.id}`)).toContainText('Paid from the pool by Ravi');
+  });
 });

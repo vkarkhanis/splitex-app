@@ -388,11 +388,26 @@ describe('sponsor budget (UC-2)', () => {
     expect((await api.spend(eventId, CAROL, 1000, { attachments: ['https://r/1.jpg'] })).status).toBe(201);
   });
 
-  it('requires a receipt on every pool draw', async () => {
+  it('requires a receipt on every pool draw already paid, including the custodian\'s', async () => {
     const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
-    const res = await api.spend(eventId, BOB, 1000);
+    const res = await api.spend(eventId, BOB, 1000, { alreadyIncurred: true });
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('POOL_RECEIPT_REQUIRED');
+    // The custodian isn't asked "already paid or asking first": their spends always count as paid.
+    expect((await api.spend(eventId, ALICE, 1000)).body.code).toBe('POOL_RECEIPT_REQUIRED');
+  });
+
+  it('needs no receipt from a spender asking before they spend; one can be added after paying', async () => {
+    const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
+    const asked = await api.spend(eventId, BOB, 4000, { title: 'Band advance' });
+    expect(asked.status).toBe(201);
+    expect(asked.body.data.poolDraw).toMatchObject({ status: 'pending', alreadyIncurred: false });
+    expect((await api.approveDraw(asked.body.data.id, ALICE)).status).toBe(200);
+
+    // Adding the receipt later is a plain edit: it stays approved.
+    const edited = await request(app).put(`/api/expenses/${asked.body.data.id}`).set(auth(BOB)).send({ attachments: ['https://r/band.jpg'] });
+    expect(edited.status).toBe(200);
+    expect(edited.body.data).toMatchObject({ attachments: ['https://r/band.jpg'], poolDraw: { status: 'approved' } });
   });
 
   it('holds spender draws for approval; only approved draws deduct', async () => {

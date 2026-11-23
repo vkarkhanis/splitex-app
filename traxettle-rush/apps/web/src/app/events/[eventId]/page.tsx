@@ -34,7 +34,7 @@ import { getResolvedApiBaseUrl } from '../../../config/dev-options';
 import { PoolTab } from '../../../components/pool/PoolTab';
 import { SpenderPermissions } from '../../../components/pool/SpenderPermissions';
 import { poolNoun } from '../../../components/pool/poolFormat';
-import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, POOL_LEGS_NETTED_NOTE, POOL_LEGS_PAID_SEPARATELY_NOTE, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg, poolLegLabel, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, POOL_LEGS_NETTED_NOTE, POOL_LEGS_PAID_SEPARATELY_NOTE, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg, poolExpenseByline, poolLegLabel, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
 import { FxRatesAttribution } from '../../../components/FxRatesAttribution';
 import type {
   Event as TraxettleEvent,
@@ -1833,7 +1833,7 @@ export default function EventDetailPage() {
                           </ListItemTitle>
                           <ListItemSub>
                             {isPoolFundedExpense(expense)
-                              ? <>{expense.fundingSource === 'pool' ? 'Paid from the pool' : 'Claimed from the pool'} by {getUserName(expense.paidBy)}{expense.attachments?.length ? ` · ${expense.attachments.length} receipt(s)` : ''}</>
+                              ? <>{poolExpenseByline(expense)} by {getUserName(expense.paidBy)}{expense.attachments?.length ? ` · ${expense.attachments.length} receipt(s)` : ''}</>
                               : <>Paid by: {getUserName(expense.paidBy)} · {expense.paidOnBehalfOf && expense.paidOnBehalfOf.length > 0 ? 'On Behalf' : expense.splitType.charAt(0).toUpperCase() + expense.splitType.slice(1)} split{!expense.isPrivate && ` · ${expense.splits.length} split(s)`}{expense.attachments?.length ? ` · ${expense.attachments.length} receipt(s)` : ''}</>}
                           </ListItemSub>
                         </ListItemInfo>

@@ -553,7 +553,7 @@ When a flatmate pays the internet bill with their own card, they add it with `fu
 
 **3 · Expenditure — two paths.**
 
-- **Direct pool spend** — spender has the pool card or cash. `fundingSource: 'pool'`, receipt required. Deducts immediately on approval. *(Rejecting one that was already paid with the sponsor's money creates a repayment leg back to the sponsor, §9.2. The handover of cash or card isn't recorded yet, §9.3.)*
+- **Direct pool spend** — spender has the pool card or cash. `fundingSource: 'pool'`, receipt required (except when a spender asks before spending: nothing is bought yet, so the receipt is added after paying). Deducts immediately on approval. *(Rejecting one that was already paid with the sponsor's money creates a repayment leg back to the sponsor, §9.2. The handover of cash or card isn't recorded yet, §9.3.)*
 - **Others adding money** — a spender who tops up the pool is lending to the event; the sponsor pays it back at close unless it was a gift (§10).
 - **Spend-then-reimburse** — the common case. Spender uses their own money, adds the expense with `fundingSource: 'pool_reimbursement'` and **a mandatory receipt**. State machine:
 

@@ -263,6 +263,8 @@ export default function CreateExpensePage() {
   // way they paid with pool money (§9.3, decision D1).
   const paidWithPoolMoney = paidWith === 'pool' || paidWith === 'pool_held' || paidWith === 'pool_card';
   const needsSpendTiming = paidWithPoolMoney && Boolean(poolConfig) && Boolean(currentUserId) && !isCustodian;
+  // Nothing is bought yet when asking first, so the receipt is optional (added after paying).
+  const askingFirst = needsSpendTiming && spendTiming === 'asking';
   const fundingSourceOf = paidWithPayload(paidWith).fundingSource;
 
   // What this person holds of the pool's money (§9.3): offers "money I'm holding" once they've been handed some.
@@ -473,12 +475,13 @@ export default function CreateExpensePage() {
     }
 
     if (isPoolDraw) {
-      if (isReceiptRequired(poolConfig, fundingSourceOf, toMinor(amount, form.currency)) && receipts.length === 0) {
-        setError('Attach a receipt to record this.');
-        return;
-      }
+      // Asked first: whether a receipt is needed depends on the answer.
       if (needsSpendTiming && !spendTiming) {
         setError(`Say whether you've already paid with the ${poolNoun(poolConfig).toLowerCase()}'s money or are asking first.`);
+        return;
+      }
+      if (isReceiptRequired(poolConfig, fundingSourceOf, toMinor(amount, form.currency), { askingFirst }) && receipts.length === 0) {
+        setError('Attach a receipt to record this.');
         return;
       }
       await submitPoolDraw(amount, needsSpendTiming && spendTiming === 'paid');
@@ -637,7 +640,7 @@ export default function CreateExpensePage() {
               eventId={eventId}
               value={receipts}
               onChange={setReceipts}
-              required={isReceiptRequired(poolConfig, fundingSourceOf, (() => { const n = parseFloat(form.amount); return Number.isFinite(n) && n > 0 ? toMinor(n, form.currency) : 0; })())}
+              required={isReceiptRequired(poolConfig, fundingSourceOf, (() => { const n = parseFloat(form.amount); return Number.isFinite(n) && n > 0 ? toMinor(n, form.currency) : 0; })(), { askingFirst })}
               disabled={loading}
               onUploadingChange={setUploading}
             />

@@ -27,6 +27,7 @@ import {
   openPoolSideLegs,
   POOL_LEGS_PAID_SEPARATELY_NOTE,
   poolErrorText,
+  poolExpenseByline,
   poolLegLabel,
   poolNoun,
   poolPaymentActions,
@@ -143,6 +144,26 @@ describe('pool formatting', () => {
     expect(isReceiptRequired({ ...cfg, receiptRequiredAboveMinor: null }, 'pool', 1)).toBe(false);
     expect(isReceiptRequired({ ...cfg, receiptRequiredAboveMinor: 500 }, 'pool', 500)).toBe(false);
     expect(isReceiptRequired(null, 'pool', 1)).toBe(false);
+  });
+
+  it('needs no receipt from someone asking before they spend: nothing is bought yet', () => {
+    const cfg = { claimReceiptRequired: true, receiptRequiredAboveMinor: 0 };
+    expect(isReceiptRequired(cfg, 'pool', 400000, { askingFirst: true })).toBe(false);
+    expect(isReceiptRequired(cfg, 'pool', 400000, { askingFirst: false })).toBe(true);
+    // A claim is always for money already spent.
+    expect(isReceiptRequired(cfg, 'pool_reimbursement', 80000, { askingFirst: true })).toBe(true);
+  });
+
+  it('describes a pool expense in the expense list, by whether it has been paid', () => {
+    expect(poolExpenseByline({ fundingSource: 'pool_reimbursement', poolDraw: { status: 'pending', alreadyIncurred: true } })).toBe('Claimed from the pool');
+    expect(poolExpenseByline({ fundingSource: 'pool', poolDraw: { status: 'pending', alreadyIncurred: true } })).toBe('Paid from the pool');
+    expect(poolExpenseByline({ fundingSource: 'pool', poolDraw: { status: 'approved', alreadyIncurred: true } })).toBe('Paid from the pool');
+    // Asked first: not paid until it's approved.
+    expect(poolExpenseByline({ fundingSource: 'pool', poolDraw: { status: 'pending', alreadyIncurred: false } })).toBe('Requested from the pool');
+    expect(poolExpenseByline({ fundingSource: 'pool', poolDraw: { status: 'rejected', alreadyIncurred: false } })).toBe('Requested from the pool');
+    expect(poolExpenseByline({ fundingSource: 'pool', poolDraw: { status: 'approved', alreadyIncurred: false } })).toBe('Paid from the pool');
+    // Older expenses without the flag read as paid.
+    expect(poolExpenseByline({ fundingSource: 'pool' })).toBe('Paid from the pool');
   });
 
   it('normalises thrown errors', () => {
