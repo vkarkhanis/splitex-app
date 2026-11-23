@@ -203,16 +203,20 @@ export function FundingStepView({ value, onChange, currency, allowContributorPoo
   const preset = value.funder === 'sponsor' ? 'sponsor_budget' : value.preset;
   const card = (selected: boolean) => [s.option, { borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.infoBg : colors.surface }];
   const input = [s.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }];
+  // A free user sees "Several of us" locked: it can't be picked, and tapping it explains how to get it.
+  const locked = Boolean(allowContributorPools && contributorPoolsLocked);
+  const [lockedTapped, setLockedTapped] = useState(false);
+  const showProNotice = locked && (lockedTapped || value.funder === 'contributors');
 
   return (
     <View testID="funding-step" style={[s.section, { borderColor: colors.border }]}>
       <Text style={[s.label, { color: colors.textSecondary }]}>How is this event funded?</Text>
       <View style={s.optionRow}>
-        <TouchableOpacity testID="funding-split" style={card(value.kind === 'split')} onPress={() => onChange({ ...value, kind: 'split' })}>
+        <TouchableOpacity testID="funding-split" style={card(value.kind === 'split')} onPress={() => { setLockedTapped(false); onChange({ ...value, kind: 'split' }); }}>
           <Text style={[s.optionTitle, { color: colors.text }]}>Split expenses</Text>
           <Text style={[s.optionText, { color: colors.muted }]}>Everyone pays their own way. Settle up at the end.</Text>
         </TouchableOpacity>
-        <TouchableOpacity testID="funding-pool" style={card(value.kind === 'pool')} onPress={() => onChange(choosePool(value, allowContributorPools))}>
+        <TouchableOpacity testID="funding-pool" style={card(value.kind === 'pool')} onPress={() => onChange(choosePool(value, allowContributorPools && !locked))}>
           <Text style={[s.optionTitle, { color: colors.text }]}>Pool money</Text>
           <Text style={[s.optionText, { color: colors.muted }]}>Collect money up front. Spend from the pool.</Text>
         </TouchableOpacity>
@@ -223,21 +227,27 @@ export function FundingStepView({ value, onChange, currency, allowContributorPoo
           <Text style={[s.label, { color: colors.textSecondary, marginTop: spacing.md }]}>Who puts money in?</Text>
           <View style={s.optionRow}>
             {allowContributorPools && (
-              <TouchableOpacity testID="funder-contributors" style={card(value.funder === 'contributors')}
-                onPress={() => onChange(withPreset({ ...value, funder: 'contributors' }, CONTRIBUTOR_PRESETS.includes(value.preset) ? value.preset : 'trip_kitty'))}>
+              <TouchableOpacity testID="funder-contributors"
+                style={[card(!locked && value.funder === 'contributors'), locked && { borderStyle: 'dashed' as const, opacity: 0.65 }]}
+                accessibilityState={{ selected: !locked && value.funder === 'contributors' }}
+                accessibilityHint={locked ? 'Pro feature. Shows how to get Pro.' : undefined}
+                onPress={() => (locked
+                  ? setLockedTapped(true)
+                  : onChange(withPreset({ ...value, funder: 'contributors' }, CONTRIBUTOR_PRESETS.includes(value.preset) ? value.preset : 'trip_kitty')))}>
                 <Text style={[s.optionTitle, { color: colors.text }]}>
                   Several of us
-                  {contributorPoolsLocked && <Text testID="funder-contributors-pro" style={{ color: colors.warning, fontSize: fontSizes.xs, fontWeight: '800' }}>  PRO</Text>}
+                  {locked && <Text testID="funder-contributors-pro" style={{ color: colors.warning, fontSize: fontSizes.xs, fontWeight: '800' }}>  PRO</Text>}
                 </Text>
+                {locked && <Text testID="funder-contributors-locked" style={{ color: colors.warning, fontSize: fontSizes.xs, fontWeight: '600', marginTop: 4 }}>🔒 Pro feature</Text>}
               </TouchableOpacity>
             )}
             <TouchableOpacity testID="funder-sponsor" style={card(value.funder === 'sponsor')}
-              onPress={() => onChange(withPreset({ ...value, funder: 'sponsor' }, 'sponsor_budget'))}>
+              onPress={() => { setLockedTapped(false); onChange(withPreset({ ...value, funder: 'sponsor' }, 'sponsor_budget')); }}>
               <Text style={[s.optionTitle, { color: colors.text }]}>Just me</Text>
             </TouchableOpacity>
           </View>
 
-          {allowContributorPools && value.funder === 'contributors' && contributorPoolsLocked && (
+          {showProNotice && (
             <View testID="funding-pro-notice" style={{ marginTop: spacing.sm, padding: spacing.sm, borderRadius: radii.sm, backgroundColor: colors.warningBg }}>
               <Text style={{ color: colors.warning, fontSize: fontSizes.sm }}>Group pools are a Pro feature. Only you need Pro: everyone you invite joins free.</Text>
               {onUpgrade && (
@@ -248,7 +258,7 @@ export function FundingStepView({ value, onChange, currency, allowContributorPoo
             </View>
           )}
 
-          {allowContributorPools && value.funder === 'contributors' && (
+          {allowContributorPools && !locked && value.funder === 'contributors' && (
             <View style={[s.optionRow, { marginTop: spacing.sm }]}>
               {CONTRIBUTOR_PRESETS.map((p) => (
                 <TouchableOpacity key={p} testID={`preset-${p}`} style={card(value.preset === p)} onPress={() => onChange(withPreset(value, p))}>

@@ -98,10 +98,14 @@ test.describe('Tier entitlements', () => {
     await page.getByTestId('event-name-input').fill('Group pool tier check');
     await page.getByTestId('event-start-date-input').fill('2026-12-01');
     await page.getByTestId('funding-pool').click();
+    // Locked for a free user: shown, marked Pro, but "Just me" stays the choice.
     await expect(page.getByTestId('funder-contributors-pro')).toBeVisible();
+    await expect(page.getByTestId('funder-contributors-locked')).toHaveText('🔒 Pro feature');
+    await expect(page.getByTestId('funder-sponsor')).toHaveAttribute('aria-checked', 'true');
     await page.getByTestId('funder-contributors').click();
     await expect(page.getByTestId('funding-pro-notice')).toContainText('Group pools are a Pro feature');
-    await expect(page.getByTestId('create-event-submit')).toBeDisabled();
+    await expect(page.getByTestId('funder-contributors')).toHaveAttribute('aria-checked', 'false');
+    await expect(page.getByTestId('funder-sponsor')).toHaveAttribute('aria-checked', 'true');
 
     // "Just me" stays free.
     await page.getByTestId('funder-sponsor').click();

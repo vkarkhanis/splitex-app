@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import styled from 'styled-components';
 import { Field, Input, Label, Select } from '@traxettle/ui';
 import { POOL_PRESET_LABELS, choosePool } from '@traxettle/shared';
@@ -38,17 +38,25 @@ const Cards = styled.div<{ $cols?: number }>`
   @media (max-width: 640px) { grid-template-columns: 1fr; }
 `;
 
-const ChoiceCard = styled.button<{ $selected: boolean }>`
+const ChoiceCard = styled.button<{ $selected: boolean; $locked?: boolean }>`
   text-align: left;
   cursor: pointer;
   border-radius: 10px;
   padding: 12px;
-  border: 1.5px solid ${(p) => (p.$selected ? p.theme.colors.primary : p.theme.colors.border)};
+  border: 1.5px ${(p) => (p.$locked ? 'dashed' : 'solid')} ${(p) => (p.$selected ? p.theme.colors.primary : p.theme.colors.border)};
   background: ${(p) => (p.$selected ? `${p.theme.colors.primary}10` : p.theme.colors.surface)};
   color: ${(p) => p.theme.colors.text};
+  opacity: ${(p) => (p.$locked ? 0.65 : 1)};
   transition: border-color 0.15s, background 0.15s;
-  &:hover { border-color: ${(p) => p.theme.colors.primary}; }
+  &:hover { border-color: ${(p) => (p.$locked ? p.theme.colors.warning : p.theme.colors.primary)}; }
   &:focus-visible { outline: 2px solid ${(p) => p.theme.colors.primary}; outline-offset: 2px; }
+`;
+
+const LockedLine = styled.div`
+  font-size: 12px;
+  font-weight: 600;
+  color: ${(p) => p.theme.colors.warning};
+  margin-top: 6px;
 `;
 
 const CardTitle = styled.div`
@@ -150,17 +158,21 @@ export function FundingStep({ value, onChange, currency, disabled, allowContribu
   const sym = currencySymbol(currency);
   const set = (patch: Partial<FundingChoice>) => onChange({ ...value, ...patch });
   const preset = value.funder === 'sponsor' ? 'sponsor_budget' : value.preset;
+  // A free user sees "Several of us" locked: it can't be picked, and tapping it explains how to get it.
+  const locked = Boolean(allowContributorPools && contributorPoolsLocked);
+  const [lockedTapped, setLockedTapped] = useState(false);
+  const showProNotice = locked && (lockedTapped || value.funder === 'contributors');
 
   return (
     <Section data-testid="funding-step" disabled={disabled}>
       <Legend>Funding</Legend>
       <Question id="funding-q1">How is this event funded?</Question>
       <Cards role="radiogroup" aria-labelledby="funding-q1">
-        <ChoiceCard type="button" role="radio" aria-checked={value.kind === 'split'} $selected={value.kind === 'split'} onClick={() => set({ kind: 'split' })} data-testid="funding-split">
+        <ChoiceCard type="button" role="radio" aria-checked={value.kind === 'split'} $selected={value.kind === 'split'} onClick={() => { setLockedTapped(false); set({ kind: 'split' }); }} data-testid="funding-split">
           <CardTitle>Split expenses</CardTitle>
           <CardText>{SPLIT_TEXT}</CardText>
         </ChoiceCard>
-        <ChoiceCard type="button" role="radio" aria-checked={value.kind === 'pool'} $selected={value.kind === 'pool'} onClick={() => onChange(choosePool(value, allowContributorPools))} data-testid="funding-pool">
+        <ChoiceCard type="button" role="radio" aria-checked={value.kind === 'pool'} $selected={value.kind === 'pool'} onClick={() => onChange(choosePool(value, allowContributorPools && !locked))} data-testid="funding-pool">
           <CardTitle>Pool money</CardTitle>
           <CardText>{POOL_TEXT}</CardText>
         </ChoiceCard>
@@ -171,32 +183,36 @@ export function FundingStep({ value, onChange, currency, disabled, allowContribu
           <Question id="funding-q2">Who puts money in?</Question>
           <Cards role="radiogroup" aria-labelledby="funding-q2">
             {allowContributorPools && (
-              <ChoiceCard type="button" role="radio" aria-checked={value.funder === 'contributors'} $selected={value.funder === 'contributors'}
-                onClick={() => onChange(withPreset({ ...value, funder: 'contributors' }, CONTRIBUTOR_PRESETS.includes(value.preset) ? value.preset : 'trip_kitty'))}
+              <ChoiceCard type="button" role="radio" aria-checked={!locked && value.funder === 'contributors'}
+                $selected={!locked && value.funder === 'contributors'} $locked={locked}
+                onClick={() => (locked
+                  ? setLockedTapped(true)
+                  : onChange(withPreset({ ...value, funder: 'contributors' }, CONTRIBUTOR_PRESETS.includes(value.preset) ? value.preset : 'trip_kitty')))}
                 data-testid="funder-contributors">
                 <CardTitle>
                   Several of us
-                  {contributorPoolsLocked && <ProTag data-testid="funder-contributors-pro">PRO</ProTag>}
+                  {locked && <ProTag data-testid="funder-contributors-pro">PRO</ProTag>}
                 </CardTitle>
                 <CardText>Everyone chips in; anyone can spend from the pool.</CardText>
+                {locked && <LockedLine data-testid="funder-contributors-locked">🔒 Pro feature</LockedLine>}
               </ChoiceCard>
             )}
             <ChoiceCard type="button" role="radio" aria-checked={value.funder === 'sponsor'} $selected={value.funder === 'sponsor'}
-              onClick={() => onChange(withPreset({ ...value, funder: 'sponsor' }, 'sponsor_budget'))}
+              onClick={() => { setLockedTapped(false); onChange(withPreset({ ...value, funder: 'sponsor' }, 'sponsor_budget')); }}
               data-testid="funder-sponsor">
               <CardTitle>Just me</CardTitle>
               <CardText>{POOL_PRESET_LABELS.sponsor_budget.tagline}</CardText>
             </ChoiceCard>
           </Cards>
 
-          {allowContributorPools && value.funder === 'contributors' && contributorPoolsLocked && (
+          {showProNotice && (
             <ProNotice data-testid="funding-pro-notice">
               <span>Group pools are a Pro feature. Only you need Pro: everyone you invite joins free.</span>
               {onLearnPro && <ProLink type="button" onClick={onLearnPro} data-testid="funding-learn-pro">Learn how to get Pro</ProLink>}
             </ProNotice>
           )}
 
-          {allowContributorPools && value.funder === 'contributors' && (
+          {allowContributorPools && !locked && value.funder === 'contributors' && (
             <>
               <Question id="funding-q3">What kind of pool?</Question>
               <Cards $cols={2} role="radiogroup" aria-labelledby="funding-q3">

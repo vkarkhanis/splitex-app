@@ -121,25 +121,44 @@ describe('SpenderPermissions — card or UPI spends', () => {
 });
 
 describe('FundingStep — "Several of us" is Pro (§12)', () => {
-  it('marks it PRO for someone without Pro and says how to get it', async () => {
+  it('shows it locked for someone without Pro: it can\'t be picked, and tapping it says how to get Pro', async () => {
     const onLearnPro = jest.fn();
+    let latest = DEFAULT_FUNDING_CHOICE;
     function Harness() {
       const [value, setValue] = React.useState(DEFAULT_FUNDING_CHOICE);
+      latest = value;
       return <FundingStep value={value} currency="INR" allowContributorPools contributorPoolsLocked onLearnPro={onLearnPro} onChange={setValue} />;
     }
     await render(<Harness />);
     await click(q('funding-pool'));
+    // Pool money starts on "Just me": the only choice they can use.
+    expect(q('funder-sponsor')!.getAttribute('aria-checked')).toBe('true');
+    const locked = q('funder-contributors')!;
     expect(q('funder-contributors-pro')!.textContent).toBe('PRO');
-    await click(q('funder-contributors'));
+    expect(q('funder-contributors-locked')!.textContent).toBe('🔒 Pro feature');
+    expect(locked.getAttribute('aria-checked')).toBe('false');
+    expect(q('funding-pro-notice')).toBeNull();
+
+    await click(locked);
+    expect(latest.funder).toBe('sponsor');
+    expect(locked.getAttribute('aria-checked')).toBe('false');
+    expect(q('preset-trip_kitty')).toBeNull();
     expect(q('funding-pro-notice')!.textContent).toMatch(/Group pools are a Pro feature. Only you need Pro/);
     await click(q('funding-learn-pro'));
     expect(onLearnPro).toHaveBeenCalled();
+
+    // Choosing "Just me" again puts the notice away.
+    await click(q('funder-sponsor'));
+    expect(q('funding-pro-notice')).toBeNull();
   });
 
-  it('shows no PRO marks for someone with Pro', async () => {
+  it('shows no PRO marks for someone with Pro, and lets them pick it', async () => {
     await render(<FundingStep value={{ ...DEFAULT_FUNDING_CHOICE, kind: 'pool', funder: 'contributors' }} currency="INR" allowContributorPools onChange={jest.fn()} />);
     expect(q('funder-contributors-pro')).toBeNull();
+    expect(q('funder-contributors-locked')).toBeNull();
     expect(q('funding-pro-notice')).toBeNull();
+    expect(q('funder-contributors')!.getAttribute('aria-checked')).toBe('true');
+    expect(q('preset-trip_kitty')).not.toBeNull();
   });
 });
 
