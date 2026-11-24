@@ -34,7 +34,7 @@ import { getResolvedApiBaseUrl } from '../../../config/dev-options';
 import { PoolTab } from '../../../components/pool/PoolTab';
 import { SpenderPermissions } from '../../../components/pool/SpenderPermissions';
 import { poolNoun } from '../../../components/pool/poolFormat';
-import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, POOL_LEGS_NETTED_NOTE, POOL_LEGS_PAID_SEPARATELY_NOTE, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg, poolExpenseByline, poolLegLabel, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, POOL_LEGS_NETTED_NOTE, POOL_LEGS_PAID_SEPARATELY_NOTE, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg, originalAmountText, poolExpenseByline, poolLegLabel, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
 import { FxRatesAttribution } from '../../../components/FxRatesAttribution';
 import type {
   Event as TraxettleEvent,
@@ -1749,6 +1749,12 @@ export default function EventDetailPage() {
             refreshKey={poolRefreshKey}
             onChanged={() => fetchAllRef.current()}
           />
+          {/* "Several of us": who can spend and approve (Phase 3). A Budget has its own Spenders tab. */}
+          {!isSponsorPool && (
+            <div style={{ marginTop: 16 }}>
+              <SpenderPermissions event={event} participants={participants} groups={groups} canEdit={isAdmin && event.status === 'active'} onSaved={() => fetchAllRef.current()} />
+            </div>
+          )}
         </TabPanel>
       )}
 
@@ -1837,7 +1843,15 @@ export default function EventDetailPage() {
                               : <>Paid by: {getUserName(expense.paidBy)} · {expense.paidOnBehalfOf && expense.paidOnBehalfOf.length > 0 ? 'On Behalf' : expense.splitType.charAt(0).toUpperCase() + expense.splitType.slice(1)} split{!expense.isPrivate && ` · ${expense.splits.length} split(s)`}{expense.attachments?.length ? ` · ${expense.attachments.length} receipt(s)` : ''}</>}
                           </ListItemSub>
                         </ListItemInfo>
-                        <Amount>{sym}{expense.amount.toFixed(2)}</Amount>
+                        <Amount>
+                          {sym}{expense.amount.toFixed(2)}
+                          {/* Entered in another currency (Phase 3) */}
+                          {originalAmountText(expense) && (
+                            <span style={{ display: 'block', fontSize: 11, opacity: 0.7, fontWeight: 400 }} data-testid={`expense-original-${expense.id}`}>
+                              {originalAmountText(expense)}
+                            </span>
+                          )}
+                        </Amount>
                         {(event.status === 'active' || event.status === 'review') && (currentUserId === expense.paidBy || isAdmin) && (
                           <>
                             <Link href={`/events/${eventId}/expenses/${expense.id}/edit`} onClick={(e) => e.stopPropagation()}>

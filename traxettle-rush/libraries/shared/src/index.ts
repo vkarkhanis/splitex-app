@@ -101,6 +101,11 @@ export interface Event {
   fxRateMode?: 'predefined' | 'eod';
   /** Predefined FX rates: key = "FROM_TO" (e.g. "USD_INR"), value = rate */
   predefinedFxRates?: Record<string, number>;
+  /**
+   * Computed by the API, not stored: expenses may be entered in another currency and are
+   * converted to the event currency (Phase 3). Needs the creator's multi-currency (Pro) capability.
+   */
+  otherCurrencyExpenses?: boolean;
   status: 'active' | 'review' | 'payment' | 'settled' | 'closed';
   /** Per-entity approval status for settlement review phase */
   settlementApprovals?: Record<string, SettlementApproval>;
@@ -252,6 +257,16 @@ export interface Expense {
   poolFlags?: PoolExpenseFlag[];
   /** Date the expense occurred, as a date-only string (YYYY-MM-DD). Falls back to createdAt for legacy records. */
   date?: string;
+  /**
+   * Entered in another currency (Phase 3): `amount` and `currency` are the converted values in the
+   * event currency, used everywhere; these keep what was entered and the rate used.
+   */
+  originalAmount?: number;
+  originalCurrency?: string;
+  fxRate?: number;
+  /** YYYY-MM-DD of the rate. */
+  fxRateDate?: string;
+  fxRateSource?: 'predefined' | 'eod';
   createdAt: Date;
   updatedAt: Date;
 }

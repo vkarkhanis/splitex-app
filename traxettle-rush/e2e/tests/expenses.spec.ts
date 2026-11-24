@@ -46,7 +46,8 @@ test.describe('Expense Management', () => {
     await page.getByTestId('expense-title-input').fill('Hotel Booking');
     await page.getByTestId('expense-description-input').fill('Beach resort');
     await page.getByTestId('expense-amount-input').fill('300');
-    await page.getByTestId('expense-currency-select').selectOption('USD');
+    // A free organiser's event takes expenses only in its own currency (another one needs Pro, Phase 3).
+    await expect(page.getByTestId('expense-currency-select')).toBeDisabled();
     await page.getByTestId('split-type-equal').check();
 
     await expect(page.getByTestId('create-expense-submit')).toBeEnabled();

@@ -64,6 +64,10 @@ interface Props {
   /** They've been handed money this cycle. */
   hasAdvances?: boolean;
   custodianName?: string;
+  /** False for someone not on the pool's spender list: they can only claim back (Phase 3). */
+  canSpend?: boolean;
+  /** False for a Budget's guest: no claims either. */
+  canClaim?: boolean;
 }
 
 /**
@@ -71,8 +75,8 @@ interface Props {
  * Choosing a pool option removes the split UI rather than adding to it.
  * Not rendered at all for split-expenses events.
  */
-export function PaidWithControl({ model, value, onChange, summary, currency, noun, amountMinor, disabled, preferred, isCustodian, allowCardSpends, heldMinor, hasAdvances, custodianName }: Props) {
-  const options = paidWithOptions({ model, isCustodian, currency, noun, allowCardSpends, heldMinor, hasAdvances, custodianName, preferred });
+export function PaidWithControl({ model, value, onChange, summary, currency, noun, amountMinor, disabled, preferred, isCustodian, allowCardSpends, heldMinor, hasAdvances, custodianName, canSpend, canClaim }: Props) {
+  const options = paidWithOptions({ model, isCustodian, currency, noun, allowCardSpends, heldMinor, hasAdvances, custodianName, preferred, canSpend, canClaim });
   const o = summary?.overdraft;
   let status: { tone: 'ok' | 'warn' | 'stop'; text: string } | null = null;
   if (o && value !== 'self') {
@@ -95,6 +99,11 @@ export function PaidWithControl({ model, value, onChange, summary, currency, nou
   return (
     <Wrap data-testid="paid-with">
       <Label id="paid-with-label">Paid with</Label>
+      {options.length === 0 && (
+        <Status $tone="warn" data-testid="paid-with-none">
+          You can&apos;t add expenses to this {noun.toLowerCase()}. Ask the organiser to let you spend.
+        </Status>
+      )}
       <Options role="radiogroup" aria-labelledby="paid-with-label">
         {options.map((opt) => (
           <Option key={opt.value} type="button" role="radio" aria-checked={value === opt.value} $selected={value === opt.value}

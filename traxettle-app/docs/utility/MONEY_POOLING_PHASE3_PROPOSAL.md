@@ -1,6 +1,6 @@
 # Money Pooling — Phase 3 Proposal: spenders, approvers and spends in another currency
 
-**Status:** Proposal for review, written 2026-11-24. Not scheduled: it would follow the Phase 2 release and the Expo SDK upgrade.
+**Status:** **Built 2026-11-24** on `feature/money-pooling-enhancements-phase3` (cut from Phase 2), with every recommendation in §2 (D1–D11). As-built notes are in §9. Hand-test plan: [MONEY_POOLING_PHASE3_E2E.md](../runbook/MONEY_POOLING_PHASE3_E2E.md). It releases after Phase 2.
 **Builds on:** [MONEY_POOLING_DESIGN.md](MONEY_POOLING_DESIGN.md) §9 (spenders and approvals) and §12 (Pro), and the Phase 2 work in [MONEY_POOLING_PHASE2_PLAN.md](MONEY_POOLING_PHASE2_PLAN.md).
 
 Paths below are relative to `traxettle-rush/` unless they start with `traxettle-app/`.
@@ -181,3 +181,21 @@ In contributor pools, `canDraw` lets any participant spend.
 - **Another currency:** a ₹5,000 spend in a yen trip is stored as yen with the original amount; the predefined rate wins over today's rate.
 - **Thresholds and edits:** receipt and approval thresholds use the converted amount; editing keeps the rate; changing currency fetches a new one; no rate gives the clear error.
 - **Split expenses:** one in another currency is converted before balances are worked out.
+
+---
+
+## 9. As built (2026-11-24)
+
+Where the build differs from, or adds to, the proposal above:
+
+| Topic | As built |
+|---|---|
+| **Setting approval after creation** | Nothing let an organiser change "Spends need approval" after creating a pool, which would make approvers useless in a pool created without approvals. The **Who can spend and approve** card has a *Spends need approval* setting (Never / Above an amount / Always); the API already accepted it. |
+| **Where the people are chosen** | Web: a **Who can spend and approve** card under the pool on the Pool tab (a Budget keeps its Spenders tab, now with **Can approve**). Mobile: the existing card on the Pool screen, for every pool type. |
+| **Create event** | Web: *Who can spend* under Advanced. Mobile: a checkbox, *Only people I choose can spend*. |
+| **The flag the apps read** | `GET /api/events/:id` returns a computed `otherCurrencyExpenses` (the creator's multi-currency capability). Not stored. |
+| **Preview route** | `GET /api/events/:eventId/fx-preview?from=&amount=`, under events rather than pools, since split expenses use it too. |
+| **Split expenses (D)** | Converted the same way, so the D10 quick fix wasn't needed. Splits are converted at the same rate, with the rounding remainder on the largest split. A free organiser's event now offers only its own currency on web (as mobile did). |
+| **Editing** | Forms show what was entered. Split amounts are converted back for display. Keeping the currency keeps the stored rate without asking the API, so it works after the organiser's Pro lapses. |
+| **Errors** | `POOL_NOT_A_SPENDER` (403), `POOL_HOLDER_DELISTED` (409), `POOL_APPROVER_INVALID` (400), `OTHER_CURRENCY_NOT_ALLOWED` (403), `FX_RATE_UNAVAILABLE` (503), `CURRENCY_INVALID` (400). |
+| **Older data** | An expense saved in another currency before Phase 3 (web allowed it) is left as it was unless its amount or currency changes. |

@@ -28,6 +28,8 @@ import {
   REPAYMENT_STATUS,
   advanceStatusText,
   canApproveDraw,
+  isPoolApprover,
+  originalAmountText,
   describeSettleUpRow,
   earlyRepaymentImpact,
   entityKey,
@@ -259,8 +261,10 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
   const cycleOpen = cycle.status === 'open' && !viewingPast;
   const canAct = cycleOpen && eventEditable;
   // Your own pending expenses wait for someone else (unless you hold the money).
+  // Approvers decide other people's spends too (Phase 3).
+  const canDecide = isManager || Boolean(currentUserId && isPoolApprover(config, currentUserId));
   const approvableDraws = entries.filter((e) => e.type === 'draw' && e.status === 'pending'
-    && canApproveDraw(currentUserId ?? '', e.actorUserId, config.custodianUserId, isManager));
+    && canApproveDraw(currentUserId ?? '', e.actorUserId, config.custodianUserId, canDecide));
   const outstanding = summary.arrears.reduce((s, a) => s + a.outstandingMinor, 0);
   const sponsor = config.funderMode === 'sponsor';
   // Money others lent to a sponsor pool: the custodian pays it back at close (design doc §10).
@@ -419,6 +423,7 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
                     </ItemTitle>
                     <ItemMeta>
                       {nameOf('user', e.actorUserId)} · {new Date(e.at).toLocaleDateString()}
+                      {originalAmountText({ currency, ...e }) && <span data-testid={`approval-original-${e.id}`}> · entered as {originalAmountText({ currency, ...e })}</span>}
                       {e.receiptUrls.map((u, i) => <span key={u}> · <SmallLink href={resolveFileHref(u)} target="_blank" rel="noreferrer">receipt{e.receiptUrls.length > 1 ? ` ${i + 1}` : ''}</SmallLink></span>)}
                     </ItemMeta>
                   </ItemMain>
@@ -773,6 +778,7 @@ function LedgerRow({ entry: e, currency, nameOf, eventStatus }: {
         </ItemTitle>
         <ItemMeta>
           {who} · {new Date(e.at).toLocaleDateString()}
+          {originalAmountText({ currency, ...e }) && ` · entered as ${originalAmountText({ currency, ...e })}`}
           {e.paidFrom === 'advance' ? ' · paid with money they hold' : e.paidFrom === 'sponsor_card' ? " · on the custodian's card or UPI" : ''}
           {e.receiptUrls.map((u, i) => <span key={u}> · <SmallLink href={resolveFileHref(u)} target="_blank" rel="noreferrer">{e.type === 'draw' ? 'receipt' : 'proof'}{e.receiptUrls.length > 1 ? ` ${i + 1}` : ''}</SmallLink></span>)}
         </ItemMeta>

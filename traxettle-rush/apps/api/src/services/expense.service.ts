@@ -1,6 +1,21 @@
 import { Expense, CreateExpenseDto, UpdateExpenseDto, ExpenseSplit, isPoolFundedExpense } from '@traxettle/shared';
 import type { PoolDrawState, PoolExpenseFlag } from '@traxettle/shared';
 import { db } from '../config/firebase';
+import type { FxStamp } from './expense-fx.service';
+
+/** Present only on an expense entered in another currency (Phase 3). */
+function fxFields(data: Record<string, any>): Partial<Expense> {
+  if (!data.originalCurrency || typeof data.originalAmount !== 'number') return {};
+  return {
+    originalAmount: data.originalAmount,
+    originalCurrency: data.originalCurrency,
+    fxRate: data.fxRate,
+    fxRateDate: data.fxRateDate,
+    fxRateSource: data.fxRateSource,
+  };
+}
+
+const CLEARED_FX = { originalAmount: null, originalCurrency: null, fxRate: null, fxRateDate: null, fxRateSource: null };
 
 /** Pool fields are only present on pool-funded expenses; absent means 'self'. */
 function poolFields(data: Record<string, any>): Partial<Expense> {
@@ -23,7 +38,7 @@ export interface PoolExpenseFields {
 export class ExpenseService {
   private collection = 'expenses';
 
-  async createExpense(userId: string, dto: CreateExpenseDto, pool?: PoolExpenseFields): Promise<Expense> {
+  async createExpense(userId: string, dto: CreateExpenseDto, pool?: PoolExpenseFields, fx?: FxStamp): Promise<Expense> {
     const now = new Date().toISOString();
 
     // Validate splits sum to amount for custom splits (skip for private expenses)
@@ -55,6 +70,9 @@ export class ExpenseService {
     if (dto.paidOnBehalfOf && dto.paidOnBehalfOf.length > 0) {
       expenseData.paidOnBehalfOf = dto.paidOnBehalfOf;
     }
+
+    // Entered in another currency: amount/currency above are already converted (Phase 3).
+    if (fx) Object.assign(expenseData, fx);
 
     // Pool-funded expenses: transparent to everyone, splits optional (used only
     // for consumption-weighted sharing). Peer-to-peer expenses get no pool fields.
@@ -97,6 +115,7 @@ export class ExpenseService {
       splits: data.splits || [],
       attachments: data.attachments || [],
       ...poolFields(data),
+      ...fxFields(data),
       date: data.date,
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
@@ -126,6 +145,7 @@ export class ExpenseService {
         splits: data.splits || [],
         attachments: data.attachments || [],
         ...poolFields(data),
+        ...fxFields(data),
         date: data.date,
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
@@ -139,6 +159,8 @@ export class ExpenseService {
     dto: UpdateExpenseDto,
     isAdmin = false,
     poolUpdate?: Pick<PoolExpenseFields, 'poolDraw' | 'poolFlags'>,
+    /** Phase 3: a new stamp, null to clear one, undefined to leave it. */
+    fxUpdate?: FxStamp | null,
   ): Promise<Expense | null> {
     const expense = await this.getExpense(expenseId);
     if (!expense) return null;
@@ -178,6 +200,8 @@ export class ExpenseService {
       updates.poolDraw = poolUpdate.poolDraw;
       updates.poolFlags = poolUpdate.poolFlags;
     }
+    if (fxUpdate === null) Object.assign(updates, CLEARED_FX);
+    else if (fxUpdate) Object.assign(updates, fxUpdate);
     if (isPoolFundedExpense(expense)) {
       updates.isPrivate = false; // pool ledgers are always transparent
     }

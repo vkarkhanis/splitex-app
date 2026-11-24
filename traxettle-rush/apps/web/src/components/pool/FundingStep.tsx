@@ -279,6 +279,19 @@ export function FundingStep({ value, onChange, currency, disabled, allowContribu
                 </Field>
               )}
               {preset !== 'sponsor_budget' && (
+                <Field>
+                  <Label htmlFor="pool-spenders-mode">Who can spend</Label>
+                  <Select id="pool-spenders-mode" data-testid="pool-spenders-mode" value={value.spendersMode}
+                    onChange={(e) => set({ spendersMode: e.target.value as FundingChoice['spendersMode'] })}>
+                    <option value="everyone">Everyone in the event</option>
+                    <option value="listed">Only people I choose</option>
+                  </Select>
+                  {value.spendersMode === 'listed' && (
+                    <Hint>Choose them on the pool&apos;s page after inviting people. Others can still claim back money they spent, with approval.</Hint>
+                  )}
+                </Field>
+              )}
+              {preset !== 'sponsor_budget' && (
                 <Check>
                   <input type="checkbox" checked={value.allowPeerExpenses} data-testid="pool-allow-peer"
                     onChange={(e) => set({ allowPeerExpenses: e.target.checked })} />

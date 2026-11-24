@@ -23,6 +23,7 @@ import type {
   PoolPaidFrom,
   PoolPreset,
   PoolRefusalDetails,
+  PoolSpendersMode,
 } from './pool';
 
 // ── Formatting & copy ─────────────────────────────────────────────────────
@@ -336,11 +337,19 @@ export function paidWithOptions(input: {
   custodianName?: string;
   /** Listed first and marked "Suggested" (spenders in a sponsor pool: claiming back is risk-free). */
   preferred?: ExpenseFundingSource;
+  /**
+   * `canSpendFromPool`: false for someone not on a pool's spender list, who can only claim back
+   * their own money (Phase 3). Default true.
+   */
+  canSpend?: boolean;
+  /** `canClaimFromPool`: false for a Budget's guest, who can't claim either. Default true. */
+  canClaim?: boolean;
 }): PaidWithOption[] {
   const noun = input.noun.toLowerCase();
   const options: PaidWithOption[] = [];
   for (const source of allowedFundingSources(input.model)) {
     if (source === 'pool') {
+      if (input.canSpend === false) continue;
       if (input.isCustodian) {
         options.push({ value: 'pool', fundingSource: 'pool', title: 'Pool funds', text: `Paid from the ${noun} (card, cash or account).`, suggested: false });
         continue;
@@ -365,6 +374,7 @@ export function paidWithOptions(input: {
         });
       }
     } else if (source === 'pool_reimbursement') {
+      if (input.canClaim === false) continue;
       options.push({ value: 'pool_reimbursement', fundingSource: source, title: 'My money — claim it back', text: `You paid; the ${noun} pays you back.`, suggested: false });
     } else {
       options.push({ value: 'self', fundingSource: source, title: 'My money — split it', text: 'A regular split between people.', suggested: false });
@@ -375,6 +385,21 @@ export function paidWithOptions(input: {
     options.sort((a, b) => Number(b.suggested) - Number(a.suggested));
   }
   return options;
+}
+
+/** "1 INR = 1.7932 JPY". */
+export function fxRateText(from: string, to: string, rate: number): string {
+  return `1 ${from} = ${Number(rate.toPrecision(6))} ${to}`;
+}
+
+/**
+ * What was entered for an expense recorded in another currency (Phase 3), e.g. "₹5,000.00", to show
+ * next to the converted amount; null for an ordinary expense.
+ */
+export function originalAmountText(expense: { currency: string; originalAmount?: number | null; originalCurrency?: string | null }): string | null {
+  const { originalAmount, originalCurrency } = expense;
+  if (!originalCurrency || originalAmount === null || originalAmount === undefined || originalCurrency === expense.currency) return null;
+  return formatMinor(toMinor(originalAmount, originalCurrency), originalCurrency);
 }
 
 export function describePoolRefusal(err: { code?: string; message?: string; data?: Partial<PoolRefusalDetails> }, currency: string): string {
@@ -535,6 +560,8 @@ export interface FundingChoice {
   tolerancePercent: string;
   approval: PoolExpenseApprovalMode;
   approvalThreshold: string;
+  /** "Several of us": everyone in the event can spend, or only people chosen later (Phase 3). */
+  spendersMode: PoolSpendersMode;
 }
 
 export const DEFAULT_FUNDING_CHOICE: FundingChoice = {
@@ -547,6 +574,7 @@ export const DEFAULT_FUNDING_CHOICE: FundingChoice = {
   tolerancePercent: '20',
   approval: 'none',
   approvalThreshold: '',
+  spendersMode: 'everyone',
 };
 
 export const CONTRIBUTOR_PRESETS: PoolPreset[] = ['trip_kitty', 'household', 'club_treasury', 'target_collection'];
@@ -652,6 +680,8 @@ export function buildFundingPayload(choice: FundingChoice, currency: string): { 
   if (choice.approval === 'above_threshold') {
     overrides.approvalThresholdMinor = toMinor(parseAmount(choice.approvalThreshold) || 0, currency);
   }
+  // Only people chosen later can spend (Phase 3). A Budget always has its own list.
+  if (preset !== 'sponsor_budget' && choice.spendersMode === 'listed') overrides.spendersMode = 'listed';
 
   const allowPeer = preset !== 'sponsor_budget' && choice.allowPeerExpenses;
   return {

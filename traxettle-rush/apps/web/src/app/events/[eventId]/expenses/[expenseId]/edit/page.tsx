@@ -19,7 +19,9 @@ import {
 } from '@traxettle/ui';
 import { api } from '../../../../../../utils/api';
 import type { EventParticipant, Group, Expense, OnBehalfOfEntry, ExpenseFundingSource, PoolConfig, PoolPaidFrom } from '@traxettle/shared';
-import { isPoolFundedExpense } from '@traxettle/shared';
+import { fromMinor, isPoolFundedExpense, toMinor } from '@traxettle/shared';
+import { FxPreviewLine, currencyOptions, useFxPreview } from '../../../../../../components/OtherCurrency';
+import type { FxQuote } from '../../../../../../components/OtherCurrency';
 import { ReceiptField } from '../../../../../../components/pool/ReceiptField';
 import { canRecordAnyway, poolErrorText, toPoolError } from '../../../../../../components/pool/poolFormat';
 
@@ -252,6 +254,17 @@ export default function EditExpensePage() {
   // sends it back for approval, like changing the amount.
   const [poolConfig, setPoolConfig] = useState<PoolConfig | null>(null);
   const [payerId, setPayerId] = useState('');
+  // Phase 3: the event's currency, whether another one is allowed, and the rate this expense was saved with.
+  const [eventCurrency, setEventCurrency] = useState('');
+  const [otherCurrencyAllowed, setOtherCurrencyAllowed] = useState(false);
+  const [savedFx, setSavedFx] = useState<{ currency: string; rate: number; date: string; source: 'predefined' | 'eod' } | null>(null);
+  const fetched = useFxPreview(eventId, form.currency, eventCurrency, form.amount);
+  // Same currency as saved: it keeps its rate (no need to ask the API, or for Pro).
+  const keptQuote: FxQuote | null = (() => {
+    const n = parseFloat(form.amount);
+    if (!savedFx || savedFx.currency !== form.currency || !eventCurrency || !Number.isFinite(n) || n <= 0) return null;
+    return { from: savedFx.currency, to: eventCurrency, rate: savedFx.rate, date: savedFx.date, source: savedFx.source, amount: fromMinor(toMinor(n * savedFx.rate, eventCurrency), eventCurrency) };
+  })();
   const [paidFrom, setPaidFrom] = useState<PoolPaidFrom | undefined>(undefined);
   const [originalPaidFrom, setOriginalPaidFrom] = useState<PoolPaidFrom | undefined>(undefined);
   const showsMethod = fundingSource === 'pool' && Boolean(poolConfig) && Boolean(payerId) && payerId !== poolConfig?.custodianUserId;
@@ -265,9 +278,11 @@ export default function EditExpensePage() {
         api.get<EventParticipant[]>(`/api/events/${eventId}/participants`),
         api.get<Group[]>(`/api/groups/event/${eventId}`),
         api.get<Expense>(`/api/expenses/${expenseId}`),
-        api.get<{ poolConfig?: PoolConfig }>(`/api/events/${eventId}`).catch(() => ({ data: undefined })),
+        api.get<{ poolConfig?: PoolConfig; currency?: string; otherCurrencyExpenses?: boolean }>(`/api/events/${eventId}`).catch(() => ({ data: undefined })),
       ]);
       setPoolConfig(evRes?.data?.poolConfig || null);
+      setEventCurrency(evRes?.data?.currency || '');
+      setOtherCurrencyAllowed(Boolean(evRes?.data?.otherCurrencyExpenses));
       const pData = pRes.data || [];
       const gData = gRes.data || [];
       const expense = expRes.data;
@@ -292,11 +307,16 @@ export default function EditExpensePage() {
         // Compared with what the page first shows, so saving an untouched older spend isn't a change.
         setOriginalPaidFrom(method);
         setReceipts(Array.isArray(expense.attachments) ? expense.attachments : []);
+        // Entered in another currency: the form shows what was entered (Phase 3).
+        const entered = expense.originalCurrency && typeof expense.originalAmount === 'number' && expense.fxRate
+          ? { amount: expense.originalAmount, currency: expense.originalCurrency, rate: expense.fxRate }
+          : null;
+        setSavedFx(entered ? { currency: entered.currency, rate: entered.rate, date: expense.fxRateDate || '', source: expense.fxRateSource || 'eod' } : null);
         setForm({
           title: expense.title,
           description: expense.description || '',
-          amount: String(expense.amount),
-          currency: expense.currency,
+          amount: String(entered ? entered.amount : expense.amount),
+          currency: entered ? entered.currency : expense.currency,
           splitType: expense.splitType,
           isPrivate: expense.isPrivate,
           onBehalfOf: obEntries.length > 0,
@@ -306,7 +326,16 @@ export default function EditExpensePage() {
         // Build entities and mark the ones that were in the original splits as selected
         const builtEntities = buildEntities(pData, gData);
         const splitMap = new Map<string, { amount: number; ratio: number }>();
-        for (const s of (expense.splits || [])) {
+        // Saved splits are in the event currency; show them in the entered one, adding up to it.
+        const shown = (expense.splits || []).map((s) => entered
+          ? { ...s, amount: fromMinor(toMinor(s.amount / entered.rate, entered.currency), entered.currency) }
+          : s);
+        if (entered && shown.length > 0 && Math.abs(expense.splits.reduce((t, s) => t + s.amount, 0) - expense.amount) <= 0.01) {
+          const diff = toMinor(entered.amount, entered.currency) - shown.reduce((t, s) => t + toMinor(s.amount, entered.currency), 0);
+          const largest = shown.reduce((best, s, i) => (s.amount > shown[best].amount ? i : best), 0);
+          shown[largest] = { ...shown[largest], amount: fromMinor(toMinor(shown[largest].amount, entered.currency) + diff, entered.currency) };
+        }
+        for (const s of shown) {
           splitMap.set(s.entityId, { amount: s.amount, ratio: s.ratio || 1 });
         }
 
@@ -417,6 +446,8 @@ export default function EditExpensePage() {
         title: form.title.trim(),
         description: form.description.trim(),
         amount,
+        // What was entered: the API converts another currency (Phase 3).
+        currency: form.currency,
         attachments: receipts,
         ...(alreadyIncurred ? { alreadyIncurred: true } : {}),
         ...(showsMethod && paidFrom && paidFrom !== originalPaidFrom ? { paidFrom } : {}),
@@ -595,16 +626,16 @@ export default function EditExpensePage() {
                   data-testid="expense-currency-select"
                   value={form.currency}
                   onChange={(e) => updateForm({ currency: e.target.value })}
-                  disabled={loading || isPoolDraw}
+                  // Another currency needs the organiser's multi-currency Pro (Phase 3).
+                  disabled={loading || !otherCurrencyAllowed}
                 >
-                  <option value="USD">$ USD</option>
-                  <option value="EUR">€ EUR</option>
-                  <option value="GBP">£ GBP</option>
-                  <option value="INR">₹ INR</option>
-                  <option value="JPY">¥ JPY</option>
+                  {currencyOptions(eventCurrency || form.currency)
+                    .concat(currencyOptions(eventCurrency || form.currency).includes(form.currency) ? [] : [form.currency])
+                    .map((c) => <option key={c} value={c}>{c}</option>)}
                 </Select>
               </Field>
             </Row>
+            <FxPreviewLine quote={keptQuote || fetched.quote} error={keptQuote ? '' : fetched.error} />
 
             <ReceiptField eventId={eventId} value={receipts} onChange={setReceipts} disabled={loading} onUploadingChange={setUploading}
               required={fundingSource === 'pool_reimbursement'} />

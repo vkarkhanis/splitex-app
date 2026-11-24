@@ -16,7 +16,9 @@ import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../api';
 import type { EventParticipant, Group, OnBehalfOfEntry, Expense, ExpenseFundingSource, PoolConfig, PoolPaidFrom } from '@traxettle/shared';
-import { canRecordAnyway, isPoolFundedExpense, poolErrorText, toPoolError } from '@traxettle/shared';
+import { canRecordAnyway, fromMinor, isPoolFundedExpense, poolErrorText, toMinor, toPoolError } from '@traxettle/shared';
+import { CurrencyPicker, FxPreviewLine, useFxPreview } from '../components/OtherCurrency';
+import type { FxQuote } from '../components/OtherCurrency';
 import { ReceiptPicker } from '../components/pool/PoolViews';
 import DateField from '../components/DateField';
 import { todayLocalISODate, toLocalISODate, parseLocalDate } from '../utils/date';
@@ -90,6 +92,17 @@ export default function EditExpenseScreen({ route, navigation }: any) {
   const [paidFrom, setPaidFrom] = useState<PoolPaidFrom | undefined>(undefined);
   const [originalPaidFrom, setOriginalPaidFrom] = useState<PoolPaidFrom | undefined>(undefined);
   const showsMethod = fundingSource === 'pool' && Boolean(poolConfig) && Boolean(payerId) && payerId !== poolConfig?.custodianUserId;
+  // Phase 3: the event's currency, whether another one is allowed, and the rate this expense was saved with.
+  const [eventCurrency, setEventCurrency] = useState('');
+  const [otherCurrencyAllowed, setOtherCurrencyAllowed] = useState(false);
+  const [savedFx, setSavedFx] = useState<{ currency: string; rate: number; date: string; source: 'predefined' | 'eod' } | null>(null);
+  // Same currency as saved: it keeps its rate (no need to ask the API, or for Pro).
+  const keptQuote: FxQuote | null = (() => {
+    const n = parseFloat(amount);
+    if (!savedFx || savedFx.currency !== expCurrency || !eventCurrency || !Number.isFinite(n) || n <= 0) return null;
+    return { from: savedFx.currency, to: eventCurrency, rate: savedFx.rate, date: savedFx.date, source: savedFx.source, amount: fromMinor(toMinor(n * savedFx.rate, eventCurrency), eventCurrency) };
+  })();
+  const fetched = useFxPreview(eventId, expCurrency, eventCurrency, amount, Boolean(keptQuote));
 
   const fetchData = useCallback(async () => {
     try {
@@ -98,9 +111,11 @@ export default function EditExpenseScreen({ route, navigation }: any) {
         api.get<Group[]>(`/api/groups/event/${eventId}`),
         api.get<Expense>(`/api/expenses/${expenseId}`),
         api.get('/api/users/profile').catch(() => ({ data: null })),
-        api.get<{ poolConfig?: PoolConfig }>(`/api/events/${eventId}`).catch(() => ({ data: undefined })),
+        api.get<{ poolConfig?: PoolConfig; currency?: string; otherCurrencyExpenses?: boolean }>(`/api/events/${eventId}`).catch(() => ({ data: undefined })),
       ]);
       const cfg = evRes?.data?.poolConfig || null;
+      setEventCurrency(evRes?.data?.currency || '');
+      setOtherCurrencyAllowed(Boolean(evRes?.data?.otherCurrencyExpenses));
       setPoolConfig(cfg);
       const custodian = (pRes.data || []).find((p) => p.userId === cfg?.custodianUserId);
       if (custodian) setCustodianName(custodian.displayName || custodian.email || 'The custodian');
@@ -126,8 +141,13 @@ export default function EditExpenseScreen({ route, navigation }: any) {
       setReceipts(Array.isArray(expense.attachments) ? expense.attachments : []);
       setTitle(expense.title);
       setDescription(expense.description || '');
-      setAmount(String(expense.amount));
-      setExpCurrency(expense.currency);
+      // Entered in another currency: the form shows what was entered (Phase 3).
+      const entered = expense.originalCurrency && typeof expense.originalAmount === 'number' && expense.fxRate
+        ? { amount: expense.originalAmount, currency: expense.originalCurrency, rate: expense.fxRate }
+        : null;
+      setSavedFx(entered ? { currency: entered.currency, rate: entered.rate, date: expense.fxRateDate || '', source: expense.fxRateSource || 'eod' } : null);
+      setAmount(String(entered ? entered.amount : expense.amount));
+      setExpCurrency(entered ? entered.currency : expense.currency);
       setSplitType(expense.splitType);
       setIsPrivate(expense.isPrivate);
       // Prefer the stored date; fall back to createdAt for legacy expenses.
@@ -143,7 +163,16 @@ export default function EditExpenseScreen({ route, navigation }: any) {
       // Build entities and pre-select based on existing splits
       const builtEntities = buildEntities(pRes.data || [], gData);
       if (!expense.isPrivate && expense.splits && expense.splits.length > 0) {
-        const splitMap = new Map(expense.splits.map((s: any) => [s.entityId, s]));
+        // Saved splits are in the event currency; show them in the entered one, adding up to it.
+        const shown = expense.splits.map((s) => entered
+          ? { ...s, amount: fromMinor(toMinor(s.amount / entered.rate, entered.currency), entered.currency) }
+          : s);
+        if (entered && Math.abs(expense.splits.reduce((t, s) => t + s.amount, 0) - expense.amount) <= 0.01) {
+          const diff = toMinor(entered.amount, entered.currency) - shown.reduce((t, s) => t + toMinor(s.amount, entered.currency), 0);
+          const largest = shown.reduce((best, s, i) => (s.amount > shown[best].amount ? i : best), 0);
+          shown[largest] = { ...shown[largest], amount: fromMinor(toMinor(shown[largest].amount, entered.currency) + diff, entered.currency) };
+        }
+        const splitMap = new Map(shown.map((s: any) => [s.entityId, s]));
         const updatedEntities = builtEntities.map(e => {
           const existingSplit = splitMap.get(e.entityId);
           if (existingSplit) {
@@ -252,6 +281,8 @@ export default function EditExpenseScreen({ route, navigation }: any) {
         title: title.trim(),
         description: description.trim(),
         amount: amt,
+        // What was entered: the API converts another currency (Phase 3).
+        currency: expCurrency,
         attachments: receipts,
         ...(alreadyIncurred ? { alreadyIncurred: true } : {}),
         ...(showsMethod && paidFrom && paidFrom !== originalPaidFrom ? { paidFrom } : {}),
@@ -393,6 +424,9 @@ export default function EditExpenseScreen({ route, navigation }: any) {
           <TextInput style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} />
         </View>
       </View>
+      {/* Phase 3: another currency, when the organiser's multi-currency Pro allows it. */}
+      {otherCurrencyAllowed && eventCurrency ? <CurrencyPicker value={expCurrency} onChange={setExpCurrency} eventCurrency={eventCurrency} /> : null}
+      <FxPreviewLine quote={keptQuote || fetched.quote} error={keptQuote ? '' : fetched.error} />
 
       <Text style={[styles.label, { color: c.textSecondary }]}>Date</Text>
       <DateField testID="edit-expense-date-input" value={date} onChange={setDate} />

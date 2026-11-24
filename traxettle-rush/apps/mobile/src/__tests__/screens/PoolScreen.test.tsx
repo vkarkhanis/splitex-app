@@ -43,6 +43,8 @@ const mockPool = {
   confirmAdvance: jest.fn().mockResolvedValue({}),
   cancelAdvance: jest.fn().mockResolvedValue({}),
   previewClose: jest.fn(),
+  updateConfig: jest.fn().mockResolvedValue({}),
+  approveDraw: jest.fn().mockResolvedValue({}),
 };
 jest.mock('../../services/pool', () => ({ poolService: mockPool, pickReceiptImage: jest.fn() }));
 
@@ -174,6 +176,34 @@ describe('PoolScreen — Phase 2', () => {
     await act(async () => { renderer = create(<PoolScreen route={{ params: { eventId: 'e1' } }} navigation={{ navigate: jest.fn() }} />); });
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     expect(textOf(byId('pool-part-month'))).toBe('You joined mid-month: your dues start next month.');
+  });
+
+  it('Phase 3: an approver sees spends waiting for approval, with what was entered in another currency', async () => {
+    const withApprover = { ...event, poolConfig: { ...event.poolConfig, approverUserIds: ['ravi'], expenseApproval: 'always' } };
+    const l = ledger();
+    l.entries.push({ id: 'd2', type: 'draw', at: '2026-11-12', title: 'Visa fee', amountMinor: -1045000, status: 'pending', actorUserId: 'anita',
+      fundingSource: 'pool', alreadyIncurred: true, receiptUrls: [], counted: false, originalAmount: 125, originalCurrency: 'USD' } as any);
+    me = 'ravi';
+    mockGet.mockImplementation(async (path: string) => ({
+      data: path.endsWith('/participants') ? participants : path.startsWith('/api/groups') || path.startsWith('/api/settlements') ? [] : withApprover,
+    }));
+    mockPool.ledger.mockResolvedValue(l);
+    await act(async () => { renderer = create(<PoolScreen route={{ params: { eventId: 'e1' } }} navigation={{ navigate: jest.fn() }} />); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(textOf(byId('pool-pending-approvals'))).toMatch(/Visa fee.*entered as \$125\.00/);
+    await act(async () => { byId('approve-d2').props.onPress(); });
+    expect(mockPool.approveDraw).toHaveBeenCalledWith('d2');
+  });
+
+  it('Phase 3: the organiser chooses approvers, who can spend, and when spends need approval', async () => {
+    await mount('anita');
+    await act(async () => { byId('approver-ravi').props.onPress(); });
+    expect(mockPool.updateConfig).toHaveBeenLastCalledWith('e1', { approverUserIds: ['ravi'] });
+    await act(async () => { byId('approval-mode-always').props.onPress(); });
+    expect(mockPool.updateConfig).toHaveBeenLastCalledWith('e1', { expenseApproval: 'always' });
+    await act(async () => { byId('spender-ravi').props.onPress(); }); // a Budget: Ravi is listed, so this takes him off
+    expect(mockPool.updateConfig).toHaveBeenLastCalledWith('e1', { authorizedSpenders: [] });
+    expect(byId('spenders-mode')).toBeUndefined(); // a Budget always keeps its list
   });
 
   it('waits for hand-overs before settling up, and shows folded payments', async () => {

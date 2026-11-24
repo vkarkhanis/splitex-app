@@ -44,6 +44,7 @@ import {
   isPoolFundedEvent,
   isPoolFundedExpense,
   isPoolSideLeg,
+  originalAmountText,
   poolExpenseByline,
   poolLegLabel,
   poolNoun,
@@ -1180,7 +1181,13 @@ export default function EventDetailScreen({ route, navigation }: any) {
                         {exp.attachments?.length ? ` · ${exp.attachments.length} receipt(s)` : ''}
                       </Text>
                     </View>
-                    <Text style={[styles.amountText, { color: colors.text }]}>{CURRENCY_SYMBOLS[exp.currency] || exp.currency}{exp.amount.toFixed(2)}</Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={[styles.amountText, { color: colors.text }]}>{CURRENCY_SYMBOLS[exp.currency] || exp.currency}{exp.amount.toFixed(2)}</Text>
+                      {/* Entered in another currency (Phase 3) */}
+                      {originalAmountText(exp) ? (
+                        <Text testID={`expense-original-${exp.id}`} style={{ color: colors.muted, fontSize: fontSizes.xs }}>{originalAmountText(exp)}</Text>
+                      ) : null}
+                    </View>
                     {(event.status === 'active' || event.status === 'review') && (currentUserId === exp.paidBy || isAdmin) && (
                       <View style={styles.inlineActions}>
                         <TouchableOpacity

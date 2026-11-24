@@ -30,6 +30,8 @@ export const poolConfigPatchSchema = z
     approvalThresholdMinor: minor.nullable(),
     membershipChangeClosesCycle: z.boolean(),
     allowSponsorCardSpends: z.boolean(),
+    spendersMode: z.enum(['everyone', 'listed']),
+    approverUserIds: z.array(z.string().min(1)).max(200),
   })
   .partial()
   .strict();

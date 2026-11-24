@@ -12,6 +12,7 @@ import { ExpenseService } from '../services/expense.service';
 import { EventService } from '../services/event.service';
 import { GroupService } from '../services/group.service';
 import { PoolError, PoolService } from '../services/pool.service';
+import { ExpenseFxError, ExpenseFxService, type FxStamp } from '../services/expense-fx.service';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { emitToEvent, emitToUser } from '../config/websocket';
 import { notifyEventParticipants } from '../utils/notification-helper';
@@ -23,6 +24,13 @@ const expenseService = new ExpenseService();
 const eventService = new EventService();
 const groupService = new GroupService();
 const poolService = new PoolService();
+const expenseFx = new ExpenseFxService();
+
+/** "JPY 10450.00 (INR 5000.00)" for notifications. */
+function amountText(e: { amount: number; currency: string; originalAmount?: number; originalCurrency?: string }): string {
+  const base = `${e.currency} ${e.amount.toFixed(2)}`;
+  return e.originalCurrency && typeof e.originalAmount === 'number' ? `${base} (${e.originalCurrency} ${e.originalAmount.toFixed(2)})` : base;
+}
 
 const FUNDING_SOURCES: ExpenseFundingSource[] = ['self', 'pool', 'pool_reimbursement'];
 
@@ -42,6 +50,9 @@ function poolOrAccessError(res: Response, err: unknown) {
   }
   if (err instanceof EventAccessError) {
     return res.status(err.statusCode).json({ success: false, error: err.message } as ApiResponse);
+  }
+  if (err instanceof ExpenseFxError) {
+    return res.status(err.status).json({ success: false, error: err.message, code: err.code } as ApiResponse);
   }
   return null;
 }
@@ -160,10 +171,22 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
       } as ApiResponse);
     }
 
+    // Entered in another currency: converted to the event currency first (Phase 3), so every
+    // pool rule and balance below works on one currency.
+    const converted = event
+      ? await expenseFx.forCreate(event, { amount: body.amount, currency: body.currency, splits: body.splits })
+      : { amount: body.amount, currency: body.currency, splits: body.splits, fx: undefined };
+    const input: CreateExpenseDto = {
+      ...body,
+      amount: converted.amount,
+      currency: converted.currency,
+      ...(converted.splits ? { splits: converted.splits } : {}),
+    };
+
     const prep = isPoolDraw
       ? await poolService.prepareDraw(body.eventId, uid, {
-          amount: body.amount,
-          currency: body.currency,
+          amount: input.amount,
+          currency: input.currency,
           fundingSource,
           alreadyIncurred: body.alreadyIncurred,
           paidFrom: body.paidFrom,
@@ -171,12 +194,12 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         })
       : null;
 
-    const created = await expenseService.createExpense(uid, body, prep ? {
+    const created = await expenseService.createExpense(uid, input, prep ? {
       fundingSource: prep.fundingSource,
       poolCycleId: prep.poolCycleId,
       poolDraw: prep.poolDraw,
       poolFlags: prep.poolFlags,
-    } : undefined);
+    } : undefined, converted.fx || undefined);
     if (prep?.autoApproved) await poolService.finalizeApprovedDraw(created, uid);
     const expense = prep ? (await expenseService.getExpense(created.id)) || created : created;
 
@@ -188,7 +211,7 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     }
     notifyEventParticipants(body.eventId, uid, 'expense_added', {
       Title: expense.title,
-      Amount: `${expense.currency} ${expense.amount.toFixed(2)}`,
+      Amount: amountText(expense),
       ...(prep
         ? { 'Paid with': paidWithText(fundingSource, prep.poolDraw.paidFrom) }
         : { 'Split Type': expense.splitType, Private: expense.isPrivate ? 'Yes' : 'No' }),
@@ -218,6 +241,25 @@ router.put('/:expenseId', requireAuth, async (req: AuthenticatedRequest, res) =>
     if (expenseToCheck) await requireActiveEvent(expenseToCheck.eventId);
     const admin = await isEventAdmin(req.params.expenseId, uid);
 
+    // The form sends what was entered; convert it if it's in another currency (Phase 3).
+    let fxUpdate: FxStamp | null | undefined;
+    if (expenseToCheck && (dto.amount !== undefined || dto.currency !== undefined || dto.splits !== undefined)) {
+      const event = await eventService.getEvent(expenseToCheck.eventId);
+      if (event) {
+        const converted = await expenseFx.forUpdate(event, expenseToCheck, { amount: dto.amount, currency: dto.currency, splits: dto.splits });
+        if (converted === null) {
+          // The money didn't change: keep the stored (converted) amount.
+          delete dto.amount;
+          delete dto.currency;
+        } else {
+          dto.amount = converted.amount;
+          dto.currency = converted.currency;
+          if (converted.splits) dto.splits = converted.splits;
+          fxUpdate = converted.fx;
+        }
+      }
+    }
+
     let poolUpdate: Parameters<typeof expenseService.updateExpense>[4];
     let legToRemove: string | null = null;
     if (expenseToCheck && isPoolFundedExpense(expenseToCheck)) {
@@ -244,7 +286,7 @@ router.put('/:expenseId', requireAuth, async (req: AuthenticatedRequest, res) =>
       }
     }
 
-    const expense = await expenseService.updateExpense(req.params.expenseId, uid, dto, admin, poolUpdate);
+    const expense = await expenseService.updateExpense(req.params.expenseId, uid, dto, admin, poolUpdate, fxUpdate);
 
     if (!expense) {
       return res.status(404).json({ success: false, error: 'Expense not found' } as ApiResponse);
@@ -264,7 +306,7 @@ router.put('/:expenseId', requireAuth, async (req: AuthenticatedRequest, res) =>
     emitToEvent(expense.eventId, 'expense:updated', { expense: result });
     notifyEventParticipants(expense.eventId, uid, 'expense_updated', {
       Title: result.title,
-      Amount: `${result.currency} ${result.amount.toFixed(2)}`,
+      Amount: amountText(result),
     });
     return res.json({ success: true, data: result } as ApiResponse);
   } catch (err: any) {
