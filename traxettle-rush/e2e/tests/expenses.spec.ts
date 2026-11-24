@@ -12,10 +12,8 @@ test.describe('Expense Management', () => {
   });
 
   test('should display create expense page with all fields', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}/expenses/create`);
     await expect(page.getByTestId('create-expense-page')).toBeVisible();
     await expect(page.getByTestId('expense-title-input')).toBeVisible();
@@ -28,19 +26,15 @@ test.describe('Expense Management', () => {
   });
 
   test('should disable submit when required fields are empty', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}/expenses/create`);
     await expect(page.getByTestId('create-expense-submit')).toBeDisabled();
   });
 
   test('should fill expense form and submit', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}/expenses/create`);
 
     await page.getByTestId('expense-title-input').fill('Hotel Booking');
@@ -62,10 +56,8 @@ test.describe('Expense Management', () => {
   });
 
   test('should change split type to custom', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}/expenses/create`);
     await page.getByTestId('split-type-custom').check();
     // Custom split inputs should appear if there are participants
@@ -73,20 +65,16 @@ test.describe('Expense Management', () => {
   });
 
   test('should change split type to ratio', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}/expenses/create`);
     await page.getByTestId('split-type-ratio').check();
     await page.waitForTimeout(300);
   });
 
   test('should cancel and go back', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}/expenses/create`);
     await page.getByRole('button', { name: 'Cancel' }).click();
     await page.waitForTimeout(500);

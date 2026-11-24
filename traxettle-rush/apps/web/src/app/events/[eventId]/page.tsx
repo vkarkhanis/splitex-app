@@ -1381,19 +1381,19 @@ export default function EventDetailPage() {
         </SummaryGrid>
       ) : (
       <SummaryGrid>
-        <SummaryCard>
+        <SummaryCard data-testid="summary-total-expense">
           <SummaryLabel>Total Expense</SummaryLabel>
           <SummaryValue>{currSym}{myTotalExpense.toFixed(2)}</SummaryValue>
         </SummaryCard>
-        <SummaryCard>
+        <SummaryCard data-testid="summary-total-shared">
           <SummaryLabel>Total Shared</SummaryLabel>
           <SummaryValue>{currSym}{myTotalShared.toFixed(2)}</SummaryValue>
         </SummaryCard>
-        <SummaryCard>
+        <SummaryCard data-testid="summary-your-shared">
           <SummaryLabel>Your Shared</SummaryLabel>
           <SummaryValue>{currSym}{myYourShared.toFixed(2)}</SummaryValue>
         </SummaryCard>
-        <SummaryCard>
+        <SummaryCard data-testid="summary-private-expense">
           <SummaryLabel>Private Expense</SummaryLabel>
           <SummaryValue>{currSym}{myPrivateExpense.toFixed(2)}</SummaryValue>
         </SummaryCard>
@@ -1461,7 +1461,7 @@ export default function EventDetailPage() {
             <div style={{ marginBottom: 16 }}>
               <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Approval Status</h3>
               {approvalEntries.map(([entityId, approval]) => (
-                <div key={entityId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--color-border, #eee)' }}>
+                <div key={entityId} data-testid={`settlement-approval-${entityId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--color-border, #eee)' }}>
                   <StatusDot $status={approval.approved ? 'completed' : 'pending'} />
                   <span style={{ flex: 1 }}>{approval.displayName || entityId}</span>
                   <Badge $variant={approval.approved ? 'success' : 'warning'}>
@@ -2299,7 +2299,7 @@ export default function EventDetailPage() {
               Are you sure you want to delete &ldquo;{event?.name}&rdquo;?
             </p>
             {pendingSettlementTotal !== null && pendingSettlementTotal > 0 && (
-              <WarningBox>
+              <WarningBox data-testid="delete-pending-settlement">
                 <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>
                   ⚠️ Pending Settlement: {currSym}{pendingSettlementTotal.toFixed(2)} {event?.currency}
                 </p>
@@ -2340,15 +2340,15 @@ export default function EventDetailPage() {
       </Modal>
 
       {/* Generic Confirmation Modal (replaces all window.confirm calls) */}
-      <Modal open={confirmModal.open} onClose={closeConfirmModal}>
+      <Modal open={confirmModal.open} onClose={closeConfirmModal} dataTestId="confirm-modal">
         <ModalHeader>
           <ModalTitle>{confirmModal.title}</ModalTitle>
         </ModalHeader>
         <ModalBody>
           <p style={{ margin: '0 0 20px', fontSize: 14, lineHeight: 1.6 }}>{confirmModal.message}</p>
           <ModalFooter>
-            <Button type="button" $variant="outline" onClick={closeConfirmModal}>Cancel</Button>
-            <Button type="button" $variant={confirmModal.variant === 'warning' ? 'primary' : 'danger'} onClick={confirmModal.onConfirm}>
+            <Button type="button" $variant="outline" onClick={closeConfirmModal} data-testid="confirm-modal-cancel">Cancel</Button>
+            <Button type="button" $variant={confirmModal.variant === 'warning' ? 'primary' : 'danger'} onClick={confirmModal.onConfirm} data-testid="confirm-modal-confirm">
               {confirmModal.confirmLabel}
             </Button>
           </ModalFooter>
@@ -2356,7 +2356,7 @@ export default function EventDetailPage() {
       </Modal>
 
       {/* Mark Paid Modal */}
-      <Modal open={showMarkPaidModal} onClose={() => setShowMarkPaidModal(false)}>
+      <Modal open={showMarkPaidModal} onClose={() => setShowMarkPaidModal(false)} dataTestId="settlement-pay-modal">
         <ModalHeader>
           <ModalTitle>Pay Externally and Mark Paid</ModalTitle>
         </ModalHeader>
@@ -2397,6 +2397,7 @@ export default function EventDetailPage() {
                 <Label htmlFor="mark-paid-reference">Reference ID (optional)</Label>
                 <Input
                   id="mark-paid-reference"
+                  data-testid="settlement-pay-reference"
                   value={markPaidReferenceId}
                   onChange={(e) => setMarkPaidReferenceId(e.target.value)}
                   placeholder="UTR / txn ID / bank reference"
@@ -2445,6 +2446,7 @@ export default function EventDetailPage() {
               $variant="primary"
               disabled={markPaidSubmitting || markPaidUploading || !markPaidTarget}
               onClick={() => markPaidTarget && doMarkPaid(markPaidTarget.id, markPaidTarget.settlementCurrency || markPaidTarget.currency)}
+              data-testid="settlement-pay-submit"
             >
               {markPaidSubmitting ? 'Submitting…' : 'I\'ve Paid'}
             </Button>

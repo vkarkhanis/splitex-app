@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsMockUser } from '../helpers/auth';
-import { apiRequest, createTestEvent, switchTier } from '../helpers/api';
+import { apiRequest, apiRequestWithStatus, createTestEvent, switchTier } from '../helpers/api';
+import { futureDate } from '../helpers/ui';
 
 test.describe('Tier entitlements', () => {
   test('local tier switch API toggles FX capability for event creation', async () => {
@@ -47,7 +48,8 @@ test.describe('Tier entitlements', () => {
     await page.getByTestId('event-type-select').selectOption('event');
     await page.getByTestId('event-currency-select').selectOption('USD');
     await page.getByTestId('settlement-currency-select').selectOption('INR');
-    await page.getByTestId('event-start-date-input').fill('2026-03-01');
+    // The form refuses past start dates.
+    await page.getByTestId('event-start-date-input').fill(futureDate(30));
     await page.getByTestId('fx-mode-predefined').check();
     await page.getByTestId('predefined-fx-rate-input').fill('82.5');
 
@@ -59,7 +61,16 @@ test.describe('Tier entitlements', () => {
 
     await expect(page.getByTestId('create-event-submit')).toBeEnabled({ timeout: 15000 });
     await page.getByTestId('create-event-submit').click();
-    await expect(page).toHaveURL(/\/events\//, { timeout: 15000 });
+    // The new event's own page (/events/<id>), not /events/create.
+    await expect(page).toHaveURL(/\/events\/(?!create$)[^/]+$/, { timeout: 15000 });
+    const eventId = new URL(page.url()).pathname.split('/').pop()!;
+    expect(eventId).not.toBe('create');
+    await expect(page.getByTestId('event-detail-page')).toBeVisible();
+    const created = await apiRequestWithStatus('GET', `/api/events/${eventId}`, undefined, userId);
+    expect(created.status).toBe(200);
+    expect(created.body.data).toMatchObject({
+      name: 'Tier Broadcast Event', currency: 'USD', settlementCurrency: 'INR', fxRateMode: 'predefined', predefinedFxRates: { USD_INR: 82.5 },
+    });
   });
 
   // "Several of us" pools need a Pro creator (design doc §12); "Just me" budgets stay free.

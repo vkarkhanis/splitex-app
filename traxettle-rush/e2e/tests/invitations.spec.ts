@@ -34,10 +34,8 @@ test.describe('Invitation System — List & Create', () => {
   test('should open invite modal from event detail invitations tab', async ({ page }) => {
     const res = await createTestEvent();
     const eventId = res.data?.id;
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     await page.goto(`/events/${eventId}`);
     await page.getByTestId('tab-invitations').click();
@@ -48,10 +46,8 @@ test.describe('Invitation System — List & Create', () => {
   test('should fill and submit invite form', async ({ page }) => {
     const res = await createTestEvent();
     const eventId = res.data?.id;
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     await page.goto(`/events/${eventId}`);
     await page.getByTestId('tab-invitations').click();
@@ -69,10 +65,8 @@ test.describe('Invitation System — List & Create', () => {
   test('should disable invite submit when email is empty', async ({ page }) => {
     const res = await createTestEvent();
     const eventId = res.data?.id;
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     await page.goto(`/events/${eventId}`);
     await page.getByTestId('tab-invitations').click();
@@ -101,11 +95,11 @@ test.describe('Invitation Accept Page — Email Link Flow', () => {
     // Create event and invitation via API
     const eventRes = await createTestEvent();
     const eventId = eventRes.data?.id;
-    if (!eventId) { test.skip(true, 'No event created'); return; }
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     const invRes = await createTestInvitation(eventId, 'accept-test@example.com');
     const invToken = invRes.data?.token;
-    if (!invToken) { test.skip(true, 'No invitation created'); return; }
+    expect(invToken, 'test data should be set up').toBeTruthy();
 
     await page.goto(`/invitations/accept?token=${invToken}`);
     await expect(page.getByTestId('accept-invitation-page')).toBeVisible();
@@ -118,11 +112,11 @@ test.describe('Invitation Accept Page — Email Link Flow', () => {
   test('should accept invitation when logged in', async ({ page }) => {
     const eventRes = await createTestEvent();
     const eventId = eventRes.data?.id;
-    if (!eventId) { test.skip(true, 'No event created'); return; }
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     const invRes = await createTestInvitation(eventId, 'accept-flow@example.com');
     const invToken = invRes.data?.token;
-    if (!invToken) { test.skip(true, 'No invitation created'); return; }
+    expect(invToken, 'test data should be set up').toBeTruthy();
 
     // Log in as a different user (the invitee)
     await loginAsMockUser(page, 'mock-invitee-user');
@@ -139,11 +133,11 @@ test.describe('Invitation Accept Page — Email Link Flow', () => {
   test('should decline invitation when logged in', async ({ page }) => {
     const eventRes = await createTestEvent();
     const eventId = eventRes.data?.id;
-    if (!eventId) { test.skip(true, 'No event created'); return; }
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     const invRes = await createTestInvitation(eventId, 'decline-flow@example.com');
     const invToken = invRes.data?.token;
-    if (!invToken) { test.skip(true, 'No invitation created'); return; }
+    expect(invToken, 'test data should be set up').toBeTruthy();
 
     await loginAsMockUser(page, 'mock-decline-user');
 
@@ -158,12 +152,12 @@ test.describe('Invitation Accept Page — Email Link Flow', () => {
   test('should show already-responded state for accepted invitation', async ({ page }) => {
     const eventRes = await createTestEvent();
     const eventId = eventRes.data?.id;
-    if (!eventId) { test.skip(true, 'No event created'); return; }
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     const invRes = await createTestInvitation(eventId, 'already-accepted@example.com');
     const invToken = invRes.data?.token;
     const invId = invRes.data?.id;
-    if (!invToken || !invId) { test.skip(true, 'No invitation created'); return; }
+    expect(invToken && invId, 'test data should be set up').toBeTruthy();
 
     // Accept via API first
     await acceptInvitation(invId, 'mock-already-user');
@@ -180,12 +174,12 @@ test.describe('Invitation Accept Page — Email Link Flow', () => {
   test('should show already-responded state for declined invitation', async ({ page }) => {
     const eventRes = await createTestEvent();
     const eventId = eventRes.data?.id;
-    if (!eventId) { test.skip(true, 'No event created'); return; }
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     const invRes = await createTestInvitation(eventId, 'already-declined@example.com');
     const invToken = invRes.data?.token;
     const invId = invRes.data?.id;
-    if (!invToken || !invId) { test.skip(true, 'No invitation created'); return; }
+    expect(invToken && invId, 'test data should be set up').toBeTruthy();
 
     // Decline via API first
     await declineInvitation(invId, 'mock-declined-user');
@@ -208,7 +202,7 @@ test.describe('Invitation Lifecycle — Full E2E', () => {
     // Step 1: Admin creates event
     const eventRes = await createTestEvent('mock-admin-user');
     const eventId = eventRes.data?.id;
-    if (!eventId) { test.skip(true, 'No event created'); return; }
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     // Step 2: Admin sends invitation
     const invRes = await createTestInvitation(eventId, 'lifecycle@example.com', 'mock-admin-user');
@@ -238,7 +232,7 @@ test.describe('Invitation Lifecycle — Full E2E', () => {
   test('full flow: create event → invite → decline → verify not participant', async ({ page }) => {
     const eventRes = await createTestEvent('mock-admin-user-2');
     const eventId = eventRes.data?.id;
-    if (!eventId) { test.skip(true, 'No event created'); return; }
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     const invRes = await createTestInvitation(eventId, 'decline-lifecycle@example.com', 'mock-admin-user-2');
     expect(invRes.success).toBe(true);
@@ -257,7 +251,7 @@ test.describe('Invitation Lifecycle — Full E2E', () => {
   test('accepting the same invitation twice is idempotent for the same user', async () => {
     const eventRes = await createTestEvent('mock-double-admin');
     const eventId = eventRes.data?.id;
-    if (!eventId) { test.skip(true, 'No event created'); return; }
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     const invRes = await createTestInvitation(eventId, 'double@example.com', 'mock-double-admin');
     expect(invRes.success).toBe(true);
@@ -275,7 +269,7 @@ test.describe('Invitation Lifecycle — Full E2E', () => {
   test('cannot decline an already accepted invitation', async () => {
     const eventRes = await createTestEvent('mock-cross-admin');
     const eventId = eventRes.data?.id;
-    if (!eventId) { test.skip(true, 'No event created'); return; }
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     const invRes = await createTestInvitation(eventId, 'cross@example.com', 'mock-cross-admin');
     await acceptInvitation(invRes.data.id, 'mock-cross-user');
@@ -288,7 +282,7 @@ test.describe('Invitation Lifecycle — Full E2E', () => {
   test('invitation email is normalized to lowercase on create', async () => {
     const eventRes = await createTestEvent('mock-norm-admin');
     const eventId = eventRes.data?.id;
-    if (!eventId) { test.skip(true, 'No event created'); return; }
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     const invRes = await createTestInvitation(eventId, '  UPPER@Example.COM  ', 'mock-norm-admin');
     expect(invRes.success).toBe(true);

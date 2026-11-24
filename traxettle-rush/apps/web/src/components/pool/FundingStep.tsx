@@ -253,7 +253,7 @@ export function FundingStep({ value, onChange, currency, disabled, allowContribu
           </Hint>
 
           <Advanced>
-            <summary>Advanced</summary>
+            <summary data-testid="funding-advanced">Advanced</summary>
             <div>
               <Field>
                 <Label htmlFor="pool-tolerance">Overdraft allowance (% of the pool)</Label>

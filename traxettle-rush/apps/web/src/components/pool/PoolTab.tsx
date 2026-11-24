@@ -558,7 +558,7 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
                           <Button $size="sm" $variant="outline" onClick={() => setModal({ kind: 'confirm', contribution: c })}>Record payment</Button>
                         )}
                         {isManager && c.status === 'pending' && c.receivedMinor === 0 && c.kind === 'regular' && (
-                          <Button $size="sm" $variant="ghost" disabled={busy} onClick={() => run('Waived', () => poolApi.waive(c.id), 'Excused for this cycle.')}>Waive</Button>
+                          <Button $size="sm" $variant="ghost" disabled={busy} onClick={() => run('Waived', () => poolApi.waive(c.id), 'Excused for this cycle.')} data-testid={`waive-${c.id}`}>Waive</Button>
                         )}
                       </Actions>
                     )}
@@ -895,11 +895,11 @@ function MarkPaidModal(props: {
         </Field>
         <Field>
           <Label htmlFor="mp-ref">Reference (optional)</Label>
-          <Input id="mp-ref" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="UPI / transaction ID" maxLength={200} />
+          <Input id="mp-ref" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="UPI / transaction ID" maxLength={200} data-testid="mark-paid-reference" />
         </Field>
         <Field>
           <Label htmlFor="mp-proof">Proof (optional)</Label>
-          <Input id="mp-proof" type="file" accept={RECEIPT_ACCEPT} onChange={(e) => void onFile(e.target.files?.[0])} disabled={uploading} />
+          <Input id="mp-proof" type="file" accept={RECEIPT_ACCEPT} onChange={(e) => void onFile(e.target.files?.[0])} disabled={uploading} data-testid="mark-paid-proof" />
           {uploading && <ItemMeta>Uploading…</ItemMeta>}
           {proofUrl && !uploading && <ItemMeta>Proof attached ✓</ItemMeta>}
         </Field>
