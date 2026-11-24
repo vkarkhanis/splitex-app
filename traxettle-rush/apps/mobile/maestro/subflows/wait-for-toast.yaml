@@ -1,0 +1,10 @@
+appId: com.traxettle.app
+name: "Subflow: wait until no toast is showing"
+# While a toast is up (about 3 seconds) the app ignores taps on iOS: toasts are drawn in a
+# full-screen modal (src/context/FeedbackContext.tsx). Run this after a step that shows a toast
+# and before the next tap. It returns at once when no toast is showing.
+---
+- extendedWaitUntil:
+    notVisible:
+      id: "app-toast"
+    timeout: 10000

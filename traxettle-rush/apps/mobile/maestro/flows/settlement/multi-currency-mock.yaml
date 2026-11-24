@@ -1,283 +1,186 @@
 appId: com.traxettle.app
-name: Multi Currency Settlement with EOD FX (Mock)
+name: Settlement — USD expenses settled in INR at a set rate (Pro)
+# Like same-currency-mock, but the organiser (Pro) creates the event in USD to settle in INR at a
+# predefined 1 USD = 83 INR, so the member's $100 share is paid as ₹8300.00. No live rates.
 ---
-- launchApp:
-    clearState: true
 - evalScript: ${output.runId = Date.now().toString()}
-- tapOn:
-    id: "dashboard-open-profile"
-    optional: true
-- tapOn:
-    id: "profile-signout-button"
-    optional: true
-- tapOn:
-    text: "Sign Out"
-    optional: true
-- tapOn:
-    id: "login-go-register"
-    optional: true
-- tapOn:
-    id: "register-display-name-input"
-    optional: true
-- tapOn:
-    id: "login-go-register"
-    optional: true
-
-# Register user-1 (admin)
-- extendedWaitUntil:
-    visible:
-      id: "register-display-name-input"
-    timeout: 20000
-- tapOn:
-    id: "register-display-name-input"
-- inputText: "FX Admin ${output.runId}"
-- tapOn:
-    id: "register-email-input"
-- inputText: "fxa${output.runId}@example.com"
-- tapOn:
-    id: "register-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- extendedWaitUntil:
-    visible:
-      id: "dashboard-create-event-button"
-    timeout: 30000
-- tapOn:
-    id: "dashboard-open-profile"
-- tapOn:
-    id: "profile-tier-pro"
-- tapOn:
-    text: "OK"
-    optional: true
-- back
-- extendedWaitUntil:
-    visible:
-      id: "dashboard-create-event-button"
-    timeout: 10000
-
-# Create event: USD expense currency, INR settlement currency, EOD FX
+- runFlow:
+    file: ../../subflows/sign-up.yaml
+    env:
+      NAME: "FX Admin ${output.runId}"
+      EMAIL: "fxadm${output.runId}@example.com"
+- runFlow: ../../subflows/switch-to-pro.yaml
 - tapOn:
     id: "dashboard-create-event-button"
 - tapOn:
     id: "create-event-name-input"
 - inputText: "Maestro FX ${output.runId}"
-- tapOn:
-    id: "create-event-currency-USD"
-- tapOn:
-    id: "create-event-settlement-INR"
-- tapOn:
-    id: "create-event-fx-mode-eod"
-- tapOn:
-    id: "create-event-submit-button"
-- tapOn: "OK"
-- tapOn:
-    text: "OK"
-    optional: true
-- launchApp:
-    clearState: true
-- extendedWaitUntil:
-    visible:
-      id: "login-email-input"
-    timeout: 20000
-- tapOn:
-    id: "login-email-input"
-- inputText: "fxa${output.runId}@example.com"
-- tapOn:
-    id: "login-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- tapOn:
-    id: "login-submit-button"
-    optional: true
-- extendedWaitUntil:
-    visible: "Maestro FX ${output.runId}"
-    timeout: 20000
-- tapOn: "Maestro FX ${output.runId}"
-
-# Invite user-2
-- extendedWaitUntil:
-    visible:
-      id: "event-detail-tab-participants"
-    timeout: 20000
-- tapOn:
-    id: "event-detail-tab-participants"
-- tapOn:
-    id: "event-detail-open-invite-modal-participants"
-- tapOn:
-    id: "event-detail-invite-email-input"
-- inputText: "fxm${output.runId}@example.com"
-- tapOn:
-    text: "Send"
-- tapOn:
-    text: "Send"
-    optional: true
-- extendedWaitUntil:
-    notVisible: "Invite to Event"
-    timeout: 10000
-- tapOn:
-    id: "event-detail-tab-invitations"
-- extendedWaitUntil:
-    visible: "fxm${output.runId}@example.com"
-    timeout: 10000
-
-# Switch to user-2
-- launchApp:
-    clearState: true
-- tapOn:
-    id: "dashboard-open-profile"
-    optional: true
-- tapOn:
-    id: "profile-signout-button"
-    optional: true
-- tapOn:
-    text: "Sign Out"
-    optional: true
-- tapOn:
-    id: "login-go-register"
-    optional: true
-- tapOn:
-    id: "register-display-name-input"
-    optional: true
-- tapOn:
-    id: "login-go-register"
-    optional: true
-
-# Register user-2 and accept invite
-- extendedWaitUntil:
-    visible:
-      id: "register-display-name-input"
-    timeout: 20000
-- tapOn:
-    id: "register-display-name-input"
-- inputText: "FX Member ${output.runId}"
-- tapOn:
-    id: "register-email-input"
-- inputText: "fxm${output.runId}@example.com"
-- tapOn:
-    id: "register-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- tapOn:
-    id: "dashboard-open-invitations"
-- extendedWaitUntil:
-    visible: "Accept"
-    timeout: 10000
-- tapOn: "Accept"
-- assertVisible: "Accepted"
-- tapOn: "OK"
-
-# Switch back to user-1, add expense and settle
-- launchApp:
-    clearState: true
-- extendedWaitUntil:
-    visible:
-      id: "login-email-input"
-    timeout: 20000
-- tapOn:
-    id: "login-email-input"
-- inputText: "fxa${output.runId}@example.com"
-- tapOn:
-    id: "login-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- tapOn:
-    id: "login-submit-button"
-    optional: true
-- extendedWaitUntil:
-    visible: "Maestro FX ${output.runId}"
-    timeout: 20000
-- tapOn: "Maestro FX ${output.runId}"
-- tapOn:
-    id: "event-detail-add-expense-button"
-- tapOn:
-    id: "create-expense-title-input"
-- inputText: "Hotel ${output.runId}"
-- tapOn:
-    id: "create-expense-amount-input"
-- inputText: "300"
 - pressKey: Enter
 - scrollUntilVisible:
     element:
-      id: "create-expense-submit-button"
+      id: "create-event-currency-USD"
     direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
 - tapOn:
-    id: "create-expense-submit-button"
-    optional: true
-- extendedWaitUntil:
-    notVisible: "Add Expense"
-    timeout: 30000
+    id: "create-event-currency-USD"
+- scrollUntilVisible:
+    element:
+      id: "create-event-settlement-INR"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-settlement-INR"
+- scrollUntilVisible:
+    element:
+      id: "create-event-fx-mode-predefined"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-fx-mode-predefined"
+- tapOn:
+    id: "create-event-fx-rate-input"
+- inputText: "83"
+# Close the number pad (it has no Enter key) by tapping the field's label: it can cover the buttons below.
+- tapOn: "1 USD = .*"
+- scrollUntilVisible:
+    element:
+      id: "create-event-submit-button"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-submit-button"
 - tapOn:
     text: "OK"
     optional: true
 - extendedWaitUntil:
-    visible: "Maestro FX ${output.runId}"
-    timeout: 10000
-- assertVisible: "Hotel ${output.runId}"
+    visible:
+      id: "event-detail-tab-expenses"
+    timeout: 20000
+- runFlow: ../../subflows/wait-for-toast.yaml
+- runFlow:
+    file: ../../subflows/invite.yaml
+    env:
+      EMAIL: "fxmb${output.runId}@example.com"
+
+# The member joins.
+- runFlow:
+    file: ../../subflows/sign-up.yaml
+    env:
+      NAME: "FX Member ${output.runId}"
+      EMAIL: "fxmb${output.runId}@example.com"
+- runFlow: ../../subflows/accept-invitation.yaml
+
+# The organiser adds dinner and settles up; the plan goes to review.
+- runFlow:
+    file: ../../subflows/sign-in.yaml
+    env:
+      EMAIL: "fxadm${output.runId}@example.com"
+- runFlow:
+    file: ../../subflows/open-event.yaml
+    env:
+      EVENT: "Maestro FX ${output.runId}"
+- runFlow:
+    file: ../../subflows/add-expense.yaml
+    env:
+      TITLE: "Hotel ${output.runId}"
+      AMOUNT: "200"
 - tapOn:
     id: "event-detail-settle-button"
-- tapOn: "Generate"
-- assertVisible: "Settlements"
-
-# User-2 pays mock checkout
-- launchApp:
-    clearState: true
+- tapOn:
+    id: "confirm-button-settle-now"
 - extendedWaitUntil:
     visible:
-      id: "login-email-input"
+      id: "event-detail-approve-settlement"
     timeout: 20000
 - tapOn:
-    id: "login-email-input"
-- inputText: "fxm${output.runId}@example.com"
+    id: "event-detail-approve-settlement"
 - tapOn:
-    id: "login-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- tapOn:
-    id: "login-submit-button"
+    text: "OK"
     optional: true
 - extendedWaitUntil:
-    visible: "Maestro FX ${output.runId}"
+    visible: ".*You have approved.*"
     timeout: 20000
-- tapOn: "Maestro FX ${output.runId}"
-- extendedWaitUntil:
-    visible: "Settlements"
-    timeout: 30000
-- extendedWaitUntil:
-    visible:
+
+# The member approves too, then records paying their $100 share as ₹8300.00.
+- runFlow:
+    file: ../../subflows/sign-in.yaml
+    env:
+      EMAIL: "fxmb${output.runId}@example.com"
+- runFlow:
+    file: ../../subflows/open-event.yaml
+    env:
+      EVENT: "Maestro FX ${output.runId}"
+- scrollUntilVisible:
+    element:
+      id: "event-detail-approve-settlement"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "event-detail-approve-settlement"
+- tapOn:
+    text: "OK"
+    optional: true
+- scrollUntilVisible:
+    element:
       id: "event-detail-settlement-pay-.*"
-    timeout: 30000
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible: ".*₹8,?300\\.00.*"
 - tapOn:
     id: "event-detail-settlement-pay-.*"
-- assertVisible: "initiated"
-
-# User-1 confirms settlement
-- launchApp:
-    clearState: true
 - extendedWaitUntil:
-    visible:
-      id: "login-email-input"
-    timeout: 20000
+    visible: "Pay Settlement"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: "event-detail-mark-paid-submit"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
 - tapOn:
-    id: "login-email-input"
-- inputText: "fxa${output.runId}@example.com"
+    id: "event-detail-mark-paid-submit"
 - tapOn:
-    id: "login-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- tapOn:
-    id: "login-submit-button"
+    text: "OK"
     optional: true
-- extendedWaitUntil:
-    visible: "Maestro FX ${output.runId}"
-    timeout: 20000
-- tapOn: "Maestro FX ${output.runId}"
-- extendedWaitUntil:
-    visible:
+
+# The organiser confirms receipt; the event is settled and can be closed.
+- runFlow:
+    file: ../../subflows/sign-in.yaml
+    env:
+      EMAIL: "fxadm${output.runId}@example.com"
+- runFlow:
+    file: ../../subflows/open-event.yaml
+    env:
+      EVENT: "Maestro FX ${output.runId}"
+- scrollUntilVisible:
+    element:
       id: "event-detail-settlement-confirm-.*"
-    timeout: 15000
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
 - tapOn:
     id: "event-detail-settlement-confirm-.*"
+- tapOn:
+    text: "OK"
+    optional: true
+- scrollUntilVisible:
+    element:
+      id: "event-detail-close-event"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "event-detail-close-event"
+- tapOn:
+    id: "confirm-button-close"
 - extendedWaitUntil:
-    visible: "Settled"
-    timeout: 15000
-- assertVisible: "Close Event"
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 20000
+- assertNotVisible: ".*Maestro FX ${output.runId}.*"

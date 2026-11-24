@@ -1,0 +1,31 @@
+appId: com.traxettle.app
+name: "Subflow: add an expense split equally among everyone"
+# env: TITLE, AMOUNT. Starts and ends on the event's screen.
+---
+- tapOn:
+    id: "event-detail-tab-expenses"
+- tapOn:
+    id: "event-detail-add-expense-button"
+- tapOn:
+    id: "create-expense-title-input"
+- inputText: ${TITLE}
+- tapOn:
+    id: "create-expense-amount-input"
+- inputText: ${AMOUNT}
+# Close the number pad (it has no Enter key) by tapping the field's label: it can cover the buttons below.
+- tapOn: "Amount \\(.*\\)"
+- scrollUntilVisible:
+    element:
+      id: "create-expense-submit-button"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-expense-submit-button"
+- tapOn:
+    text: "OK"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*${TITLE}.*"
+    timeout: 20000
+- runFlow: wait-for-toast.yaml

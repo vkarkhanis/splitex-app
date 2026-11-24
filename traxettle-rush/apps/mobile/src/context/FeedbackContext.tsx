@@ -34,6 +34,11 @@ const FeedbackContext = createContext<FeedbackContextType>({
   pushToast: () => {},
 });
 
+/** Test id for a confirmation dialog's button, from its label: "Settle Now" -> "confirm-button-settle-now". */
+export function confirmButtonTestId(text: string): string {
+  return `confirm-button-${text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+}
+
 function inferToastTone(title: string): ToastTone {
   const t = (title || '').toLowerCase();
   if (t.includes('error') || t.includes('failed') || t.includes('missing')) return 'error';
@@ -124,6 +129,7 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
           return (
             <View
               key={toast.id}
+              testID="app-toast"
               style={[
                 styles.toastCard,
                 {
@@ -175,6 +181,7 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
                 return (
                   <TouchableOpacity
                     key={`${btn.text}-${idx}`}
+                    testID={confirmButtonTestId(btn.text)}
                     style={[styles.modalBtn, { backgroundColor: variant.bg, borderColor: variant.border }]}
                     onPress={() => {
                       setConfirm((s) => ({ ...s, visible: false }));

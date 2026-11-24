@@ -1,0 +1,20 @@
+appId: com.traxettle.app
+name: "Subflow: accept the pending invitation, back to the dashboard"
+---
+- tapOn:
+    id: "dashboard-avatar-menu"
+- tapOn:
+    id: "menu-invitations"
+- extendedWaitUntil:
+    visible: "Accept"
+    timeout: 15000
+- tapOn: "Accept"
+- tapOn:
+    text: "OK"
+    optional: true
+- runFlow: go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 10000
+- runFlow: wait-for-toast.yaml

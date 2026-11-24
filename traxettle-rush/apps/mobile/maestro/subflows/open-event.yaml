@@ -1,0 +1,12 @@
+appId: com.traxettle.app
+name: "Subflow: open an event from the dashboard"
+# env: EVENT (its name).
+---
+- extendedWaitUntil:
+    visible: ".*${EVENT}.*"
+    timeout: 20000
+- tapOn: ".*${EVENT}.*"
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-tab-expenses"
+    timeout: 20000

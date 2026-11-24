@@ -1,0 +1,57 @@
+appId: com.traxettle.app
+name: "Subflow: sign out whoever is signed in"
+# Handles a session left in the keychain by an earlier flow: unlocks it (every test user's PIN is
+# 1234) or finishes its PIN set-up, then signs out. Ends on the sign-in screen.
+---
+- runFlow: wait-for-toast.yaml
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 6000
+    optional: true
+- runFlow:
+    when:
+      visible:
+        id: "unlock-pin-input"
+    commands:
+      - tapOn:
+          id: "unlock-pin-input"
+      - inputText: "1234"
+      - tapOn:
+          id: "unlock-pin-submit-button"
+- runFlow:
+    when:
+      visible:
+        id: "setup-pin-input"
+    commands:
+      - runFlow: set-pin.yaml
+- tapOn:
+    text: "Skip"
+    optional: true
+# Signed in but deeper in the app: back out to the dashboard (up to three screens).
+- repeat:
+    times: 3
+    commands:
+      - runFlow:
+          when:
+            notVisible:
+              id: "dashboard-avatar-menu"
+          commands:
+            - tapOn:
+                id: "BackButton"
+                optional: true
+- runFlow:
+    when:
+      visible:
+        id: "dashboard-avatar-menu"
+    commands:
+      - tapOn:
+          id: "dashboard-avatar-menu"
+      - tapOn:
+          id: "menu-signout"
+      - tapOn:
+          id: "confirm-button-sign-out"
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 15000

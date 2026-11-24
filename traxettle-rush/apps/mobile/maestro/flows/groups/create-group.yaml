@@ -1,66 +1,19 @@
 appId: com.traxettle.app
-name: Group Creation Flow
+name: Groups — invite a member, they accept, the organiser groups them
 ---
-- launchApp:
-    clearState: true
 - evalScript: ${output.runId = Date.now().toString()}
+- runFlow:
+    file: ../../subflows/sign-up.yaml
+    env:
+      NAME: "Group Admin ${output.runId}"
+      EMAIL: "grpadm${output.runId}@example.com"
 
-# Ensure signed out
-- tapOn:
-    id: "dashboard-open-profile"
-    optional: true
-- tapOn:
-    id: "profile-signout-button"
-    optional: true
-- tapOn:
-    text: "Sign Out"
-    optional: true
-
-# Register admin
-- tapOn:
-    id: "login-go-register"
-    optional: true
-- tapOn:
-    id: "register-display-name-input"
-    optional: true
-- tapOn:
-    id: "login-go-register"
-    optional: true
-- extendedWaitUntil:
-    visible:
-      id: "register-display-name-input"
-    timeout: 20000
-- tapOn:
-    id: "register-display-name-input"
-- inputText: "Group Admin ${output.runId}"
-- tapOn:
-    id: "register-email-input"
-- inputText: "grpadm${output.runId}@example.com"
-- tapOn:
-    id: "register-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- extendedWaitUntil:
-    visible:
-      id: "dashboard-create-event-button"
-    timeout: 30000
-
-# Create event
-- tapOn:
-    id: "dashboard-create-event-button"
-- tapOn:
-    id: "create-event-name-input"
-- inputText: "Group Event ${output.runId}"
-- tapOn:
-    id: "create-event-currency-USD"
-- tapOn:
-    id: "create-event-settlement-same"
-- tapOn:
-    id: "create-event-submit-button"
-- tapOn: "OK"
-- assertVisible: "Group Event ${output.runId}"
-
-# Invite a member so we can add them to a group
+# Create an event and invite the member.
+- runFlow:
+    file: ../../subflows/create-split-event.yaml
+    env:
+      EVENT: "Group Event ${output.runId}"
+      CURRENCY: "USD"
 - extendedWaitUntil:
     visible:
       id: "event-detail-tab-participants"
@@ -81,91 +34,62 @@ name: Group Creation Flow
     notVisible: "Invite to Event"
     timeout: 10000
 
-# Switch to user-2 to accept invite
-- launchApp:
-    clearState: true
+# The member signs up and accepts from Invitations.
+- runFlow:
+    file: ../../subflows/sign-up.yaml
+    env:
+      NAME: "Group Member ${output.runId}"
+      EMAIL: "grpmb${output.runId}@example.com"
 - tapOn:
-    id: "dashboard-open-profile"
-    optional: true
+    id: "dashboard-avatar-menu"
 - tapOn:
-    id: "profile-signout-button"
-    optional: true
-- tapOn:
-    text: "Sign Out"
-    optional: true
-- tapOn:
-    id: "login-go-register"
-    optional: true
-- tapOn:
-    id: "register-display-name-input"
-    optional: true
-- tapOn:
-    id: "login-go-register"
-    optional: true
-- extendedWaitUntil:
-    visible:
-      id: "register-display-name-input"
-    timeout: 20000
-- tapOn:
-    id: "register-display-name-input"
-- inputText: "Group Member ${output.runId}"
-- tapOn:
-    id: "register-email-input"
-- inputText: "grpmb${output.runId}@example.com"
-- tapOn:
-    id: "register-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- tapOn:
-    id: "dashboard-open-invitations"
+    id: "menu-invitations"
 - extendedWaitUntil:
     visible: "Accept"
-    timeout: 10000
+    timeout: 15000
 - tapOn: "Accept"
-- assertVisible: "Accepted"
-- tapOn: "OK"
+- tapOn:
+    text: "OK"
+    optional: true
 
-# Switch back to admin
-- launchApp:
-    clearState: true
+# Back as the organiser: group the two of them.
+- runFlow:
+    file: ../../subflows/sign-in.yaml
+    env:
+      EMAIL: "grpadm${output.runId}@example.com"
+- extendedWaitUntil:
+    visible: ".*Group Event ${output.runId}.*"
+    timeout: 20000
+- tapOn: ".*Group Event ${output.runId}.*"
 - extendedWaitUntil:
     visible:
-      id: "login-email-input"
+      id: "event-detail-tab-groups"
     timeout: 20000
-- tapOn:
-    id: "login-email-input"
-- inputText: "grpadm${output.runId}@example.com"
-- tapOn:
-    id: "login-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- tapOn:
-    id: "login-submit-button"
-    optional: true
-- extendedWaitUntil:
-    visible: "Group Event ${output.runId}"
-    timeout: 20000
-- tapOn: "Group Event ${output.runId}"
-
-# Navigate to groups tab and create a group
 - tapOn:
     id: "event-detail-tab-groups"
 - tapOn:
-    id: "event-detail-create-group-button"
+    id: "event-detail-open-create-group-modal"
 - tapOn:
     id: "create-group-name-input"
 - inputText: "Family ${output.runId}"
+# Tick both people: the organiser and the member who just joined.
+- tapOn:
+    id: "create-group-member-.*"
+    index: 0
+- tapOn:
+    id: "create-group-member-.*"
+    index: 1
 - scrollUntilVisible:
     element:
       id: "create-group-submit-button"
     direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
 - tapOn:
     id: "create-group-submit-button"
-    optional: true
 - tapOn:
     text: "OK"
     optional: true
 - extendedWaitUntil:
-    visible: "Family ${output.runId}"
+    visible: ".*Family ${output.runId}.*"
     timeout: 10000
-- assertVisible: "Family ${output.runId}"

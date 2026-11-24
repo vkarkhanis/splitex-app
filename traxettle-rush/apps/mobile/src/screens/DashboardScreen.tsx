@@ -303,7 +303,9 @@ export default function DashboardScreen({ navigation, route }: any) {
         animationType="fade"
         onRequestClose={() => setMenuVisible(false)}
       >
-        <Pressable style={styles.menuOverlay} onPress={() => setMenuVisible(false)}>
+        {/* accessible={false}: otherwise iOS merges the whole menu into one element, so VoiceOver
+            (and UI tests) can't reach each item. Tapping outside the card still closes it. */}
+        <Pressable style={styles.menuOverlay} onPress={() => setMenuVisible(false)} accessible={false}>
           <View style={[styles.menuCard, { backgroundColor: c.surface, shadowColor: c.black }]}>
             {/* User header */}
             <View style={[styles.menuHeader, { borderBottomColor: c.border }]}>

@@ -1,64 +1,20 @@
 appId: com.traxettle.app
-name: Event Creation and Management
+name: Events — create an event, add an expense, invite someone
 ---
-- launchApp:
-    clearState: true
 - evalScript: ${output.runId = Date.now().toString()}
-
-# Ensure signed out first
-- tapOn:
-    id: "dashboard-open-profile"
-    optional: true
-- tapOn:
-    id: "profile-signout-button"
-    optional: true
-- tapOn:
-    text: "Sign Out"
-    optional: true
-
-# Register a new user
-- tapOn:
-    id: "login-go-register"
-    optional: true
-- tapOn:
-    id: "register-display-name-input"
-    optional: true
-- tapOn:
-    id: "login-go-register"
-    optional: true
-- extendedWaitUntil:
-    visible:
-      id: "register-display-name-input"
-    timeout: 20000
-- tapOn:
-    id: "register-display-name-input"
-- inputText: "Event Manager ${output.runId}"
-- tapOn:
-    id: "register-email-input"
-- inputText: "evtmgr${output.runId}@example.com"
-- tapOn:
-    id: "register-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- extendedWaitUntil:
-    visible:
-      id: "dashboard-create-event-button"
-    timeout: 30000
+- runFlow:
+    file: ../../subflows/sign-up.yaml
+    env:
+      NAME: "Event Manager ${output.runId}"
+      EMAIL: "evtmgr${output.runId}@example.com"
 
 # Create a new event
-- tapOn:
-    id: "dashboard-create-event-button"
-- tapOn:
-    id: "create-event-name-input"
-- inputText: "Maestro Event ${output.runId}"
-- tapOn:
-    id: "create-event-currency-USD"
-- tapOn:
-    id: "create-event-settlement-same"
-- tapOn:
-    id: "create-event-submit-button"
-- tapOn: "OK"
-- assertVisible: "Maestro Event ${output.runId}"
+- runFlow:
+    file: ../../subflows/create-split-event.yaml
+    env:
+      EVENT: "Maestro Event ${output.runId}"
+      CURRENCY: "USD"
+- assertVisible: ".*Maestro Event ${output.runId}.*"
 
 # Navigate to expense tab
 - extendedWaitUntil:
@@ -75,11 +31,15 @@ name: Event Creation and Management
 - tapOn:
     id: "create-expense-amount-input"
 - inputText: "50"
+# Close the number pad (it has no Enter key) by tapping the field's label: it can cover the buttons below.
+- tapOn: "Amount \\(.*\\)"
 - pressKey: Enter
 - scrollUntilVisible:
     element:
       id: "create-expense-submit-button"
     direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
 - tapOn:
     id: "create-expense-submit-button"
     optional: true
@@ -90,9 +50,9 @@ name: Event Creation and Management
     text: "OK"
     optional: true
 - extendedWaitUntil:
-    visible: "Maestro Event ${output.runId}"
+    visible: ".*Maestro Event ${output.runId}.*"
     timeout: 10000
-- assertVisible: "Lunch ${output.runId}"
+- assertVisible: ".*Lunch ${output.runId}.*"
 
 # Navigate to participants tab
 - tapOn:
@@ -121,7 +81,7 @@ name: Event Creation and Management
 - tapOn:
     id: "event-detail-tab-invitations"
 - extendedWaitUntil:
-    visible: "invited${output.runId}@example.com"
+    visible: ".*invited${output.runId}@example.com.*"
     timeout: 10000
 
 # Navigate to groups tab
@@ -129,13 +89,13 @@ name: Event Creation and Management
     id: "event-detail-tab-groups"
 - extendedWaitUntil:
     visible:
-      id: "event-detail-create-group-button"
+      id: "event-detail-open-create-group-modal"
     timeout: 10000
 
 # Go back to dashboard
-- back
+- runFlow: ../../subflows/go-back.yaml
 - extendedWaitUntil:
     visible:
       id: "dashboard-create-event-button"
     timeout: 10000
-- assertVisible: "Maestro Event ${output.runId}"
+- assertVisible: ".*Maestro Event ${output.runId}.*"
