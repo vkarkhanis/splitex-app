@@ -12,8 +12,10 @@ name: "Subflow: add an expense split equally among everyone"
 - tapOn:
     id: "create-expense-amount-input"
 - inputText: ${AMOUNT}
-# Close the number pad (it has no Enter key) by tapping the field's label: it can cover the buttons below.
-- tapOn: "Amount \\(.*\\)"
+- runFlow:
+    file: close-number-pad.yaml
+    env:
+      LABEL: "Amount \\(.*\\)"
 - scrollUntilVisible:
     element:
       id: "create-expense-submit-button"
@@ -28,4 +30,3 @@ name: "Subflow: add an expense split equally among everyone"
 - extendedWaitUntil:
     visible: ".*${TITLE}.*"
     timeout: 20000
-- runFlow: wait-for-toast.yaml

@@ -17,4 +17,3 @@ name: "Subflow: invite someone to the open event"
 - extendedWaitUntil:
     notVisible: "Invite to Event"
     timeout: 10000
-- runFlow: wait-for-toast.yaml

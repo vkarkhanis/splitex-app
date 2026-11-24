@@ -6,7 +6,7 @@ Part of the regression suite. Setup, running and conventions are in
 ## Layout
 
 - `flows/<area>/*.yaml`: the flows. `flows/config.yaml` picks the flows and holds iOS settings; the runner always passes it with `--config`.
-- `subflows/*.yaml`: shared steps that flows include with `runFlow`: `sign-up`, `sign-in`, `sign-out`, `after-sign-in` (PIN, Save Password, walkthrough), `create-split-event`, `invite`, `accept-invitation`, `open-event`, `add-expense`, `switch-to-pro`, `go-back` and `wait-for-toast` (taps do nothing while a toast is up).
+- `subflows/*.yaml`: shared steps that flows include with `runFlow`: `sign-up`, `sign-in`, `sign-out`, `after-sign-in` (PIN, Save Password, walkthrough), `create-split-event`, `invite`, `accept-invitation`, `open-event`, `add-expense`, `switch-to-pro` and `go-back`.
 - `scripts/build-test-app.sh ios|android`: builds and installs the **Debug** test app. Its JavaScript comes from Metro and its defaults point at the local API. Never use a Release build: it falls back to the production API.
 - `scripts/run-maestro.sh`: starts the Firebase emulators, the API and Metro. Then it runs `preflight.yaml` and stops unless the app reaches the local API. Then it cleans test data, runs the flows and cleans up. Use it through `rush test:regression:mobile`.
 - `preflight.yaml`: the safety check. It tries to sign in as a made-up account, which changes nothing.

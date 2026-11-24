@@ -47,8 +47,10 @@ name: Pools — a Kitty from creation to settle-up (Pro)
 - tapOn:
     id: "pool-per-person-input"
 - inputText: "1000"
-# Close the number pad (it has no Enter key) by tapping the field's label: it can cover the buttons below.
-- tapOn: "Each person puts in.*"
+- runFlow:
+    file: ../../subflows/close-number-pad.yaml
+    env:
+      LABEL: "Each person puts in.*"
 - scrollUntilVisible:
     element:
       id: "create-event-submit-button"
@@ -64,7 +66,6 @@ name: Pools — a Kitty from creation to settle-up (Pro)
     visible:
       id: "event-detail-tab-expenses"
     timeout: 20000
-- runFlow: ../../subflows/wait-for-toast.yaml
 
 # Pay in: the organiser holds the money, so their own payment counts at once.
 - scrollUntilVisible:
@@ -93,7 +94,6 @@ name: Pools — a Kitty from creation to settle-up (Pro)
 - extendedWaitUntil:
     visible: ".*1,000\\.00.*"
     timeout: 15000
-- runFlow: ../../subflows/wait-for-toast.yaml
 
 # Spend ₹200 from the kitty.
 - scrollUntilVisible:
@@ -116,8 +116,10 @@ name: Pools — a Kitty from creation to settle-up (Pro)
 - tapOn:
     id: "create-expense-amount-input"
 - inputText: "200"
-# Close the number pad (it has no Enter key) by tapping the field's label: it can cover the buttons below.
-- tapOn: "Amount \\(.*\\)"
+- runFlow:
+    file: ../../subflows/close-number-pad.yaml
+    env:
+      LABEL: "Amount \\(.*\\)"
 - scrollUntilVisible:
     element:
       id: "create-expense-submit-button"
@@ -132,7 +134,6 @@ name: Pools — a Kitty from creation to settle-up (Pro)
 - extendedWaitUntil:
     visible: ".*800\\.00.*"
     timeout: 20000
-- runFlow: ../../subflows/wait-for-toast.yaml
 
 # Settle up: ₹800 left over.
 - scrollUntilVisible:

@@ -138,21 +138,22 @@ What the runner does:
 3. Cleans test data, runs every flow in `maestro/flows`, then cleans up again.
 
 Options:
-- **Pick a device:** `MAESTRO_DEVICE=<id>`.
+- **Pick a device:** `MAESTRO_DEVICE=<id>`: a simulator's UDID (`xcrun simctl list devices booted`) or an Android emulator's serial (`emulator-5554`, from `adb devices`).
 - **Run only some folders:** `MAESTRO_FLOWS="pools settlement"`.
 - **Screenshots and logs for failures:** `MAESTRO_MODE=artifacts`. They go to `apps/mobile/maestro/artifacts/`.
 
 **Writing a flow:**
 - **Start with `runFlow: ../../subflows/sign-up.yaml`.** It signs out anyone left over, registers a fresh user, and handles the PIN, the iOS "Save Password?" prompt and the first-run walkthrough. Then the flow works alone and in any order.
-- **Other subflows:** `sign-in`, `create-split-event`, `invite`, `accept-invitation`, `open-event`, `add-expense`, `switch-to-pro` and `go-back`. Maestro's own `back` only works on Android.
+- **Other subflows:** `sign-in`, `create-split-event`, `invite`, `accept-invitation`, `open-event`, `add-expense`, `switch-to-pro`, `go-back` (the header button on iOS, the system back on Android) and `close-number-pad`.
+- **Write each flow for both platforms.** Where they differ, use `runFlow` with `when: platform: iOS` or `Android`, as `go-back`, `sign-out` and `close-number-pad` do.
 - **iOS gotchas:**
   - Match text that sits inside a tappable card as part of a label (`".*Lunch ${output.runId}.*"`): iOS reads a card's texts as one label.
   - A backdrop that wraps a modal's content needs `accessible={false}`, or iOS hides everything inside it.
-  - Don't use `hideKeyboard`: on iOS it can tap the screen. After typing text, close the keyboard with `pressKey: Enter`. A number pad has no Enter key: tap the field's label instead (`tapOn: "Amount \\(.*\\)"`). An open keyboard covers the buttons below it, and a tap there lands on a key.
+  - **Close the keyboard after typing,** or it covers what's below it, and a tap there lands on a key. For text, `pressKey: Enter`. A number pad has no Enter key: `runFlow` `close-number-pad.yaml` with the field's label as `LABEL` (it taps the label on iOS and uses `hideKeyboard` on Android). Don't use `hideKeyboard` on iOS: it can tap the screen.
+  - **Scroll to a field before tapping it** (`scrollUntilVisible`). iOS finds fields just below the edge of the screen; Android doesn't.
   - After `scrollUntilVisible`, add `waitForAnimationToEnd` before tapping. A tap while the list is still gliding, or while a sheet is sliding up, only stops the movement.
 - **The app's alerts:** `src/context/FeedbackContext.tsx` replaces `Alert.alert`.
   - A one-button alert ("Success", "Approved") becomes a toast, so there's no OK button to tap. Check the result on screen instead (`.*You have approved.*`, `.*Current: PRO.*`). Some flows still have an `optional` `tapOn: "OK"`; it does nothing.
-  - **While a toast is showing, taps do nothing** (see §8). Before tapping after a step that shows one, `runFlow: ../../subflows/wait-for-toast.yaml`. `sign-out` and `go-back` already start with it.
   - An alert with choices becomes a dialog. Tap its buttons by id: `confirm-button-<label>`, e.g. `confirm-button-settle-now`, `confirm-button-close`, `confirm-button-sign-out`. Matching the label's text also matches the button behind the dialog and the dialog's title.
   - `flows/config.yaml` sets `snapshotKeyHonorModalViews: false`. Without it, iOS sometimes reported an empty screen while a dialog was open. The runner passes that file with `--config`, because Maestro reads it by itself only when given the whole folder.
 - **Debug app gotchas:**
@@ -173,7 +174,7 @@ These were added afterwards.
 
 ### Where each area stands
 
-Last full check on 2026-11-24: all 7 Maestro flows passed on the iOS simulator (iPhone 17 Pro, Debug app, local API and emulators), in about 19 minutes. The Android flows haven't been run yet.
+Last full check on 2026-11-24: all 7 Maestro flows passed on both platforms (Debug app, local API and Firebase emulators): the iOS simulator (iPhone 17 Pro, iOS 26.5) in about 19 minutes, and the Android emulator (Pixel 10 Pro XL, Android 17) in about 29 minutes.
 
 | Area | Unit/API | Web (Playwright) | Mobile (Maestro) |
 |---|---|---|---|
@@ -212,4 +213,4 @@ Add tests for these as the areas change. Update the table when you add coverage.
 | 2026-11-24 | **About one API run in six fails a single, different test** (seen: `join failed: 404 {}` in `pools.flows`, and a `users` profile test). Tests already run one at a time | `apps/api` tests | Mitigated. One cause found: on a busy machine a route flow test could pass Jest's 5-second limit, and the timed-out test's open request then kept Jest from exiting, hanging the run. `jest.config.ts` now allows 20 seconds per test and exits when the tests finish (`forceExit`). Failed tests also retry once and log the first failure (`jest.setup.ts`) |
 | 2026-11-24 | `settlements.spec.ts` "multi-currency settlement with predefined FX" silently skipped: its user wasn't Pro | `e2e/tests/settlements.spec.ts` | Fixed: the test switches its user to Pro first |
 | 2026-11-24 | `events.spec.ts` "should show empty state" could run before the dashboard loaded | `e2e/tests/events.spec.ts` | Fixed: a fresh user, and it waits for the empty state |
-| 2026-11-24 | **On iOS the app ignores taps for about 3 seconds after any toast** ("Success", "Approved", "Recorded"...). Toasts are drawn in a full-screen React Native `Modal`, which catches every touch even where it's transparent. Proven on the simulator: a tap on the Dark theme works normally and does nothing while the "Switched to PRO" toast is up. Android likely behaves the same. | `apps/mobile/src/context/FeedbackContext.tsx` | Open. Maestro flows wait for toasts to clear (`subflows/wait-for-toast.yaml`) |
+| 2026-11-24 | **The app ignored taps for about 3 seconds after any toast** ("Success", "Approved", "Error"...), on iOS and Android. Toasts were drawn in a full-screen React Native `Modal`, which catches every touch even where it's transparent. Proven on both simulators: a tap on the Dark theme did nothing while a toast was up | `apps/mobile/src/context/FeedbackContext.tsx` | Fixed: iOS draws toasts in a `FullWindowOverlay` (above sheets, taps pass through); Android draws them in a layer over the app, and each sheet renders `<ModalToasts />` so toasts show above it. Unit tests in `FeedbackContext.test.tsx`; the Maestro flows no longer wait for toasts, so they fail if toasts block taps again |

@@ -40,11 +40,19 @@ name: Settlement — USD expenses settled in INR at a set rate (Pro)
     timeout: 3000
 - tapOn:
     id: "create-event-fx-mode-predefined"
+- scrollUntilVisible:
+    element:
+      id: "create-event-fx-rate-input"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
 - tapOn:
     id: "create-event-fx-rate-input"
 - inputText: "83"
-# Close the number pad (it has no Enter key) by tapping the field's label: it can cover the buttons below.
-- tapOn: "1 USD = .*"
+- runFlow:
+    file: ../../subflows/close-number-pad.yaml
+    env:
+      LABEL: "1 USD = .*"
 - scrollUntilVisible:
     element:
       id: "create-event-submit-button"
@@ -60,7 +68,6 @@ name: Settlement — USD expenses settled in INR at a set rate (Pro)
     visible:
       id: "event-detail-tab-expenses"
     timeout: 20000
-- runFlow: ../../subflows/wait-for-toast.yaml
 - runFlow:
     file: ../../subflows/invite.yaml
     env:

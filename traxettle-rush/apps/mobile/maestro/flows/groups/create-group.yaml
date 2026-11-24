@@ -72,6 +72,8 @@ name: Groups — invite a member, they accept, the organiser groups them
 - tapOn:
     id: "create-group-name-input"
 - inputText: "Family ${output.runId}"
+# Close the keyboard: it covers the member list.
+- pressKey: Enter
 # Tick both people: the organiser and the member who just joined.
 - tapOn:
     id: "create-group-member-.*"

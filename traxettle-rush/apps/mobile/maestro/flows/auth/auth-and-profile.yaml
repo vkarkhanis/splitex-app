@@ -43,7 +43,6 @@ name: Auth and profile
       - tapOn:
           text: "Traxettle v.*"
           optional: true
-- runFlow: ../../subflows/wait-for-toast.yaml
 - scrollUntilVisible:
     element:
       id: "profile-lock-session-button"

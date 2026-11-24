@@ -2,7 +2,6 @@ appId: com.traxettle.app
 name: "Subflow: go back one screen"
 # Maestro's `back` only works on Android; on iOS, tap the navigation bar's back button.
 ---
-- runFlow: wait-for-toast.yaml
 - runFlow:
     when:
       platform: iOS

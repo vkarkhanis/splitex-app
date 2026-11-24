@@ -17,4 +17,3 @@ name: "Subflow: accept the pending invitation, back to the dashboard"
     visible:
       id: "dashboard-create-event-button"
     timeout: 10000
-- runFlow: wait-for-toast.yaml

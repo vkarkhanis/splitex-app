@@ -31,8 +31,10 @@ name: Events — create an event, add an expense, invite someone
 - tapOn:
     id: "create-expense-amount-input"
 - inputText: "50"
-# Close the number pad (it has no Enter key) by tapping the field's label: it can cover the buttons below.
-- tapOn: "Amount \\(.*\\)"
+- runFlow:
+    file: ../../subflows/close-number-pad.yaml
+    env:
+      LABEL: "Amount \\(.*\\)"
 - pressKey: Enter
 - scrollUntilVisible:
     element:

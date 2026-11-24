@@ -39,4 +39,3 @@ name: "Subflow: create a split-expenses event from the dashboard"
     visible:
       id: "event-detail-tab-expenses"
     timeout: 20000
-- runFlow: wait-for-toast.yaml
