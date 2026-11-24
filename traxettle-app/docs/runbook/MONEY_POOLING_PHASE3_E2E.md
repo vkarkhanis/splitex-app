@@ -1,23 +1,160 @@
 # Money Pooling — Phase 3 hand-test plan
 
-What Phase 3 adds ([proposal and as-built notes](../utility/MONEY_POOLING_PHASE3_PROPOSAL.md)):
-- **A spender list** in "Several of us" pools.
-- **Approvers.**
-- **Expenses entered in another currency,** converted to the event's currency. This covers both pool spends and ordinary split expenses.
+A hand-test plan for the branch `feature/money-pooling-enhancements-phase3`. It covers only what this
+branch changes; the automated regression suite covers the rest of the app
+([REGRESSION_SUITE.md](REGRESSION_SUITE.md)).
 
-Branch: `feature/money-pooling-enhancements-phase3`.
+What the branch changes:
+- **Phase 3** ([proposal and as-built notes](../utility/MONEY_POOLING_PHASE3_PROPOSAL.md)):
+  - **a spender list** in "Several of us" pools;
+  - **approvers**;
+  - **expenses entered in another currency,** converted to the event's currency, for pool spends and ordinary split expenses.
+- **Bug fixes** (Scenario E): in the app, taps no longer stop working for about 3 seconds after a message
+  (a "toast") appears, and toasts now show above an open sheet. The dashboard menu and date fields were
+  also fixed for VoiceOver.
+- **Phase 2 fixes** from its hand test, which this branch includes (Scenario F).
 
 ---
 
 ## 0. Before you start
 
-- **Setup:** exactly as in [Phase 2's plan, §0](MONEY_POOLING_PHASE2_E2E.md#0-before-you-start).
-  - The same three devices and steps, with **Anita on web, Ravi on the iOS simulator, Priya on the Android emulator**.
-  - Run `bash scripts/local-dev/05_set-flags.sh --tier free --payments mock` first.
-  - After pulling, rebuild the shared library: `cd libraries/shared && npx tsc`.
-- **Accounts:** Anita is **Pro**, using the Local Tier Switch on web or the Internal Tier Switch in the app. Ravi and Priya are **free**.
-- **The app talks to the live rates service.** Scenario C uses a fixed rate on the event, so its figures are exact. Where a step uses *today's* rate, check that the figures agree with each other rather than with a fixed number.
-- **Mobile labels:** on mobile the card is **Who can spend and approve** on the Pool screen. The buttons are **Everyone / People I choose**, **Never / Always / Above…**, **Allow / Can spend ✓** and **Approver / Approver ✓**.
+### Is it safe?
+
+Yes. It runs **this branch's API and web app on your Mac**, connected to the **staging** Firebase
+project. Nothing is deployed.
+
+- **Production and the store app (1.0.40) are untouched.** They use the production API and Firebase
+  project, which these steps never touch.
+- **The deployed staging API (Cloud Run) is untouched,** so TestFlight builds switched to Staging keep
+  working as they do now.
+- **What gets written:** test accounts' events, contributions and expenses, in staging Firestore. Phase 3
+  adds a few optional fields (the spender list and approvers on a pool; the entered amount, currency and
+  rate on an expense). The deployed staging API ignores them.
+- **No database or native changes** since Phase 2: no new Firestore indexes or rules, and no new native
+  modules. The app already built on your Mac works; the new code reaches it through Metro.
+- **Don't open these test events in a TestFlight or App Store build switched to Staging.** Those builds use
+  the deployed staging API, which runs older code.
+- **Don't buy anything.** Pro is switched on test accounts with the tier switch.
+
+### Steps on the Mac you test on
+
+You need the same files as for Phases 1 and 2 (the staging service account and Firebase config files).
+The bootstrap step at the start of each script lists anything missing.
+
+1. **Get the branch**, from the repository root (the folder containing `traxettle-rush/`):
+
+   ```bash
+   git fetch origin
+   git checkout feature/money-pooling-enhancements-phase3
+   git pull
+   ```
+
+2. **Install and build**, from `traxettle-rush/`. On Node 25 or later, keep the
+   `RUSH_ALLOW_UNSUPPORTED_NODEJS=1` prefix; on Node 24 it isn't needed.
+
+   ```bash
+   RUSH_ALLOW_UNSUPPORTED_NODEJS=1 node common/scripts/install-run-rush.js install
+   RUSH_ALLOW_UNSUPPORTED_NODEJS=1 node common/scripts/install-run-rush.js build --to @traxettle/shared --to @traxettle/ui
+   ```
+
+   Run the build step again after every pull: the apps read the shared library's built `dist/`.
+
+3. **Optional: the automated suite**, from `traxettle-rush/`. `quick` takes about a minute (type checks
+   and every unit and API test); `full` adds the browser tests, about 5 more minutes, and needs Google
+   Chrome. It prints a summary table.
+
+   ```bash
+   bash scripts/regression/run.sh quick
+   ```
+
+4. **Set the local-dev flags** to the free tier and mock payments. Every payment in this plan is
+   recorded with *I've Paid* and *Confirm Receipt*, so no payment gateway is needed:
+
+   ```bash
+   bash scripts/local-dev/05_set-flags.sh --tier free --payments mock
+   ```
+
+   This rewrites `scripts/local-dev/.runtime.env`, which is in git, so git will show it as changed. Put it
+   back afterwards with `git checkout -- scripts/local-dev/.runtime.env`.
+
+5. **Start one API for everything: web, the iOS simulator and the Android emulator.**
+
+   1. **Start the devices:** an iPhone in the Simulator app, and an emulator from Android Studio
+      (Device Manager). Check that `adb devices` lists the emulator.
+   2. **Terminal 1, the API and Metro** (from `traxettle-rush/`). Clear Metro's cache first, because the
+      last Metro run on that Mac may have used a different API address:
+
+      ```bash
+      rm -rf "${TMPDIR:-/tmp/}"metro-*
+      ```
+
+      ```bash
+      bash scripts/local-dev/03_real_mobile.sh staging
+      ```
+
+      Wait until the API is listening on port 3001 and Metro is waiting on port 8081. If the script says
+      the environment switched, press Enter, and add `--build` in step 4 below.
+   3. **Terminal 2, the web app** (from `traxettle-rush/`):
+
+      ```bash
+      bash scripts/local-dev/04_real_web.sh staging
+      ```
+
+      This script also tries to start an API on port 3001. Terminal 1's is already there, so this one
+      stops with *EADDRINUSE: address already in use* and *app crashed - waiting for file changes*.
+      **That's expected:** the web app uses Terminal 1's API. Open http://localhost:3000 once the web app
+      is ready.
+   4. **Terminal 3, install and open the app** on the simulator and the emulator (from `traxettle-rush/`):
+
+      ```bash
+      bash scripts/local-dev/06_staging_mobile.sh ios --no-bundler
+      ```
+
+      ```bash
+      bash scripts/local-dev/06_staging_mobile.sh android --no-bundler
+      ```
+
+      With `--no-bundler`, this only builds (if needed), installs and opens the app, which loads its code
+      from Terminal 1's Metro. Add `--build` to force a fresh install, for example when the app was built
+      for a different Firebase project.
+   5. **Check all three use the branch's API.** Terminal 1 prints a request for each screen the apps load.
+      Create event offers *Several of us*, and Profile shows the tier switch: **Local Tier Switch** on web,
+      **Internal Tier Switch** in the app. The pool card on the Pool screen is titled **Who can spend and
+      approve** (Phase 3).
+   6. **Sign in: Anita on web, Ravi on the iOS simulator, Priya on the Android emulator.** One account can
+      be signed in on several devices at once. For Anita's steps in the app, sign her into one of them.
+
+   **Ctrl+C** in Terminals 1 and 2 stops everything. Keep Terminal 1 running while you test.
+
+6. **When you're done:** switch the test accounts back to the plan they should keep, and restore
+   `.runtime.env` (step 4). The test events can stay on staging, or you can delete them.
+
+### The people
+
+| Name | Role | Plan |
+|---|---|---|
+| **Anita** | Creates every event and holds the money | **Pro** (Local Tier Switch on web, Internal Tier Switch in the app) |
+| **Ravi** | A spender and member | Free |
+| **Priya** | A member, and the approver | Free |
+
+Use the Phase 1 and 2 staging test accounts, with display names to match. On web, use separate browser
+profiles (or Chrome, Safari and Firefox): incognito windows share one session.
+
+### Good to know
+
+- **The app talks to the live rates service.** Scenario C uses a fixed rate on the event, so its figures
+  are exact. Where a step uses *today's* rate, check that the figures agree with each other rather than
+  with a fixed number.
+- **Mobile labels:** on mobile the card is **Who can spend and approve** on the Pool screen. The buttons are
+  **Everyone / People I choose**, **Never / Always / Above…**, **Allow / Can spend ✓** and
+  **Approver / Approver ✓**.
+- **The debug app's warning bar.** A development build can show a dark bar at the bottom, *Open debugger to
+  view warnings*. It covers whatever is under it: dismiss it with its **×** before tapping a button at the
+  very bottom of the screen. Store builds never show it.
+- **Already automated:** Scenario A's main path, Scenario C's dollar spend and Scenario D's split
+  (`e2e/tests/pool-phase3.spec.ts`), every Phase 3 rule in the API tests, and the toast fix in
+  `FeedbackContext.test.tsx`. The browser tests run on web only and set up some data through the API, so
+  clicking through here, on web and mobile, still adds something.
 
 ---
 
@@ -91,6 +228,43 @@ Invite Ravi; both pay in. Balance ₹20,000.
 
 ---
 
+## Scenario E: Bug fixes in the app (iOS and Android)
+
+Before this branch, every message box that pops up at the top of the app (a *toast*: "Success",
+"Approved", "Error"…) made the whole screen ignore taps for about 3 seconds. And on Android, a toast raised
+inside an open sheet appeared behind it.
+
+| # | Who | Do | Expect |
+|---|---|---|---|
+| E1 | Anyone, in the app | Profile → **Internal Tier Switch** → tap the other tier. **While** the *Success* toast is still showing, tap a **Theme** (e.g. Dark). | The theme changes at once, with the toast still on screen. Before the fix, nothing happened. |
+| E2 | Anyone, in the app | Add an expense, or approve something, and tap the next button straight away while its toast shows. | The tap works. |
+| E3 | A **free** account, in the app | Open an event you created → **Edit** → **Settlement Currency: ₹ INR** (or any other) → **Save**. | The error *Multi-currency settlement requires Pro* appears **on top of** the Edit sheet, not hidden behind it. **Cancel** still works. |
+| E4 | Anyone, in the app | Watch a few toasts. | They look and sit as before, below the status bar, and go away after about 3 seconds. Several in a row stack. |
+| E5 | Anyone, in the app | **Sign Out** (dashboard menu), **Settle Now** and **Close Event**. | Each confirmation dialog appears, and both its buttons work. |
+| E6 | Anyone, in the app | Open the dashboard's avatar menu and use each item; tap outside it. | Every item opens its screen; tapping outside closes the menu. |
+| E7 | Anyone, in the app | Create event: set a **Start Date** and an **End Date**. | The date picker opens and the chosen dates show in the fields. |
+| E8 | **With VoiceOver** (iOS, optional) | On the dashboard menu and the date fields, swipe through. | Each item is read on its own. Before, each read as one merged element. |
+
+Web isn't affected by E1–E5: the web app has its own messages. Its pages only got test ids, which change
+nothing on screen.
+
+---
+
+## Scenario F: Phase 2 fixes to re-check
+
+These came from Phase 2's hand test and are in this branch too. Use any Budget or Kitty from the scenarios
+above, or Phase 2's.
+
+| # | Was reported | Do | Expect |
+|---|---|---|---|
+| F1 | Phase 2 A5: no toast on mobile | In the app, confirm a hand-over or a payment with **Received**. | A toast: *Confirmed: Recorded as received.* |
+| F2 | Phase 2 A5: proof not a link on mobile | In the app, on a payment or hand-over with proof attached, tap the proof. | It opens the image or file. |
+| F3 | Phase 1 B2: asking first still needed a receipt | As a spender in a Budget, **Add expense** with **Anita's card or UPI** and **I'm asking before I spend**. | No receipt required. In Expenses the row reads ***Requested** from the pool by Ravi*, not *Paid…*, until it's approved. |
+| F4 | Settle-up breakdown read the wrong way | Settle up a pool where someone owes a repayment and is also owed a claim. | The line under each payment reads the right way for the person paying, e.g. *₹10,000.00 to the budget, less ₹600.00 for Snacks (repayment)*: *plus* for what they also owe, *less* for what they're owed. |
+| F5 | Scenario 5: a Fund's part-month showed no dues and no reason | In a Fund, add or remove a member mid-month. | The Pool screen says *The members changed mid-month, so the month was squared up. There are no dues for the rest of it: they start again next month.* A member who just joined sees *You joined mid-month: your dues start next month.* The organiser also sees a hint to use **Set amounts**. |
+
+---
+
 ## Older app builds
 
 Use an app built from the **Phase 2** branch, the build that will be in the stores when Phase 3's API goes live. The 1.0.40 store build has no pools.
@@ -125,3 +299,7 @@ Use an app built from the **Phase 2** branch, the build that will be in the stor
 | ☐ | Split expenses convert, splits add up, balances are in the event currency | D2–D4 |
 | ☐ | Mobile: permissions card, approvals, currency chips and preview | A, C on mobile |
 | ☐ | Older builds behave | O1–O2 |
+| ☐ | App: taps work while a toast shows | E1–E2 |
+| ☐ | App: a toast raised in a sheet shows on top of it | E3 |
+| ☐ | App: toasts, confirmation dialogs, dashboard menu and date fields as before | E4–E7 |
+| ☐ | Phase 2 fixes hold | F1–F5 |
