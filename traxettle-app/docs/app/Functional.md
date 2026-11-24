@@ -238,17 +238,17 @@ This document tracks all functionalities of the Traxettle application. It is kep
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 11.1 | API unit tests (Jest + Supertest) | ✅ Supported | 392 tests across 15 suites, 92.9% statement / 83.6% branch coverage |
-| 11.2 | Shared library unit tests | ✅ Supported | 36 tests, 100% coverage |
-| 11.3 | E2E tests (Playwright) | ✅ Supported | 31 tests: navigation, events, expenses, invitations, groups |
-| 11.4 | Regression test suite | ✅ Supported | 48 tests covering all Phase 2 functionality; `rush test:regression` |
+| 11.1 | API unit tests (Jest + Supertest) | ✅ Supported | 913 tests across 44 suites (2026-11-24), every route against an in-memory Firestore |
+| 11.2 | Shared library unit tests | ✅ Supported | 258 tests (money maths, pools, wording); UI library: 15 |
+| 11.3 | E2E tests (Playwright) | ✅ Supported | 88 tests: auth, navigation, events, expenses, groups, invitations, settlements, tiers, pools (Phases 1–3). Run in CI on every pull request |
+| 11.4 | Regression test suite | ✅ Supported | One command for every automated check: `rush test:regression` (type checks, all unit suites, all Playwright tests); `rush test:regression:mobile` adds the Maestro flows. See [REGRESSION_SUITE.md](../runbook/REGRESSION_SUITE.md) |
 | 11.5a | Settlement service tests | ✅ Supported | 38+ tests — greedy algorithm, entity balances, generation, entity-aware tile calculations, initiatePayment, approvePayment, auto-settle, onBehalfOf (3 scenarios), edge cases |
 | 11.5d | FX rate service tests | ✅ Supported | 14 tests — getRate (predefined, reverse, fallback), getEodRate (cache hit, API fetch, errors, reverse fallback), convert, getPaymentProvider |
 | 11.5b | Event guards tests | ✅ Supported | 10 tests — getEventLockStatus, requireActiveEvent for active/payment/settled/closed states |
 | 11.5c | Expense admin auth tests | ✅ Supported | Tests for admin update/delete permissions, ratio split edge cases |
 | 11.6 | EmailService unit tests | ✅ Supported | Mock mode, SMTP mode, error handling, email content |
-| 11.7 | Web component/hook unit tests | 🚧 In Progress | Core socket + entitlement behavior tests added; suite expansion ongoing |
-| 11.8 | Mobile unit tests | 🚧 In Progress | AuthContext entitlement hydration/switch tests added; suite expansion ongoing |
+| 11.7 | Web component/hook unit tests | ✅ Supported | 117 tests (pool components, forms, entitlements, sockets) with coverage thresholds |
+| 11.8 | Mobile unit tests | ✅ Supported | 163 tests (screens, pool views, purchases, auth). Mobile end-to-end: Maestro flows in `apps/mobile/maestro` |
 | 11.9 | Performance / load tests | ❌ Not Currently Supported | — |
 | 11.10 | Visual regression tests | ❌ Not Currently Supported | — |
 
