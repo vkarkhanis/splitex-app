@@ -34,7 +34,7 @@ import { getResolvedApiBaseUrl } from '../../../config/dev-options';
 import { PoolTab } from '../../../components/pool/PoolTab';
 import { SpenderPermissions } from '../../../components/pool/SpenderPermissions';
 import { poolNoun } from '../../../components/pool/poolFormat';
-import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, POOL_LEGS_NETTED_NOTE, POOL_LEGS_PAID_SEPARATELY_NOTE, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg, originalAmountText, poolExpenseByline, poolLegLabel, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, POOL_LEGS_NETTED_NOTE, POOL_LEGS_PAID_SEPARATELY_NOTE, isExpenseVisibleTo, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg, originalAmountText, poolExpenseByline, poolLegLabel, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
 import { FxRatesAttribution } from '../../../components/FxRatesAttribution';
 import type {
   Event as TraxettleEvent,
@@ -1276,25 +1276,10 @@ export default function EventDetailPage() {
   // All user IDs that belong to my entity (for private expense ownership check)
   const myEntityMembers: string[] = myGroup ? myGroup.members : (currentUserId ? [currentUserId] : []);
 
-  // Helper: does an expense involve my entity? (shared expense where my entity is in the splits)
-  const isSharedWithMyEntity = (exp: Expense) => {
-    if (exp.isPrivate) return false;
-    if (!myEntityId) return false;
-    return exp.splits?.some((s: any) => s.entityId === myEntityId);
-  };
-
-  // Helper: is a private expense owned by my entity?
-  // Private expense belongs to an entity if the creator (paidBy) is a member of that entity.
-  const isMyEntityPrivate = (exp: Expense) => {
-    if (!exp.isPrivate) return false;
-    return myEntityMembers.includes(exp.paidBy);
-  };
-
-  // Visible expenses for this user's entity:
-  // - All shared expenses where this entity is in the splits
-  // - Private expenses created by a member of this entity
+  // The expenses this entity sees, in the list and the totals: pool spends, shared expenses it's in
+  // or paid for (including "on behalf of" ones), and its own private expenses.
   const visibleExpenses = currentUserId
-    ? expenses.filter(exp => isPoolFundedExpense(exp) || isSharedWithMyEntity(exp) || isMyEntityPrivate(exp))
+    ? expenses.filter(exp => isExpenseVisibleTo(exp, { entityId: myEntityId, memberIds: myEntityMembers }))
     : expenses.filter(exp => !exp.isPrivate); // fallback for unauthenticated: show shared only
 
   // A claim's pay-back status lives on its reimbursement leg, which is one of the event's settlements.

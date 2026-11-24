@@ -42,6 +42,7 @@ import {
   POOL_LEGS_NETTED_NOTE,
   POOL_LEGS_PAID_SEPARATELY_NOTE,
   isPoolFundedEvent,
+  isExpenseVisibleTo,
   isPoolFundedExpense,
   isPoolSideLeg,
   originalAmountText,
@@ -253,15 +254,11 @@ export default function EventDetailScreen({ route, navigation }: any) {
   const myEntityId = myGroup ? myGroup.id : currentUserId;
   const myEntityMembers = myGroup ? myGroup.members : (currentUserId ? [currentUserId] : []);
 
+  // Pool spends, shared expenses this entity is in or paid for (including "on behalf of" ones), and
+  // its own private expenses.
   const visibleExpenses = useMemo(() => {
     if (!currentUserId) return expenses.filter(e => !e.isPrivate);
-    return expenses.filter(exp => {
-      // Pool-funded expenses are transparent to every participant.
-      if (isPoolFundedExpense(exp)) return true;
-      if (exp.isPrivate) return myEntityMembers.includes(exp.paidBy);
-      if (!myEntityId) return false;
-      return exp.splits?.some((s: any) => s.entityId === myEntityId);
-    });
+    return expenses.filter(exp => isExpenseVisibleTo(exp, { entityId: myEntityId, memberIds: myEntityMembers }));
   }, [expenses, currentUserId, myEntityId, myEntityMembers]);
 
   // A claim's pay-back status lives on its reimbursement leg, which is one of the event's settlements.

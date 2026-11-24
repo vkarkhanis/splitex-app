@@ -177,7 +177,7 @@ test.describe('Split expenses through the form', () => {
   // (isSharedWithMyEntity in apps/web/src/app/events/[eventId]/page.tsx). An "on behalf of" payer is
   // never in the splits, so their own expense is missing from their list ("Expenses (0)"), they
   // can't edit or delete it there, and their Total Expense card leaves it out (₹0.00, not ₹1,800).
-  test.fixme('the payer of an "on behalf of" expense sees it in their own list and Total Expense', async ({ page }) => {
+  test('the payer of an "on behalf of" expense sees it in their own list and Total Expense', async ({ page }) => {
     const p = await pool.cast('behalf-payer');
     const eventId = await splitEvent(p.anita, [p.ravi, p.priya], 'Sunburn festival');
     const tickets = await pool.call('POST', '/api/expenses', p.anita, {

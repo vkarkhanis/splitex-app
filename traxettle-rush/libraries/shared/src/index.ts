@@ -2,6 +2,7 @@ export { isStrongPassword, PASSWORD_RULE_MESSAGE } from './passwordRules';
 export * from './pool';
 export * from './pool-math';
 export * from './pool-ui';
+export * from './expense-visibility';
 import type {
   CreatePoolConfigDto,
   EventFundingModel,
