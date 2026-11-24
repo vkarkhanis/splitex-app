@@ -13,6 +13,9 @@ What the branch changes:
   (a "toast") appears, and toasts now show above an open sheet. The dashboard menu and date fields were
   also fixed for VoiceOver.
 - **Phase 2 fixes** from its hand test, which this branch includes (Scenario F).
+- **Two older bugs the regression suite found** (Scenario G), on web and in the app: someone who pays
+  "on behalf of" others couldn't see that expense, and no event could be edited (not even renamed)
+  while its settlement was in review.
 
 ---
 
@@ -265,6 +268,23 @@ above, or Phase 2's.
 
 ---
 
+## Scenario G: Two older bugs, fixed (web and app)
+
+Neither came from Phase 3; the regression suite found them. Use a plain split-expenses event in INR.
+
+| # | Who | Do | Expect |
+|---|---|---|---|
+| G1 | Anita | Create "Sunburn festival" (split expenses, INR); invite Ravi and Priya. **Add expense** "Concert tickets", ₹1,800: tick **On behalf of** (*your share is zero*) and choose Ravi and Priya. | Anita **sees** Concert tickets in her Expenses list (*On Behalf* split), and **Total Expense** includes its ₹1,800. **Your Shared** stays ₹0: it isn't her share. Before the fix, it disappeared from her list and totals. |
+| G2 | Ravi and Priya | Open the event. | Each sees Concert tickets, with a ₹900 share. |
+| G3 | Anita | Settle up (**Settle Now**). | Ravi and Priya each owe Anita ₹900, as before. |
+| G4 | Anita, in the app | Repeat G1's check in the app. | Same as on web: the expense is listed and counted. |
+| G5 | Anita | The event is now **in review**. **Edit** it and change only its **name**. Save. | Saved, and the new name shows. Before the fix: *Cannot change currency or FX settings while settlement is under review*. |
+| G6 | Anita | Edit again: change the **currency** (or, on a multi-currency event, the settlement currency). Save. | Still refused with that message, as intended: changing currency during review would invalidate the settlement. |
+| G7 | Anita, in the app | Repeat G5 in the app. | Saved. |
+| G8 | A **free** admin of a multi-currency event (e.g. Anita switched to Free on Scenario C's "Tokyo trip") | **Edit** → change only the name → Save. | Saved. Before, the unchanged settlement currency made it ask for Pro. Changing the settlement currency still needs Pro. |
+
+---
+
 ## Older app builds
 
 Use an app built from the **Phase 2** branch, the build that will be in the stores when Phase 3's API goes live. The 1.0.40 store build has no pools.
@@ -303,3 +323,5 @@ Use an app built from the **Phase 2** branch, the build that will be in the stor
 | ☐ | App: a toast raised in a sheet shows on top of it | E3 |
 | ☐ | App: toasts, confirmation dialogs, dashboard menu and date fields as before | E4–E7 |
 | ☐ | Phase 2 fixes hold | F1–F5 |
+| ☐ | The "on behalf of" payer sees their expense and it counts in their totals (web and app) | G1–G4 |
+| ☐ | A rename works during review and for a free admin; currency changes are still refused | G5–G8 |
