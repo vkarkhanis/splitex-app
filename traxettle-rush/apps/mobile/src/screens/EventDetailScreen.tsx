@@ -35,7 +35,7 @@ import type {
 } from '@traxettle/shared';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEventSocket } from '../hooks/useSocket';
-import { useFeedback } from '../context/FeedbackContext';
+import { ModalToasts, useFeedback } from '../context/FeedbackContext';
 import {
   REIMBURSEMENT_STATUS,
   REPAYMENT_STATUS,
@@ -1386,6 +1386,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Invite Modal ── */}
@@ -1417,6 +1418,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+      <ModalToasts />
     </Modal>
 
     {/* ── Create Group Modal ── */}
@@ -1471,6 +1473,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Edit Group Modal ── */}
@@ -1525,6 +1528,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Mark Paid Modal ── */}
@@ -1611,6 +1615,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Settlement Details Modal ── */}
@@ -1729,6 +1734,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Expense Detail / Split Breakdown Modal ── */}
@@ -1827,6 +1833,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Proof Image Viewer Modal ── */}
@@ -1849,6 +1856,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           <Text style={styles.proofViewerOpenText}>Open in Browser</Text>
         </TouchableOpacity>
       </View>
+      <ModalToasts />
     </Modal>
   </>
   );

@@ -55,7 +55,7 @@ import type {
 import { api } from '../api';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { useFeedback } from '../context/FeedbackContext';
+import { ModalToasts, useFeedback } from '../context/FeedbackContext';
 import { useEventSocket } from '../hooks/useSocket';
 import { fontSizes, radii, spacing } from '../theme';
 import { PoolMeterView, ProofLink } from '../components/pool/PoolViews';
@@ -708,6 +708,7 @@ function Sheet(props: { title: string; children: React.ReactNode; onClose: () =>
           </View>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
   );
 }

@@ -31,7 +31,7 @@ jest.mock('../../context/ThemeContext', () => ({
 jest.mock('../../context/AuthContext', () => ({ useAuth: () => ({ user: { userId: mockMe() } }) }));
 jest.mock('../../hooks/useSocket', () => ({ useEventSocket: jest.fn() }));
 const mockPushToast = jest.fn();
-jest.mock('../../context/FeedbackContext', () => ({ useFeedback: () => ({ pushToast: mockPushToast }) }));
+jest.mock('../../context/FeedbackContext', () => ({ useFeedback: () => ({ pushToast: mockPushToast }), ModalToasts: () => null }));
 
 let me = 'anita';
 const mockMe = () => me;
