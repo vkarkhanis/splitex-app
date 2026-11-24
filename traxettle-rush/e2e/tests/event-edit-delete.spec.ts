@@ -57,7 +57,7 @@ test.describe('Editing and deleting', () => {
   // event's currency with the other fields, and PUT /api/events/:id refuses any `currency` while
   // the event is in review ("Cannot change currency or FX settings while settlement is under
   // review"), even when it hasn't changed. So no edit can be saved in review.
-  test.fixme('an admin can rename an event while its settlement is in review', async ({ page }) => {
+  test('an admin can rename an event while its settlement is in review', async ({ page }) => {
     const p = await pool.cast('edit-review');
     const eventId = await splitEvent(p.anita, [p.ravi], 'Munnar plan');
     await addExpense(eventId, p.anita, 'Tea estate tour', { [p.anita]: 500, [p.ravi]: 500 });
