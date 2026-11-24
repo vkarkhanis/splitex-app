@@ -47,7 +47,8 @@ if [[ "$PLATFORM" == "ios" ]]; then
   if [[ -d ios/Pods ]]; then
     for script in sdks/hermes-engine/utils/replace_hermes_version.js third-party-podspecs/replace_dependencies_version.js; do
       for attempt in 1 2 3; do
-        if node "$RN_DIR/$script" -c Debug -r "$RN_VERSION" -p "$PWD/ios/Pods"; then break; fi
+        # Run them from ios/Pods, as Xcode does: they unpack into the current folder.
+        if (cd ios/Pods && node "$RN_DIR/$script" -c Debug -r "$RN_VERSION" -p "$PWD"); then break; fi
         echo "[test-app] $script failed (attempt $attempt); retrying"
         sleep 5
       done
