@@ -103,6 +103,7 @@ export default function HelpPage() {
               <List>
                 <li>Create events and add shared + private expenses</li>
                 <li>Split by equal, ratio, or custom amounts</li>
+                <li>Enter a cost in the currency you paid in, converted to the event’s currency (when the event’s organiser has Pro)</li>
                 <li>Generate a settlement plan and approve it together</li>
                 <li>Track payments with proof uploads (optional)</li>
                 <li>Close events when everything is completed</li>

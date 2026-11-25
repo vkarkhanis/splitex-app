@@ -604,7 +604,7 @@ export function contributorPoolsAvailable(appEnv: string | null | undefined): bo
  */
 export const GROUP_POOLS_PRO_FEATURE = {
   title: 'Group pools',
-  desc: 'Pool money with your group: trip kitty, shared fund, club treasury or collection.',
+  desc: 'Pool money with your group: trip kitty, shared fund, club treasury or collection. Choose who can spend and who approves.',
 } as const;
 
 /** The message for an API `FEATURE_REQUIRES_PRO` refusal, by its `feature` code. */

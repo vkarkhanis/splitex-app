@@ -27,9 +27,15 @@ const FEATURES: FeatureCard[] = [
   },
   {
     icon: '💱',
-    title: 'Multi-Currency Settlement',
-    desc: 'Add expenses in any currency. Traxettle auto-converts amounts using end-of-day FX rates and settles everything in your chosen settlement currency.',
+    title: 'Multi-Currency Settlement (Pro)',
+    desc: 'Settle an event in a different currency from its expenses. Traxettle converts the amounts at the rate set on the event, or the end-of-day rate.',
     tag: 'USP',
+  },
+  {
+    icon: '🌍',
+    title: 'Expenses in Another Currency (Pro)',
+    desc: 'Paid in dollars on a rupee trip? Enter the cost in dollars: Traxettle converts it to the event’s currency at the event’s set rate or today’s rate, and shows both amounts. Works in events whose organiser has Pro.',
+    tag: 'PRO',
   },
   {
     icon: '🚫',
@@ -83,7 +89,7 @@ const FEATURES: FeatureCard[] = [
 const TIPS = [
   'Tap your avatar on the Dashboard to access Profile, Invitations, Closed Events, and more.',
   'Use Groups to avoid splitting individually — great for families or couples sharing a single share.',
-  'Settlement currency can differ from expense currency. Traxettle handles the conversion.',
+  'With Pro, an event can settle in another currency, and costs can be entered in the currency you paid in. Traxettle converts them to the event’s currency.',
   'Mark expenses as "On Behalf" when one person pays for specific others.',
   'Pull down on any list to refresh data from the server.',
 ];

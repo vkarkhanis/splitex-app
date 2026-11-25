@@ -10,24 +10,30 @@ import { poolingHelpCard, proFeatureList, proReadyMessage, proSummaryLine } from
 import { useContributorPoolsAvailable } from '../hooks/useContributorPoolsAvailable';
 
 describe('Pro features on mobile (design doc §12)', () => {
-  it('adds group pools after multi-currency only once released', () => {
+  it('adds group pools after the currency features only once released', () => {
     expect(proFeatureList(false).map((f) => f.title)).toEqual([
-      'No Ads — Even in Free Version', 'Unlimited Events', 'Multi-Currency Settlement', 'Analytics (Coming soon)', 'Priority Support',
+      'No Ads — Even in Free Version', 'Unlimited Events', 'Multi-Currency Settlement', 'Expenses in Another Currency', 'Analytics (Coming soon)', 'Priority Support',
     ]);
     const released = proFeatureList(true);
     expect(released.map((f) => f.title)).toEqual([
-      'No Ads — Even in Free Version', 'Unlimited Events', 'Multi-Currency Settlement', 'Group pools', 'Analytics (Coming soon)', 'Priority Support',
+      'No Ads — Even in Free Version', 'Unlimited Events', 'Multi-Currency Settlement', 'Expenses in Another Currency', 'Group pools', 'Analytics (Coming soon)', 'Priority Support',
     ]);
-    expect(released[3].desc).toMatch(/trip kitty, shared fund, club treasury or collection/);
+    expect(released[4].desc).toMatch(/trip kitty, shared fund, club treasury or collection\. Choose who can spend and who approves/);
+  });
+
+  it('says that entering another currency comes from the organiser, for everyone in the event', () => {
+    const other = proFeatureList(true).find((f) => f.title === 'Expenses in Another Currency')!;
+    expect(other.desc).toMatch(/converted to the event’s currency\. Everyone in the events you create can use it/);
   });
 
   it('words the Profile row, the purchase message and Help to match', () => {
     expect(proSummaryLine(false)).toBe('Unlimited events, multi-currency & more');
     expect(proSummaryLine(true)).toBe('Unlimited events, group pools, multi-currency & more');
     expect(proReadyMessage(false)).toMatch(/including multi-currency settlement/);
-    expect(proReadyMessage(true)).toMatch(/including group pools and multi-currency settlement/);
+    expect(proReadyMessage(true)).toMatch(/including group pools, multi-currency settlement and expenses in other currencies/);
     expect(poolingHelpCard(false).desc).not.toMatch(/Pro/);
     expect(poolingHelpCard(true).desc).toMatch(/need Pro for the person who creates them/);
+    expect(poolingHelpCard(true).desc).toMatch(/choose who spends and who approves/);
   });
 });
 
