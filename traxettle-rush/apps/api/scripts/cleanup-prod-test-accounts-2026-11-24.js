@@ -32,13 +32,11 @@
  * or a bare PEM key) and/or FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY. The key file needn't contain
  * "project_id": the project is --project. With none of these, Application Default Credentials.
  *
- * The production API's own credentials are in Secret Manager, so no key file is needed:
+ * Simplest: use the production API's own credentials from Secret Manager (needs the Google Cloud CLI,
+ * signed in with access to the project's secrets). No key file is saved:
  *
- *   CFG="$(gcloud secrets versions access latest --secret=traxettle-prod-api-config --project <gcp-project-id>)"
- *   FIREBASE_PROJECT_ID="$(printf '%s' "$CFG" | jq -r .FIREBASE_PROJECT_ID)" \
- *   FIREBASE_CLIENT_EMAIL="$(printf '%s' "$CFG" | jq -r .FIREBASE_CLIENT_EMAIL)" \
- *   FIREBASE_PRIVATE_KEY="$(printf '%s' "$CFG" | jq -r .FIREBASE_PRIVATE_KEY)" \
- *     node traxettle-rush/apps/api/scripts/cleanup-prod-test-accounts-2026-11-24.js --project <prod-project-id>
+ *   node traxettle-rush/apps/api/scripts/cleanup-prod-test-accounts-2026-11-24.js \
+ *     --project <prod-project-id> --from-secret traxettle-prod-api-config
  *
  * With --apply it writes what it deleted to ~/traxettle-prod-cleanup-2026-11-24.result.json.
  * Testing it against the emulator: set FIRESTORE_EMULATOR_HOST and FIREBASE_AUTH_EMULATOR_HOST and
@@ -98,7 +96,12 @@ const EVENT_COLLECTIONS = ['expenses', 'settlements', 'invitations', ...POOL_COL
 // ── Arguments and connection ────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
 const apply = args.includes('--apply');
-const projectArg = args[args.indexOf('--project') + 1];
+const argValue = (flag) => {
+  const i = args.indexOf(flag);
+  const v = i >= 0 ? args[i + 1] : undefined;
+  return v && !v.startsWith('--') ? v : undefined;
+};
+const projectArg = argValue('--project');
 if (!args.includes('--project') || !projectArg || projectArg.startsWith('--')) {
   console.error('Pass the production project id: --project <id>');
   process.exit(2);
@@ -124,10 +127,46 @@ if (usingEmulator && projectArg !== 'traxettle-local') {
  * and private key can each come from the key file or from FIREBASE_* variables, so a key file
  * without "project_id" works too. The project is always --project, checked against both.
  */
+/**
+ * --from-secret <name> [--gcp-project <id>]: reads the production API's own config from Secret
+ * Manager with `gcloud` (FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY), so no key
+ * file or shell variables are needed. The secret's project defaults to --project. Prints no values.
+ */
+function readSecretConfig() {
+  const name = argValue('--from-secret');
+  if (!name) return null;
+  const gcpProject = argValue('--gcp-project') || projectArg;
+  let raw;
+  try {
+    raw = require('child_process').execFileSync(
+      'gcloud', ['secrets', 'versions', 'access', 'latest', `--secret=${name}`, `--project=${gcpProject}`],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      console.error('gcloud is not installed or not on PATH. Install the Google Cloud CLI and run `gcloud auth login`, or use another way in the script header.');
+    } else {
+      console.error(`gcloud couldn't read secret "${name}" in project "${gcpProject}":`);
+      console.error(String(err.stderr || err.message).trim());
+      console.error('Check `gcloud auth login` and that your account can read secrets in that project (pass --gcp-project if the secret lives in another project).');
+    }
+    process.exit(2);
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    console.error(`Secret "${name}" isn't JSON. Expected the API config written by deploy-prod.sh.`);
+    process.exit(2);
+  }
+}
+
 function credential() {
   if (usingEmulator) return undefined;
-  const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } = process.env;
-  const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_PRIVATE_KEY_FILE;
+  const secret = readSecretConfig() || {};
+  const FIREBASE_PROJECT_ID = secret.FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID;
+  const FIREBASE_CLIENT_EMAIL = secret.FIREBASE_CLIENT_EMAIL || process.env.FIREBASE_CLIENT_EMAIL;
+  const FIREBASE_PRIVATE_KEY = secret.FIREBASE_PRIVATE_KEY || process.env.FIREBASE_PRIVATE_KEY;
+  const keyFile = argValue('--from-secret') ? null : (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_PRIVATE_KEY_FILE);
   let sa = {};
   if (keyFile) {
     let text;
