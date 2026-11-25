@@ -413,7 +413,7 @@ export default function EditExpenseScreen({ route, navigation }: any) {
       )}
 
       <Text style={[styles.label, { color: c.textSecondary }]}>Title</Text>
-      <TextInput style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={title} onChangeText={setTitle} placeholder="e.g. Dinner" placeholderTextColor={c.muted} />
+      <TextInput testID="edit-expense-title-input" style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={title} onChangeText={setTitle} placeholder="e.g. Dinner" placeholderTextColor={c.muted} />
 
       <Text style={[styles.label, { color: c.textSecondary }]}>Description (optional)</Text>
       <TextInput style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={description} onChangeText={setDescription} placeholder="Brief note..." placeholderTextColor={c.muted} />
@@ -421,7 +421,7 @@ export default function EditExpenseScreen({ route, navigation }: any) {
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={[styles.label, { color: c.textSecondary }]}>Amount ({sym})</Text>
-          <TextInput style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} />
+          <TextInput testID="edit-expense-amount-input" style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} />
         </View>
       </View>
       {/* Phase 3: another currency, when the organiser's multi-currency Pro allows it. */}
@@ -562,6 +562,7 @@ export default function EditExpenseScreen({ route, navigation }: any) {
       </>)}
 
       <TouchableOpacity
+        testID="edit-expense-submit-button"
         style={[styles.submitBtn, { backgroundColor: c.primary }, (loading || (!isPoolDraw && splitMismatch)) && styles.submitBtnDisabled]}
         onPress={handleSubmit}
         disabled={loading || (!isPoolDraw && splitMismatch)}

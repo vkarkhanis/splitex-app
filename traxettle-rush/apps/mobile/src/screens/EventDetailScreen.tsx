@@ -1189,6 +1189,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                     {(event.status === 'active' || event.status === 'review') && (currentUserId === exp.paidBy || isAdmin) && (
                       <View style={styles.inlineActions}>
                         <TouchableOpacity
+                          testID={`event-detail-edit-expense-${exp.id}`}
                           style={[styles.tinyBtn, { borderColor: colors.border }]}
                           onPress={(e) => { e.stopPropagation(); navigation.navigate('EditExpense', { eventId, expenseId: exp.id, currency: event.currency }); }}
                         >

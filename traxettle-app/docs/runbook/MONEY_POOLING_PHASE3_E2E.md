@@ -154,12 +154,11 @@ profiles (or Chrome, Safari and Firefox): incognito windows share one session.
 - **The debug app's warning bar.** A development build can show a dark bar at the bottom, *Open debugger to
   view warnings*. It covers whatever is under it: dismiss it with its **×** before tapping a button at the
   very bottom of the screen. Store builds never show it.
-- **Already automated:** Scenario A's main path, Scenario C's dollar spend and Scenario D's split
-  (`e2e/tests/pool-phase3.spec.ts`), every Phase 3 rule in the API tests, and the toast fix in
-  `FeedbackContext.test.tsx`. The browser tests run on web only and set up some data through the API, so
-  clicking through here, on web and mobile, still adds something. Step by step (2026-11-26): 18 steps
-  are covered end to end on web, 35 partly (by API or unit tests, or e2e in a different setup) and 4 not
-  at all (C7, C on mobile, E7, E8). No Maestro flow covers Phase 3 yet. See REGRESSION_SUITE.md §7.
+- **Already automated:** 27 of the steps run end to end, on web (`e2e/tests/pool-phase3.spec.ts`) or in
+  the app (Maestro `pools/phase3-permissions` and `pools/other-currency`), and every Phase 3 rule runs in
+  the API tests. REGRESSION_SUITE.md §7 lists which. For future changes, hand-test only what you change;
+  until more is automated, also click through A6–A12 and B (claims, hand-overs, Budgets) when you change
+  those.
 
 ---
 

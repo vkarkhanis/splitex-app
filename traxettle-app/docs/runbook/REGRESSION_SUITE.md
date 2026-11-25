@@ -146,6 +146,19 @@ Options:
 - **Start with `runFlow: ../../subflows/sign-up.yaml`.** It signs out anyone left over, registers a fresh user, and handles the PIN, the iOS "Save Password?" prompt and the first-run walkthrough. Then the flow works alone and in any order.
 - **Other subflows:** `sign-in`, `create-split-event`, `invite`, `accept-invitation`, `open-event`, `add-expense`, `switch-to-pro`, `go-back` (the header button on iOS, the system back on Android) and `close-number-pad`.
 - **Write each flow for both platforms.** Where they differ, use `runFlow` with `when: platform: iOS` or `Android`, as `go-back`, `sign-out` and `close-number-pad` do.
+- **Several people in one flow:** sign each one up with `sign-up`, then switch with `sign-in` (it signs out first). To tap one person's button in a list, use the test ids that end in their user id (`spender-<id>`), from `scripts/user-id.js`:
+  ```yaml
+  - runScript:
+      file: ../../scripts/user-id.js
+      env:
+        EMAIL: "p3ravi${output.runId}@example.com"
+        OUT: raviId
+  - tapOn:
+      id: "spender-${output.raviId}"
+  ```
+  It signs in to the Firebase Auth emulator, whose user id is the app's. Don't pick a row by the name next to it: `rightOf`/`leftOf` only compare left and right, so they match every row, and the order of people in a list can change between runs. On iOS the buttons aren't inside the row either, so `childOf` doesn't work.
+- **Back from a screen with a sheet that's just closed** can be lost while the sheet animates. Retry while the screen is still showing: `repeat` `while: visible: id: pool-summary`, with `go-back` and `waitForAnimationToEnd` (see `pools/phase3-permissions.yaml`).
+- **The Pool screen's "+ Add expense"** (`pool-add-expense`) is the last thing on the screen, not a floating button: scroll to it.
 - **iOS gotchas:**
   - Match text that sits inside a tappable card as part of a label (`".*Lunch ${output.runId}.*"`): iOS reads a card's texts as one label.
   - A backdrop that wraps a modal's content needs `accessible={false}`, or iOS hides everything inside it.
@@ -160,6 +173,7 @@ Options:
   - React Native's "Open debugger to view warnings" banner covers the bottom of the screen and takes taps meant for the buttons under it, though screenshots don't show it. `index.js` hides it when Metro runs with `EXPO_PUBLIC_E2E=true`, which the runner sets.
   - The runner sets both the plain and the `_EMULATOR_` API addresses (`EXPO_PUBLIC_API_URL_IOS` and `EXPO_PUBLIC_API_URL_EMULATOR_IOS`, and the Android ones). With the Firebase emulators on, the app reads the `_EMULATOR_` ones, and without them it falls back to port 3002.
   - **Several flows failing within seconds, with no failed step,** means Maestro's driver on the simulator crashed: its log (`~/.maestro/tests/<run>/maestro.log`) says *Device became unreachable*. It isn't the app. Rerun those areas with `MAESTRO_FLOWS`.
+  - **A run that stops printing and never ends** can be the same crash: the runner's log shows *Exception in thread "main" … Request for viewHierarchy failed, code: 500*, and the `maestro` process hangs. Stop the run (Ctrl+C) and rerun.
   - The runner refuses to start if something already listens on its ports (the API port, 8081 for Metro, the emulators' 8080, 9099 and 9199): a leftover server would answer instead of this run's. It stops everything it started when it ends.
 
 ---
@@ -189,7 +203,7 @@ Last full check on 2026-11-24: all 7 Maestro flows passed on both platforms (Deb
 | Tiers and Pro gating | ✅ | ✅ `tier-entitlements` | ✅ Pro switch (`switch-to-pro`) |
 | Pools: create, dues, top-ups, gifts, claims, receipts | ✅ | ✅ `pool-ui` | ✅ `pools/kitty` (create, pay in, spend, settle up) |
 | Pools Phase 2: hand-overs, early repayment, netting | ✅ | ✅ `pool-phase2` | — |
-| Pools Phase 3: spender list, approvers, other currency | ✅ | Partly: ✅ `pool-phase3` (main paths; see below) | — |
+| Pools Phase 3: spender list, approvers, other currency | ✅ | ✅ `pool-phase3` (see below) | ✅ `pools/phase3-permissions`, `pools/other-currency` |
 | Navigation, invitations inbox, closed events | ✅ | ✅ `navigation`, `closed-events` | ✅ `navigation/history-and-invitations` |
 
 ### Still not covered end to end
@@ -197,31 +211,31 @@ Last full check on 2026-11-24: all 7 Maestro flows passed on both platforms (Deb
 - **Live updates** (sockets) for settlements and pools, and **overdraft warnings** on the expense form.
 - **Account deletion** and closing a deleted user's payment.
 - **Group edit and membership changes,** invitation revoke, the admin role, and inviting someone into a group.
-- **Mobile:** Phase 2 and 3 pool flows, edit and delete, Profile edits, Pro upgrade screen, Unsettled Payments, Apple sign-in.
+- **Mobile:** Phase 2 pool flows (hand-overs, netting), Phase 3 claims and hand-overs, deleting expenses and events, Profile edits, Pro upgrade screen, Unsettled Payments, Apple sign-in.
 
 ### The Phase 3 hand-test plan against the suite (2026-11-26)
 
-Of the 57 steps in [MONEY_POOLING_PHASE3_E2E.md](MONEY_POOLING_PHASE3_E2E.md):
-- **18 covered end to end** on web: A1, A2, A5, A8, A13, A14, C1, C2, D2, D3, D5, F3, F4, F5, G1, G2, G3 and G5;
-- **35 partly:**
-  - about 20 by API or unit tests only: the A11 refusal, A7, A9, B4, C3–C5, C8, G6–G8, the toast and dialog fixes (E1–E4), F1 and F2;
-  - the rest end to end, but in a different set-up: a Budget, Kitty or Fund, or the opposite currency direction;
-- **4 not at all:** C7 (a free organiser editing only the amount of a foreign-currency expense), every mobile currency step, E7 (date fields) and E8 (VoiceOver).
+Of the 57 steps in [MONEY_POOLING_PHASE3_E2E.md](MONEY_POOLING_PHASE3_E2E.md), after the tests added on 2026-11-26:
+- **27 covered end to end:**
+  - on web: A1, A2, A5, A8, A13, A14, C1–C4, C7, D2–D6, F3–F5, G1–G3 and G5;
+  - in the app: A2–A5, A13, C1–C4 and D1;
+- **28 partly:** about 15 by API or unit tests only (the A11 refusal, A7, A9, B4, C5, C8, G6–G8, the toast and dialog fixes E1–E4, F1, F2), and the rest end to end but in a different set-up (a Budget, Kitty or Fund);
+- **2 not at all:** E7 (date fields) and E8 (VoiceOver).
 
 E8 (VoiceOver) and O1–O2 (older store builds) can't be automated. The live rate in C5 can only be
 tested with a seeded rate.
 
-The gaps worth closing, most useful first:
-1. **Maestro: Phase 3 permissions** (`flows/pools/phase3-permissions.yaml`): a kitty with chosen spenders, the claim-only form, a pending card spend, an approver approving, the Approver/Always toggles.
-2. **Maestro: a spend in another currency** (`flows/pools/other-currency.yaml`): the chips, the preview at a set rate, the saved row with its dollar line, an edit.
-3. **Editing a foreign-currency expense** on web (C3, C4, D4) in `pool-phase3.spec.ts`, and C7 in `pools.phase3.test.ts`.
-4. **The spender-list lifecycle on web** (A3, A9–A12): Always → Never in the UI, a non-spender's claim still waits, Give money offers only spenders, unticking a holder is refused, then allowed after a return.
-5. **Approvers in a Budget** (B1–B4), including the *You can't add expenses to this budget* text.
-6. **An INR event settled in USD** with a dollar-entered split (D1, D6), checking *≈ $10.00* in Settlement Review.
-7. **Web review lock and free-admin rename** (G6, G8) in `event-edit-delete.spec.ts`.
-8. **Maestro: edit during review and "on behalf of"** (G4, G7), plus explicit toast, dialog-Cancel, menu and date checks (E1, E3, E5–E7).
+Added on 2026-11-26:
+- `pools/phase3-permissions` (Maestro): a Kitty where only chosen people spend; the organiser lets Ravi spend, makes Priya an approver and sets approval to Always; Priya is offered only "claim it back" and has no Settle up; Ravi's card spend waits; Priya approves it.
+- `pools/other-currency` (Maestro): a rupee Kitty settled in dollars at a set rate, created through the form; a $10 spend previews and saves as ₹800 with $10 under it; edited to $12 (₹960, same rate); back to ₹900 with no dollar line.
+- `pool-phase3.spec.ts` (web): editing a dollar spend (C3, C4, and C7 with a free organiser), and a dollar dinner edited to custom dollar shares and settled, each payment shown as ≈ $10.00 (D2–D4, D6).
+- `pools.phase3.test.ts` (API): a free organiser can change the amount at the saved rate, but not to a new currency.
 
-Add tests for these as the areas change. Update the table when you add coverage.
+Still worth adding, most useful first:
+1. **The spender-list lifecycle on web** (A3's toast, A9–A12): Never in the UI, a non-spender's claim still waits, Give money offers only spenders, unticking a holder is refused, then allowed after a return.
+2. **Approvers in a Budget** (B1–B4), including the *You can't add expenses to this budget* text.
+3. **Web review lock and free-admin rename** (G6, G8) in `event-edit-delete.spec.ts`.
+4. **Maestro: edit during review and "on behalf of"** (G4, G7), plus explicit toast, dialog-Cancel, menu and date checks (E1, E3, E5–E7).
 
 ---
 

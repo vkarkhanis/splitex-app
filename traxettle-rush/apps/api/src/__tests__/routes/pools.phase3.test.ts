@@ -221,6 +221,28 @@ describe('C. a pool spend entered in another currency', () => {
     expect(back.originalCurrency).toBeUndefined();
   });
 
+  it("lets an amount be edited at the saved rate after the organiser's Pro ends, but not a new currency", async () => {
+    const eventId = await kitty();
+    rate('USD', { INR: 80 });
+    const spend = (await api.spend(eventId, RAVI, 10, { currency: 'USD', paidFrom: 'sponsor_card', alreadyIncurred: true })).body.data;
+    store.seed('users', ANITA, { tier: 'free', entitlementStatus: 'expired', entitlementSource: 'manual_override' });
+    const put = (body: Record<string, any>) => request(app).put(`/api/expenses/${spend.id}`).set(auth(RAVI)).send(body);
+
+    const same = await put({ amount: 15, currency: 'USD' });
+    expect(same.status).toBe(200);
+    expect(same.body.data).toMatchObject({ amount: 1200, originalAmount: 15, originalCurrency: 'USD', fxRate: 80 });
+
+    rate('EUR', { INR: 90 });
+    const euro = await put({ amount: 10, currency: 'EUR' });
+    expect(euro.status).toBe(403);
+    expect(euro.body.code).toBe('OTHER_CURRENCY_NOT_ALLOWED');
+
+    const back = await put({ amount: 900, currency: 'INR' });
+    expect(back.status).toBe(200);
+    expect(back.body.data).toMatchObject({ amount: 900, currency: 'INR' });
+    expect(back.body.data.originalCurrency).toBeUndefined();
+  });
+
   it("needs the organiser's Pro, and says so clearly when no rate can be had", async () => {
     const eventId = await kitty();
     const noRate = await api.spend(eventId, RAVI, 10, { currency: 'CHF', paidFrom: 'sponsor_card', alreadyIncurred: true });

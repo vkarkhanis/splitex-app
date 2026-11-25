@@ -8,7 +8,8 @@
 import { test, expect, Page } from '@playwright/test';
 import { loginAsMockUser } from '../helpers/auth';
 import * as pool from '../helpers/pool';
-import { balances, expenseByTitle, openEvent, splitEvent, splitRow } from '../helpers/ui';
+import { switchTier } from '../helpers/api';
+import { balances, confirmDialog, expenseByTitle, openEvent, splitEvent, splitRow } from '../helpers/ui';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -150,4 +151,120 @@ test('Phase 3: an approver who isn\'t an admin approves a spend but has no Settl
   await expect(page.getByTestId('pool-settle-up')).toBeVisible();
   await expect(page.getByTestId('pool-close-cycle')).toBeVisible();
   await expect(page.getByTestId('save-spenders')).toBeVisible();
+});
+
+// Phase 3 C3, C4 and C7: editing a pool spend entered in dollars. A new amount keeps the saved rate,
+// even after the organiser's Pro has ended; going back to rupees drops the dollar amount.
+test('Phase 3: editing a dollar spend keeps its rate, also for a free organiser, and rupees drop the dollar line', async ({ page }) => {
+  const p = await pool.cast('p3e', { anitaPro: true });
+  const event = await pool.call('POST', '/api/events', p.anita, {
+    name: 'Tokyo trip', type: 'trip', startDate: '2026-12-01', currency: 'INR',
+    fxRateMode: 'predefined', predefinedFxRates: { USD_INR: 80 },
+    pool: { preset: 'trip_kitty', defaultContributionMinor: 1_000_000 },
+  });
+  const eventId = event.id as string;
+  await pool.join(eventId, p.anita, p.ravi);
+  for (const uid of [p.anita, p.ravi]) await pool.payIn(eventId, p.anita, uid);
+  const visa = await pool.spend(eventId, p.ravi, 'Visa fee', 10, { currency: 'USD', paidFrom: 'sponsor_card', alreadyIncurred: true });
+  expect(visa).toMatchObject({ amount: 800, currency: 'INR', originalAmount: 10, originalCurrency: 'USD', fxRate: 80 });
+
+  const openEdit = async () => {
+    await loginAsMockUser(page, p.ravi);
+    await page.goto(`/events/${eventId}/expenses/${visa.id}/edit`);
+    await expect(page.getByTestId('expense-amount-input')).toBeVisible({ timeout: 15_000 });
+  };
+
+  // C3: $10 → $12. The form shows what was entered and previews the saved rate.
+  await openEdit();
+  await expect(page.getByTestId('expense-amount-input')).toHaveValue('10');
+  await expect(page.getByTestId('expense-currency-select')).toHaveValue('USD');
+  await page.getByTestId('expense-amount-input').fill('12');
+  await expect(page.getByTestId('fx-preview')).toContainText("≈ ₹960.00 at 1 USD = 80 INR (the event's set rate)");
+  await page.getByTestId('edit-expense-submit').click();
+  await page.waitForURL(new RegExp(`/events/${eventId}$`), { timeout: 15_000 });
+  expect(await expenseByTitle(eventId, p.anita, 'Visa fee')).toMatchObject({ amount: 960, originalAmount: 12, originalCurrency: 'USD', fxRate: 80 });
+  await page.getByTestId('tab-expenses').click();
+  await expect(page.getByTestId(`expense-item-${visa.id}`)).toContainText('₹960.00');
+  await expect(page.getByTestId(`expense-original-${visa.id}`)).toHaveText('$12.00');
+
+  // C7: Anita's Pro ends. Changing only the amount still works, at the saved rate.
+  expect((await switchTier(p.anita, 'free')).status).toBe(200);
+  await openEdit();
+  await page.getByTestId('expense-amount-input').fill('15');
+  await expect(page.getByTestId('fx-preview')).toContainText("≈ ₹1,200.00 at 1 USD = 80 INR");
+  await page.getByTestId('edit-expense-submit').click();
+  await page.waitForURL(new RegExp(`/events/${eventId}$`), { timeout: 15_000 });
+  expect(await expenseByTitle(eventId, p.anita, 'Visa fee')).toMatchObject({ amount: 1200, originalAmount: 15, originalCurrency: 'USD', fxRate: 80 });
+
+  // C4: with Pro again, back to rupees: ₹900, and no dollar line.
+  expect((await switchTier(p.anita, 'pro')).status).toBe(200);
+  await openEdit();
+  await page.getByTestId('expense-currency-select').selectOption('INR');
+  await page.getByTestId('expense-amount-input').fill('900');
+  await expect(page.getByTestId('fx-preview')).toHaveCount(0);
+  await page.getByTestId('edit-expense-submit').click();
+  await page.waitForURL(new RegExp(`/events/${eventId}$`), { timeout: 15_000 });
+  const back = await expenseByTitle(eventId, p.anita, 'Visa fee');
+  expect(back).toMatchObject({ amount: 900, currency: 'INR' });
+  expect(back.originalCurrency ?? null).toBeNull();
+  await page.getByTestId('tab-expenses').click();
+  await expect(page.getByTestId(`expense-item-${visa.id}`)).toContainText('₹900.00');
+  await expect(page.getByTestId(`expense-original-${visa.id}`)).toHaveCount(0);
+});
+
+// Phase 3 D1–D4 and D6: an INR event that settles in dollars at 1 INR = 0.0125 USD. A member's
+// $30 dinner is stored in rupees; editing it to custom dollar shares keeps them in dollars on the
+// form; and Settle Now shows each rupee payment with its dollar amount.
+test('Phase 3: a dollar dinner in a rupee event, edited to custom shares, settles as rupees with dollars beside them', async ({ page }) => {
+  const p = await pool.cast('p3s', { anitaPro: true });
+  const eventId = await splitEvent(p.anita, [p.ravi, p.priya], 'Dinner club', {
+    settlementCurrency: 'USD', fxRateMode: 'predefined', predefinedFxRates: { INR_USD: 0.0125 },
+  });
+
+  // D2: Ravi adds a $30 dinner, split equally among all three.
+  await openEvent(page, p.ravi, eventId);
+  await page.getByTestId('add-expense-btn').click();
+  await expect(page.locator('[data-testid^="split-row-"]').first()).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId('expense-title-input').fill('Dinner');
+  await page.getByTestId('expense-amount-input').fill('30');
+  await page.getByTestId('expense-currency-select').selectOption('USD');
+  await expect(page.getByTestId('fx-preview')).toContainText("≈ ₹2,400.00 at 1 USD = 80 INR (the event's set rate)");
+  await page.getByTestId('create-expense-submit').click();
+  await page.waitForURL(new RegExp(`/events/${eventId}$`), { timeout: 15_000 });
+  const dinner = await expenseByTitle(eventId, p.ravi, 'Dinner');
+  expect(dinner).toMatchObject({ amount: 2400, currency: 'INR', originalAmount: 30, originalCurrency: 'USD', fxRate: 80 });
+
+  // D3: Ravi's summary cards are in rupees.
+  await expect(page.getByTestId('summary-total-expense')).toContainText('₹2400.00');
+  await expect(page.getByTestId('summary-your-shared')).toContainText('₹800.00');
+
+  // D4: Ravi switches to custom shares of $10 each. They're saved as ₹800 each, and the form shows
+  // them in dollars again when reopened.
+  await page.goto(`/events/${eventId}/expenses/${dinner.id}/edit`);
+  await expect(page.getByTestId('expense-amount-input')).toHaveValue('30', { timeout: 15_000 });
+  await page.getByTestId('split-type-custom').check();
+  for (const name of ['Anita', 'Ravi', 'Priya']) await splitRow(page, name).locator('[data-testid^="split-amount-"]').fill('10');
+  await expect(page.getByTestId('split-mismatch-error')).toHaveCount(0);
+  await page.getByTestId('edit-expense-submit').click();
+  await page.waitForURL(new RegExp(`/events/${eventId}$`), { timeout: 15_000 });
+  const custom = await expenseByTitle(eventId, p.ravi, 'Dinner');
+  expect(custom).toMatchObject({ amount: 2400, splitType: 'custom' });
+  expect(custom.splits.map((s: any) => s.amount)).toEqual([800, 800, 800]);
+  await page.goto(`/events/${eventId}/expenses/${dinner.id}/edit`);
+  await expect(page.getByTestId('expense-amount-input')).toHaveValue('30', { timeout: 15_000 });
+  for (const name of ['Anita', 'Ravi', 'Priya']) {
+    await expect(splitRow(page, name).locator('[data-testid^="split-amount-"]')).toHaveValue(/^10(\.00?)?$/);
+  }
+
+  // D6: Anita settles up. Anita and Priya each pay Ravi ₹800.00, shown as about $10.00.
+  await openEvent(page, p.anita, eventId);
+  await page.getByTestId('settle-btn').click();
+  await confirmDialog(page, 'Generate Settlement Plan');
+  const legs = await pool.settlements(eventId, p.anita);
+  expect(legs.map((l: any) => [l.fromUserId, l.toUserId, l.amount, l.settlementCurrency, l.settlementAmount]).sort()).toEqual(
+    [[p.anita, p.ravi, 800, 'USD', 10], [p.priya, p.ravi, 800, 'USD', 10]].sort(),
+  );
+  for (const leg of legs) {
+    await expect(page.getByTestId(`settlement-review-txn-${leg.id}`)).toContainText('₹800.00≈ $10.00');
+  }
 });

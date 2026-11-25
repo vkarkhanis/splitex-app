@@ -228,13 +228,13 @@ fi
 # settings every run needs (see the file).
 if [ "$MODE" = "artifacts" ]; then
   # shellcheck disable=SC2086
-  "$MAESTRO_BIN" test $DEVICE_ARGS --config "$ROOT_DIR/maestro/flows/config.yaml" $FLOW_ARGS \
+  "$MAESTRO_BIN" test $DEVICE_ARGS -e AUTH_EMULATOR="http://$FIREBASE_AUTH_EMULATOR_HOST" --config "$ROOT_DIR/maestro/flows/config.yaml" $FLOW_ARGS \
     --debug-output "$ROOT_DIR/maestro/artifacts" \
     --format junit \
     --output "$ROOT_DIR/maestro/artifacts/junit.xml" || STATUS=$?
 else
   # shellcheck disable=SC2086
-  "$MAESTRO_BIN" test $DEVICE_ARGS --config "$ROOT_DIR/maestro/flows/config.yaml" $FLOW_ARGS || STATUS=$?
+  "$MAESTRO_BIN" test $DEVICE_ARGS -e AUTH_EMULATOR="http://$FIREBASE_AUTH_EMULATOR_HOST" --config "$ROOT_DIR/maestro/flows/config.yaml" $FLOW_ARGS || STATUS=$?
 fi
 
 echo "[maestro-runner] cleanup after run"

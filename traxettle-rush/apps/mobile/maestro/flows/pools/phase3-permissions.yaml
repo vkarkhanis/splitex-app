@@ -1,0 +1,362 @@
+appId: com.traxettle.app
+name: Pools — only chosen people spend, and an approver decides (Pro, Phase 3)
+# The Phase 3 hand-test steps A1–A5 and A13 on mobile, with three people:
+# - the organiser (Pro) creates a Kitty where only people they choose can spend, pays in ₹1,000 and
+#   invites Ravi and Priya;
+# - on the Pool screen's "Who can spend and approve" card, Ravi gets Can spend, Priya becomes an
+#   approver, and spends always need approval;
+# - Priya (not a spender) is offered only "claim it back", and has no Settle up;
+# - Ravi's ₹500 spend on the organiser's card waits for approval;
+# - Priya approves it from her approval list, and ₹500 is left.
+---
+- evalScript: ${output.runId = Date.now().toString()}
+- runFlow:
+    file: ../../subflows/sign-up.yaml
+    env:
+      NAME: "P3 Owner ${output.runId}"
+      EMAIL: "p3own${output.runId}@example.com"
+- runFlow: ../../subflows/switch-to-pro.yaml
+
+# A1: a Kitty where only chosen people spend.
+- tapOn:
+    id: "dashboard-create-event-button"
+- tapOn:
+    id: "create-event-name-input"
+- inputText: "Goa Kitty P3 ${output.runId}"
+- pressKey: Enter
+- scrollUntilVisible:
+    element:
+      id: "create-event-currency-INR"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-currency-INR"
+- scrollUntilVisible:
+    element:
+      id: "funding-pool"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "funding-pool"
+- tapOn:
+    id: "funder-contributors"
+- tapOn:
+    id: "preset-trip_kitty"
+- scrollUntilVisible:
+    element:
+      id: "pool-per-person-input"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "pool-per-person-input"
+- inputText: "1000"
+- runFlow:
+    file: ../../subflows/close-number-pad.yaml
+    env:
+      LABEL: "Each person puts in.*"
+- scrollUntilVisible:
+    element:
+      id: "pool-spenders-listed"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "pool-spenders-listed"
+- scrollUntilVisible:
+    element:
+      id: "create-event-submit-button"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-submit-button"
+- tapOn:
+    text: "OK"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-tab-expenses"
+    timeout: 20000
+
+# The organiser pays in ₹1,000 before anyone joins (their own payment counts at once).
+- scrollUntilVisible:
+    element:
+      id: "event-detail-pool-card"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "event-detail-pool-card"
+- extendedWaitUntil:
+    visible:
+      id: "pool-contributions"
+    timeout: 20000
+- scrollUntilVisible:
+    element:
+      id: "mark-paid-.*"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "mark-paid-.*"
+    index: 0
+- tapOn:
+    id: "mark-paid-submit"
+- extendedWaitUntil:
+    visible: ".*1,000\\.00.*"
+    timeout: 15000
+# Back to the event. A Back tap while the payment sheet is still closing is lost: try again.
+- waitForAnimationToEnd:
+    timeout: 3000
+- repeat:
+    while:
+      visible:
+        id: "pool-summary"
+    times: 3
+    commands:
+      - runFlow: ../../subflows/go-back.yaml
+      - waitForAnimationToEnd:
+          timeout: 3000
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-tab-expenses"
+    timeout: 15000
+- runFlow:
+    file: ../../subflows/invite.yaml
+    env:
+      EMAIL: "p3ravi${output.runId}@example.com"
+- runFlow:
+    file: ../../subflows/invite.yaml
+    env:
+      EMAIL: "p3priya${output.runId}@example.com"
+
+# Ravi and Priya join.
+- runFlow:
+    file: ../../subflows/sign-up.yaml
+    env:
+      NAME: "P3 Ravi ${output.runId}"
+      EMAIL: "p3ravi${output.runId}@example.com"
+- runFlow: ../../subflows/accept-invitation.yaml
+- runFlow:
+    file: ../../subflows/sign-up.yaml
+    env:
+      NAME: "P3 Priya ${output.runId}"
+      EMAIL: "p3priya${output.runId}@example.com"
+- runFlow: ../../subflows/accept-invitation.yaml
+
+# A3: the organiser lets Ravi spend, makes Priya an approver, and asks for approval always.
+- runFlow:
+    file: ../../subflows/sign-in.yaml
+    env:
+      EMAIL: "p3own${output.runId}@example.com"
+- runFlow:
+    file: ../../subflows/open-event.yaml
+    env:
+      EVENT: "Goa Kitty P3 ${output.runId}"
+- scrollUntilVisible:
+    element:
+      id: "event-detail-pool-card"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "event-detail-pool-card"
+- extendedWaitUntil:
+    visible:
+      id: "pool-contributions"
+    timeout: 20000
+- scrollUntilVisible:
+    element:
+      text: "P3 Priya ${output.runId}"
+      below:
+        id: "approval-mode"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+# The buttons' test ids end in each person's user id (names can't pick the row: the order varies).
+- runScript:
+    file: ../../scripts/user-id.js
+    env:
+      EMAIL: "p3ravi${output.runId}@example.com"
+      OUT: raviId
+- runScript:
+    file: ../../scripts/user-id.js
+    env:
+      EMAIL: "p3priya${output.runId}@example.com"
+      OUT: priyaId
+- tapOn:
+    id: "spender-${output.raviId}"
+- extendedWaitUntil:
+    visible: "Can spend ✓"
+    timeout: 15000
+- tapOn:
+    id: "approver-${output.priyaId}"
+- extendedWaitUntil:
+    visible: "Approver ✓"
+    timeout: 15000
+- tapOn:
+    id: "approval-mode-always"
+- extendedWaitUntil:
+    visible: ".*Spending permissions updated.*"
+    timeout: 15000
+
+# A2 and A13: Priya, who isn't a spender, can only claim her own money back, and as an approver has
+# no Settle up.
+- runFlow:
+    file: ../../subflows/sign-in.yaml
+    env:
+      EMAIL: "p3priya${output.runId}@example.com"
+- runFlow:
+    file: ../../subflows/open-event.yaml
+    env:
+      EVENT: "Goa Kitty P3 ${output.runId}"
+- scrollUntilVisible:
+    element:
+      id: "event-detail-pool-card"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "event-detail-pool-card"
+- extendedWaitUntil:
+    visible:
+      id: "pool-contributions"
+    timeout: 20000
+- assertNotVisible:
+    id: "pool-settle-up"
+- scrollUntilVisible:
+    element:
+      id: "pool-add-expense"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "pool-add-expense"
+- extendedWaitUntil:
+    visible:
+      id: "paid-with-pool_reimbursement"
+    timeout: 15000
+- assertNotVisible:
+    id: "paid-with-pool_card"
+- runFlow: ../../subflows/go-back.yaml
+
+# A4: Ravi spends ₹500 on the organiser's card. Approval is "always", so it waits.
+- runFlow:
+    file: ../../subflows/sign-in.yaml
+    env:
+      EMAIL: "p3ravi${output.runId}@example.com"
+- runFlow:
+    file: ../../subflows/open-event.yaml
+    env:
+      EVENT: "Goa Kitty P3 ${output.runId}"
+- scrollUntilVisible:
+    element:
+      id: "event-detail-pool-card"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "event-detail-pool-card"
+- extendedWaitUntil:
+    visible:
+      id: "pool-contributions"
+    timeout: 20000
+- scrollUntilVisible:
+    element:
+      id: "pool-add-expense"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "pool-add-expense"
+- extendedWaitUntil:
+    visible:
+      id: "paid-with-pool_card"
+    timeout: 15000
+- tapOn:
+    id: "paid-with-pool_card"
+- tapOn:
+    id: "spend-timing-paid"
+- tapOn:
+    id: "create-expense-title-input"
+- inputText: "Cab ${output.runId}"
+- pressKey: Enter
+- tapOn:
+    id: "create-expense-amount-input"
+- inputText: "500"
+- runFlow:
+    file: ../../subflows/close-number-pad.yaml
+    env:
+      LABEL: "Amount \\(.*\\)"
+- scrollUntilVisible:
+    element:
+      id: "create-expense-submit-button"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-expense-submit-button"
+- tapOn:
+    text: "OK"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "pool-contributions"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 3000
+- repeat:
+    while:
+      visible:
+        id: "pool-summary"
+    times: 3
+    commands:
+      - runFlow: ../../subflows/go-back.yaml
+      - waitForAnimationToEnd:
+          timeout: 3000
+- tapOn:
+    id: "event-detail-tab-expenses"
+- extendedWaitUntil:
+    visible: ".*Cab ${output.runId}.*"
+    timeout: 15000
+# iOS reads the whole row as one element: "Cab …, Pool · pending, …".
+- assertVisible: ".*Pool · pending.*"
+- assertVisible: "Awaiting approval"
+
+# A5: Priya finds Cab waiting for her approval and approves it. ₹500 is left.
+- runFlow:
+    file: ../../subflows/sign-in.yaml
+    env:
+      EMAIL: "p3priya${output.runId}@example.com"
+- runFlow:
+    file: ../../subflows/open-event.yaml
+    env:
+      EVENT: "Goa Kitty P3 ${output.runId}"
+- scrollUntilVisible:
+    element:
+      id: "event-detail-pool-card"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "event-detail-pool-card"
+- scrollUntilVisible:
+    element:
+      id: "pool-pending-approvals"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible: "Cab ${output.runId}"
+- tapOn:
+    id: "approve-.*"
+- extendedWaitUntil:
+    notVisible:
+      id: "pool-pending-approvals"
+    timeout: 20000
+- scrollUntilVisible:
+    element:
+      text: ".*500\\.00.*"
+    direction: UP
