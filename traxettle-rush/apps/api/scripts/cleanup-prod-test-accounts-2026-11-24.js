@@ -27,9 +27,10 @@
  *
  *   # read the plan, then run the same command with --apply
  *
- * Credentials, in this order: GOOGLE_APPLICATION_CREDENTIALS or FIREBASE_PRIVATE_KEY_FILE (a
- * service-account JSON file); FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY;
- * otherwise Application Default Credentials (`gcloud auth application-default login`).
+ * Credentials, as the API reads them: a service-account key file (GOOGLE_APPLICATION_CREDENTIALS or
+ * FIREBASE_PRIVATE_KEY_FILE) and/or FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY. The key file needn't
+ * contain "project_id": the project is --project. With none of these, Application Default Credentials
+ * (`gcloud auth application-default login`).
  *
  * With --apply it writes what it deleted to ~/traxettle-prod-cleanup-2026-11-24.result.json.
  * Testing it against the emulator: set FIRESTORE_EMULATOR_HOST and FIREBASE_AUTH_EMULATOR_HOST and
@@ -110,33 +111,49 @@ if (usingEmulator && projectArg !== 'traxettle-local') {
   process.exit(2);
 }
 
+/**
+ * Builds the credential the way the API does (src/config/firebase.ts): the project id, client email
+ * and private key can each come from the key file or from FIREBASE_* variables, so a key file
+ * without "project_id" works too. The project is always --project, checked against both.
+ */
 function credential() {
   if (usingEmulator) return undefined;
-  const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_PRIVATE_KEY_FILE;
-  if (keyFile) {
-    const sa = JSON.parse(fs.readFileSync(path.resolve(keyFile), 'utf8'));
-    if (sa.project_id && sa.project_id !== projectArg) {
-      console.error(`The key file is for project "${sa.project_id}", not "${projectArg}". Stopping.`);
-      process.exit(2);
-    }
-    return admin.credential.cert(sa);
-  }
   const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } = process.env;
-  if (FIREBASE_CLIENT_EMAIL && FIREBASE_PRIVATE_KEY) {
-    if (FIREBASE_PROJECT_ID && FIREBASE_PROJECT_ID !== projectArg) {
-      console.error(`FIREBASE_PROJECT_ID is "${FIREBASE_PROJECT_ID}", not "${projectArg}". Stopping.`);
+  const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_PRIVATE_KEY_FILE;
+  let sa = {};
+  if (keyFile) {
+    try {
+      sa = JSON.parse(fs.readFileSync(path.resolve(keyFile), 'utf8'));
+    } catch (err) {
+      console.error(`Couldn't read the key file ${keyFile} as JSON: ${err.message}`);
       process.exit(2);
     }
-    return admin.credential.cert({
-      projectId: projectArg,
-      clientEmail: FIREBASE_CLIENT_EMAIL,
-      privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-    });
   }
-  return admin.credential.applicationDefault();
+  for (const [where, id] of [['The key file', sa.project_id], ['FIREBASE_PROJECT_ID', FIREBASE_PROJECT_ID]]) {
+    if (id && id !== projectArg) {
+      console.error(`${where} is for project "${id}", not "${projectArg}". Stopping.`);
+      process.exit(2);
+    }
+  }
+  const clientEmail = sa.client_email || FIREBASE_CLIENT_EMAIL;
+  const privateKey = sa.private_key || FIREBASE_PRIVATE_KEY;
+  if (!keyFile && !clientEmail && !privateKey) return admin.credential.applicationDefault();
+  const missing = [!clientEmail && 'client_email (or FIREBASE_CLIENT_EMAIL)', !privateKey && 'private_key (or FIREBASE_PRIVATE_KEY)'].filter(Boolean);
+  if (missing.length) {
+    console.error(`Missing ${missing.join(' and ')}${keyFile ? ` in ${keyFile}` : ''}.`);
+    if (keyFile) console.error(`That file has: ${Object.keys(sa).join(', ') || 'nothing'}. A service-account key has client_email and private_key.`);
+    console.error('Get one from the Firebase console: Project settings → Service accounts → Generate new private key.');
+    process.exit(2);
+  }
+  return admin.credential.cert({ projectId: projectArg, clientEmail, privateKey: privateKey.replace(/\\n/g, '\n') });
 }
 
-admin.initializeApp({ projectId: projectArg, ...(usingEmulator ? {} : { credential: credential() }) });
+try {
+  admin.initializeApp({ projectId: projectArg, ...(usingEmulator ? {} : { credential: credential() }) });
+} catch (err) {
+  console.error(`Couldn't use these credentials: ${err.message}`);
+  process.exit(2);
+}
 const db = admin.firestore();
 const auth = admin.auth();
 
