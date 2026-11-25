@@ -33,6 +33,10 @@ import {
   allowedFundingSources,
   buildPoolConfig,
   canApproveDraw,
+  isListedSpender,
+  isPoolApprover,
+  poolNoun,
+  usesSpenderList,
   computeArrears,
   computeCycleTotals,
   computeFundingState,
@@ -990,12 +994,34 @@ export class PoolService {
   private async canDraw(event: EventRecord, config: PoolConfig, userId: string, groups: Group[]): Promise<boolean> {
     if (this.isManager(event, config, userId)) return true;
     if (config.funderMode === 'contributors') {
-      if (Array.isArray(event.data.participantIds) && event.data.participantIds.includes(userId)) return true;
-      const p = await db.collection('events').doc(event.id).collection('participants').doc(userId).get();
-      return p.exists;
+      if (!(await this.isParticipant(event, userId))) return false;
+      // Phase 3: the organiser may limit spending to people they choose.
+      return !usesSpenderList(config) || isListedSpender(config, userId, groups);
     }
-    if ((config.authorizedSpenders || []).includes(userId)) return true;
-    return groups.some((g) => (config.authorizedSpenderGroups || []).includes(g.id) && (g.members || []).includes(userId));
+    return isListedSpender(config, userId, groups);
+  }
+
+  private async isParticipant(event: EventRecord, userId: string): Promise<boolean> {
+    if (Array.isArray(event.data.participantIds) && event.data.participantIds.includes(userId)) return true;
+    const p = await db.collection('events').doc(event.id).collection('participants').doc(userId).get();
+    return p.exists;
+  }
+
+  /**
+   * In a "Several of us" pool with a spender list, someone not on it can still claim back money
+   * they spent, always with approval (Phase 3, D2). A Budget's guests can't.
+   */
+  private async isClaimOnly(event: EventRecord, config: PoolConfig, userId: string, groups: Group[], fundingSource: ExpenseFundingSource): Promise<boolean> {
+    if (fundingSource !== 'pool_reimbursement' || config.funderMode !== 'contributors') return false;
+    if (await this.canDraw(event, config, userId, groups)) return false;
+    return this.isParticipant(event, userId);
+  }
+
+  /** Approves and rejects spends and claims: a manager, or someone with the approver permission (Phase 3). */
+  private requireApprover(event: EventRecord, config: PoolConfig, userId: string) {
+    if (!this.isManager(event, config, userId) && !isPoolApprover(config, userId)) {
+      throw new PoolError(403, 'Forbidden: Only the custodian, an event admin or an approver can do this');
+    }
   }
 
   /** The cap key (userId or authorising groupId) a spender is measured against. */
@@ -1071,7 +1097,11 @@ export class PoolService {
       throw new PoolError(400, `Pool expenses must be in the pool currency (${event.data.currency})`);
     }
     const groups = await this.getGroups(eventId);
-    if (!(await this.canDraw(event, config, actorId, groups))) {
+    const claimOnly = await this.isClaimOnly(event, config, actorId, groups, input.fundingSource);
+    if (!claimOnly && !(await this.canDraw(event, config, actorId, groups))) {
+      if (config.funderMode === 'contributors' && usesSpenderList(config) && (await this.isParticipant(event, actorId))) {
+        throw new PoolError(403, `Only the people the organiser chose can spend from the ${poolNoun(config).toLowerCase()}. You can still claim back money you spent.`, 'POOL_NOT_A_SPENDER');
+      }
       throw new PoolError(403, 'Forbidden: You are not authorised to spend from this pool');
     }
 
@@ -1097,8 +1127,8 @@ export class PoolService {
     const flags: PoolExpenseFlag[] = [];
     const manager = this.isManager(event, config, actorId);
 
-    // Per-spender cap (sponsor budgets).
-    let forcePending = false;
+    // Per-spender cap. Someone who can only claim always waits for approval (Phase 3, D2).
+    let forcePending = claimOnly;
     const sk = this.spenderKey(config, actorId, groups);
     const cap = config.spenderCapsMinor?.[sk.id];
     if (typeof cap === 'number' && !manager) {
@@ -1217,7 +1247,7 @@ export class PoolService {
 
   async approveDraw(expenseId: string, actorId: string): Promise<{ expense: Record<string, any>; settlementId: string | null }> {
     const { expense, event, config, cycle } = await this.loadDraw(expenseId);
-    this.requireManager(event, config, actorId);
+    this.requireApprover(event, config, actorId);
     if (!canApproveDraw(actorId, expense.paidBy, config.custodianUserId, true)) {
       throw new PoolError(403, "You can't approve your own expense. Ask the custodian or another admin.", 'POOL_SELF_APPROVAL');
     }
@@ -1246,7 +1276,7 @@ export class PoolService {
 
   async rejectDraw(expenseId: string, actorId: string, reason?: string): Promise<Record<string, any>> {
     const { expense, event, config, cycle } = await this.loadDraw(expenseId);
-    this.requireManager(event, config, actorId);
+    this.requireApprover(event, config, actorId);
     this.assertEventEditable(event);
     this.assertCycleWritable(cycle);
     if (expense.poolDraw?.status !== 'pending') throw new PoolError(409, `Cannot reject: this draw is ${expense.poolDraw?.status}`);
@@ -1375,8 +1405,10 @@ export class PoolService {
     const flags: PoolExpenseFlag[] = (Array.isArray(expense.poolFlags) ? expense.poolFlags : []).filter((f: PoolExpenseFlag) => f !== 'exceeds_tolerance' && f !== 'underfunded');
     if (decision.flag) flags.push(decision.flag);
     const approver = canApproveDraw(actorId, expense.paidBy, config.custodianUserId, this.isManager(event, config, actorId));
-    const needsApproval = !approver && (config.expenseApproval === 'always' ||
-      (config.expenseApproval === 'above_threshold' && amountMinor > Number(config.approvalThresholdMinor ?? 0)));
+    // A claim from someone not on the spender list always goes back for approval (Phase 3, D2).
+    const claimOnly = await this.isClaimOnly(event, config, expense.paidBy, await this.getGroups(event.id), expense.fundingSource);
+    const needsApproval = claimOnly || (!approver && (config.expenseApproval === 'always' ||
+      (config.expenseApproval === 'above_threshold' && amountMinor > Number(config.approvalThresholdMinor ?? 0))));
     const kept = method ? { paidFrom: method } : {};
     const poolDraw: PoolDrawState = needsApproval
       ? { status: 'pending', alreadyIncurred: incurred, ...kept }
@@ -1438,6 +1470,8 @@ export class PoolService {
         flags: Array.isArray(d.poolFlags) && d.poolFlags.length > 0 ? d.poolFlags : undefined,
         ...(d.fundingSource === 'pool' ? { alreadyIncurred: d.poolDraw?.alreadyIncurred === true } : {}),
         ...(d.poolDraw?.paidFrom ? { paidFrom: d.poolDraw.paidFrom } : {}),
+        // Entered in another currency (Phase 3): shown next to the converted amount.
+        ...(d.originalCurrency && typeof d.originalAmount === 'number' ? { originalAmount: d.originalAmount, originalCurrency: d.originalCurrency } : {}),
         settlementStatus: d.poolDraw?.selfReimbursed ? 'completed' : (d.poolDraw?.settlementId ? legStatus.get(d.poolDraw.settlementId) ?? null : null),
         counted: d.poolDraw?.status === 'approved',
       });
@@ -2009,6 +2043,7 @@ export class PoolService {
     const event = await this.getEvent(eventId);
     if (resolveFundingModel(event.data as any) === 'peer_to_peer' || !event.data.poolConfig) return { action: 'none' };
     const config = event.data.poolConfig as PoolConfig;
+    await this.dropLeaversFromLists(event, config, change.leftUserIds || []);
     if (config.funderMode === 'sponsor') return { action: 'none' };
     let cycle: PoolCycle;
     try {
@@ -2108,11 +2143,67 @@ export class PoolService {
       }
     }
     const next: PoolConfig = { ...config, ...patch, funderMode: config.funderMode, cycleMode: config.cycleMode, preset: config.preset };
+    // Approvers must be in the event (Phase 3).
+    if (patch.approverUserIds) {
+      next.approverUserIds = [...new Set(patch.approverUserIds)];
+      for (const uid of next.approverUserIds) {
+        if (!(await this.isParticipant(event, uid))) throw new PoolError(400, 'Approvers must be participants of the event', 'POOL_APPROVER_INVALID');
+      }
+    }
+    if (patch.spendersMode !== undefined || patch.authorizedSpenders !== undefined || patch.authorizedSpenderGroups !== undefined) {
+      await this.assertHoldersKeepSpending(event, next);
+    }
     // update() replaces the whole map; a merge would keep removed keys such as a cleared spender cap.
     await db.collection('events').doc(eventId).update({ poolConfig: next, updatedAt: nowIso() });
     const cycle = await this.getCurrentCycle(eventId).catch(() => null);
     if (cycle) await this.refreshOverdraftLatch(eventId, cycle.id);
     return next;
+  }
+
+  /** Someone who leaves is no longer an approver or a listed spender (Phase 3). */
+  private async dropLeaversFromLists(event: EventRecord, config: PoolConfig, left: string[]): Promise<void> {
+    if (left.length === 0) return;
+    const approvers = config.approverUserIds || [];
+    const spenders = config.authorizedSpenders || [];
+    if (!left.some((uid) => approvers.includes(uid) || spenders.includes(uid))) return;
+    const next: PoolConfig = {
+      ...config,
+      approverUserIds: approvers.filter((uid) => !left.includes(uid)),
+      authorizedSpenders: spenders.filter((uid) => !left.includes(uid)),
+    };
+    await db.collection('events').doc(event.id).update({ poolConfig: next, updatedAt: nowIso() });
+    event.data.poolConfig = next;
+    Object.assign(config, next);
+  }
+
+  /**
+   * Someone holding pool money, owed for spends beyond it, or waiting on a hand-over can't lose the
+   * right to spend: they settle that first (Phase 3), like leaving the event.
+   */
+  private async assertHoldersKeepSpending(event: EventRecord, next: PoolConfig): Promise<void> {
+    const cycle = await this.getCurrentCycle(event.id, event).catch(() => null);
+    if (!cycle || cycle.status !== 'open') return;
+    const built = await this.buildSummary(event, cycle);
+    const groups = built._groups;
+    const stillSpends = (uid: string) => this.isManager(event, next, uid) || !usesSpenderList(next) || isListedSpender(next, uid, groups);
+    for (const [key, held] of Object.entries(built.holdings.heldBy)) {
+      if (held === 0) continue;
+      const [type, ...rest] = key.split(':');
+      const id = rest.join(':');
+      const ok = type === 'group'
+        ? (next.authorizedSpenderGroups || []).includes(id) || (groups.find((g) => g.id === id)?.members || []).some(stillSpends) || !usesSpenderList(next)
+        : stillSpends(id);
+      if (!ok) {
+        const amount = formatMinor(Math.abs(held), cycle.currency);
+        throw new PoolError(409, held > 0
+          ? `Someone you're taking off the spender list still holds ${amount} of pool money. It needs to be returned first.`
+          : `The pool owes someone you're taking off the spender list ${amount} for spends beyond the money they held. Give them that amount first.`,
+        'POOL_HOLDER_DELISTED', { heldMinor: held });
+      }
+    }
+    if (built._advances.some((a) => a.kind === 'advance' && a.status === 'initiated' && !stillSpends(a.toUserId))) {
+      throw new PoolError(409, "Money handed over to someone you're taking off the spender list is waiting for confirmation. Confirm, reject or cancel it first.", 'POOL_HOLDER_DELISTED');
+    }
   }
 
   /**

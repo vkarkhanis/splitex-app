@@ -35,15 +35,17 @@ import type {
 } from '@traxettle/shared';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEventSocket } from '../hooks/useSocket';
-import { useFeedback } from '../context/FeedbackContext';
+import { ModalToasts, useFeedback } from '../context/FeedbackContext';
 import {
   REIMBURSEMENT_STATUS,
   REPAYMENT_STATUS,
   POOL_LEGS_NETTED_NOTE,
   POOL_LEGS_PAID_SEPARATELY_NOTE,
   isPoolFundedEvent,
+  isExpenseVisibleTo,
   isPoolFundedExpense,
   isPoolSideLeg,
+  originalAmountText,
   poolExpenseByline,
   poolLegLabel,
   poolNoun,
@@ -252,15 +254,11 @@ export default function EventDetailScreen({ route, navigation }: any) {
   const myEntityId = myGroup ? myGroup.id : currentUserId;
   const myEntityMembers = myGroup ? myGroup.members : (currentUserId ? [currentUserId] : []);
 
+  // Pool spends, shared expenses this entity is in or paid for (including "on behalf of" ones), and
+  // its own private expenses.
   const visibleExpenses = useMemo(() => {
     if (!currentUserId) return expenses.filter(e => !e.isPrivate);
-    return expenses.filter(exp => {
-      // Pool-funded expenses are transparent to every participant.
-      if (isPoolFundedExpense(exp)) return true;
-      if (exp.isPrivate) return myEntityMembers.includes(exp.paidBy);
-      if (!myEntityId) return false;
-      return exp.splits?.some((s: any) => s.entityId === myEntityId);
-    });
+    return expenses.filter(exp => isExpenseVisibleTo(exp, { entityId: myEntityId, memberIds: myEntityMembers }));
   }, [expenses, currentUserId, myEntityId, myEntityMembers]);
 
   // A claim's pay-back status lives on its reimbursement leg, which is one of the event's settlements.
@@ -930,6 +928,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                     <>
                       {!isStale && canApprove && !myEntityApproved && (
                         <TouchableOpacity
+                          testID="event-detail-approve-settlement"
                           style={[styles.primaryBtn, { backgroundColor: colors.primary, marginTop: spacing.md }]}
                           onPress={handleApproveSettlement}
                           disabled={approveSettlementLoading}
@@ -1082,7 +1081,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
               <Text style={[styles.balancedTitle, { color: colors.success }]}>All Balanced!</Text>
               <Text style={[styles.balancedDesc, { color: colors.textSecondary }]}>No payments needed — everyone is even.</Text>
               {isAdmin && (
-                <TouchableOpacity style={[styles.closeBtn, { backgroundColor: colors.primary }]} onPress={handleCloseEvent}>
+                <TouchableOpacity testID="event-detail-close-event-balanced" style={[styles.closeBtn, { backgroundColor: colors.primary }]} onPress={handleCloseEvent}>
                   <Text style={styles.closeBtnText}>Close Event</Text>
                 </TouchableOpacity>
               )}
@@ -1180,10 +1179,17 @@ export default function EventDetailScreen({ route, navigation }: any) {
                         {exp.attachments?.length ? ` · ${exp.attachments.length} receipt(s)` : ''}
                       </Text>
                     </View>
-                    <Text style={[styles.amountText, { color: colors.text }]}>{CURRENCY_SYMBOLS[exp.currency] || exp.currency}{exp.amount.toFixed(2)}</Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={[styles.amountText, { color: colors.text }]}>{CURRENCY_SYMBOLS[exp.currency] || exp.currency}{exp.amount.toFixed(2)}</Text>
+                      {/* Entered in another currency (Phase 3) */}
+                      {originalAmountText(exp) ? (
+                        <Text testID={`expense-original-${exp.id}`} style={{ color: colors.muted, fontSize: fontSizes.xs }}>{originalAmountText(exp)}</Text>
+                      ) : null}
+                    </View>
                     {(event.status === 'active' || event.status === 'review') && (currentUserId === exp.paidBy || isAdmin) && (
                       <View style={styles.inlineActions}>
                         <TouchableOpacity
+                          testID={`event-detail-edit-expense-${exp.id}`}
                           style={[styles.tinyBtn, { borderColor: colors.border }]}
                           onPress={(e) => { e.stopPropagation(); navigation.navigate('EditExpense', { eventId, expenseId: exp.id, currency: event.currency }); }}
                         >
@@ -1378,6 +1384,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Invite Modal ── */}
@@ -1409,6 +1416,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+      <ModalToasts />
     </Modal>
 
     {/* ── Create Group Modal ── */}
@@ -1418,14 +1426,14 @@ export default function EventDetailScreen({ route, navigation }: any) {
           <ScrollView>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Create Group</Text>
             <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Group Name</Text>
-            <TextInput style={[styles.modalInput, { backgroundColor: colors.surfaceAlt, borderColor: colors.border, color: colors.text }]} value={groupForm.name} onChangeText={v => setGroupForm(f => ({ ...f, name: v }))} placeholder="e.g. Family" placeholderTextColor={colors.muted} />
+            <TextInput testID="create-group-name-input" style={[styles.modalInput, { backgroundColor: colors.surfaceAlt, borderColor: colors.border, color: colors.text }]} value={groupForm.name} onChangeText={v => setGroupForm(f => ({ ...f, name: v }))} placeholder="e.g. Family" placeholderTextColor={colors.muted} />
             <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Description (optional)</Text>
             <TextInput style={[styles.modalInput, { backgroundColor: colors.surfaceAlt, borderColor: colors.border, color: colors.text }]} value={groupForm.description} onChangeText={v => setGroupForm(f => ({ ...f, description: v }))} placeholder="Brief description..." placeholderTextColor={colors.muted} />
             <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Members</Text>
             {participants.map(p => {
               const checked = groupForm.memberIds.includes(p.userId);
               return (
-                <TouchableOpacity key={p.userId} style={styles.memberItem} onPress={() => {
+                <TouchableOpacity key={p.userId} testID={`create-group-member-${p.userId}`} accessibilityRole="checkbox" accessibilityState={{ checked }} style={styles.memberItem} onPress={() => {
                   setGroupForm(f => {
                     const ids = checked ? f.memberIds.filter(id => id !== p.userId) : [...f.memberIds, p.userId];
                     const payer = ids.includes(f.payerUserId) ? f.payerUserId : '';
@@ -1445,7 +1453,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
             <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Payer</Text>
             <View style={styles.modalChipRow}>
               {participants.filter(p => groupForm.memberIds.includes(p.userId)).map(p => (
-                <TouchableOpacity key={p.userId} style={[styles.modalChip, { borderColor: colors.border, backgroundColor: colors.surface }, groupForm.payerUserId === p.userId && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]} onPress={() => setGroupForm(f => ({ ...f, payerUserId: p.userId }))}>
+                <TouchableOpacity key={p.userId} testID={`create-group-payer-${p.userId}`} style={[styles.modalChip, { borderColor: colors.border, backgroundColor: colors.surface }, groupForm.payerUserId === p.userId && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]} onPress={() => setGroupForm(f => ({ ...f, payerUserId: p.userId }))}>
                   <Text style={[styles.modalChipText, { color: colors.text }, groupForm.payerUserId === p.userId && { color: colors.primary, fontWeight: '600' }]}>
                     {(p as any).displayName || (p as any).email || p.userId.slice(0, 8)}
                   </Text>
@@ -1456,13 +1464,14 @@ export default function EventDetailScreen({ route, navigation }: any) {
               <TouchableOpacity style={[styles.modalCancelBtn, { borderColor: colors.border }]} onPress={() => setCreateGroupModal(false)}>
                 <Text style={[styles.modalCancelText, { color: colors.text }]}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalSubmitBtn, { backgroundColor: colors.primary }, (groupLoading || !groupForm.name.trim() || groupForm.memberIds.length === 0) && styles.modalSubmitDisabled]} onPress={handleCreateGroup} disabled={groupLoading || !groupForm.name.trim() || groupForm.memberIds.length === 0}>
+              <TouchableOpacity testID="create-group-submit-button" style={[styles.modalSubmitBtn, { backgroundColor: colors.primary }, (groupLoading || !groupForm.name.trim() || groupForm.memberIds.length === 0) && styles.modalSubmitDisabled]} onPress={handleCreateGroup} disabled={groupLoading || !groupForm.name.trim() || groupForm.memberIds.length === 0}>
                 <Text style={styles.modalSubmitText}>{groupLoading ? 'Creating...' : 'Create'}</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Edit Group Modal ── */}
@@ -1517,6 +1526,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Mark Paid Modal ── */}
@@ -1590,6 +1600,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                 <Text style={[styles.modalCancelText, { color: colors.text }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
+                testID="event-detail-mark-paid-submit"
                 style={[styles.modalSubmitBtn, { backgroundColor: colors.primary }, markPaidLoading && styles.modalSubmitDisabled]}
                 onPress={handleSubmitMarkPaid}
                 disabled={markPaidLoading}
@@ -1602,6 +1613,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Settlement Details Modal ── */}
@@ -1720,6 +1732,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Expense Detail / Split Breakdown Modal ── */}
@@ -1818,6 +1831,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Proof Image Viewer Modal ── */}
@@ -1840,6 +1854,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           <Text style={styles.proofViewerOpenText}>Open in Browser</Text>
         </TouchableOpacity>
       </View>
+      <ModalToasts />
     </Modal>
   </>
   );

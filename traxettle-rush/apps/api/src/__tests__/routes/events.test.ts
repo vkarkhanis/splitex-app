@@ -800,6 +800,55 @@ describe('PUT /api/events/:eventId — status guards', () => {
     expect(res.status).toBe(403);
     expect(res.body.error).toContain('currency');
   });
+
+  const reviewEvent = (id: string, extra: Record<string, any> = {}) => {
+    mockEvents[id] = {
+      name: 'Munnar plan',
+      type: 'event',
+      startDate: '2025-01-01',
+      currency: 'INR',
+      status: 'review',
+      createdBy: 'mock-user-1',
+      admins: ['mock-user-1'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ...extra,
+    };
+  };
+
+  it('allows a rename during review when the edit form also sends the unchanged currency', async () => {
+    reviewEvent('evt-review-rename');
+    const res = await request(createApp())
+      .put('/api/events/evt-review-rename')
+      .set('Authorization', 'Bearer mock-user-1')
+      // What the web and app edit forms send: every field, "" for no settlement currency.
+      .send({ name: 'Munnar, final plan', description: '', type: 'event', currency: 'INR', settlementCurrency: '', status: 'review' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.name).toBe('Munnar, final plan');
+  });
+
+  it('allows a rename during review of a multi-currency event when its FX settings are resent unchanged', async () => {
+    reviewEvent('evt-review-fx-same', { currency: 'USD', settlementCurrency: 'INR', fxRateMode: 'predefined', predefinedFxRates: { USD_INR: 83 } });
+    const res = await request(createApp())
+      .put('/api/events/evt-review-fx-same')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ name: 'Renamed', currency: 'USD', settlementCurrency: 'INR', fxRateMode: 'predefined', predefinedFxRates: { USD_INR: 83 } });
+    expect(res.status).toBe(200);
+  });
+
+  it('still refuses a different settlement currency or rate during review', async () => {
+    reviewEvent('evt-review-fx-change', { currency: 'USD', settlementCurrency: 'INR', fxRateMode: 'predefined', predefinedFxRates: { USD_INR: 83 } });
+    const changeSettlement = await request(createApp())
+      .put('/api/events/evt-review-fx-change')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ name: 'Renamed', currency: 'USD', settlementCurrency: 'EUR' });
+    expect(changeSettlement.status).toBe(403);
+    const changeRate = await request(createApp())
+      .put('/api/events/evt-review-fx-change')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ predefinedFxRates: { USD_INR: 84 } });
+    expect(changeRate.status).toBe(403);
+  });
 });
 
 describe('DELETE /api/events/:eventId — status guards', () => {

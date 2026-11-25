@@ -88,8 +88,9 @@ export default function DateField({ value, onChange, testID }: DateFieldProps) {
       {/* iOS: modal spinner with an explicit confirm. */}
       {Platform.OS === 'ios' && (
         <Modal visible={show} transparent animationType="fade" onRequestClose={() => setShow(false)}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setShow(false)}>
-            <TouchableOpacity activeOpacity={1} style={[styles.card, { backgroundColor: c.surface }]}>
+          {/* accessible={false} on both layers, so iOS exposes the picker and its buttons one by one. */}
+          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setShow(false)} accessible={false}>
+            <TouchableOpacity activeOpacity={1} style={[styles.card, { backgroundColor: c.surface }]} accessible={false}>
               <DateTimePicker
                 testID="date-field-native-picker"
                 value={tempDate}

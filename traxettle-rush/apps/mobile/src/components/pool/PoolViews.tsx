@@ -71,13 +71,17 @@ export function PaidWithSelector(props: {
   /** They've been handed money this cycle. */
   hasAdvances?: boolean;
   custodianName?: string;
+  /** False for someone not on the pool's spender list: they can only claim back (Phase 3). */
+  canSpend?: boolean;
+  /** False for a Budget's guest: no claims either. */
+  canClaim?: boolean;
 }) {
   const { colors } = useTheme().theme;
   const o = props.summary?.overdraft;
   const options = paidWithOptions({
     model: props.model, isCustodian: props.isCustodian, currency: props.currency, noun: props.noun,
     allowCardSpends: props.allowCardSpends, heldMinor: props.heldMinor, hasAdvances: props.hasAdvances,
-    custodianName: props.custodianName, preferred: props.preferred,
+    custodianName: props.custodianName, preferred: props.preferred, canSpend: props.canSpend, canClaim: props.canClaim,
   });
   let status: { color: string; text: string } | null = null;
   if (o && props.value !== 'self') {
@@ -95,6 +99,11 @@ export function PaidWithSelector(props: {
   return (
     <View testID="paid-with" style={{ marginBottom: spacing.md }}>
       <Text style={[s.label, { color: colors.textSecondary }]}>Paid with</Text>
+      {options.length === 0 && (
+        <Text testID="paid-with-none" style={{ color: colors.warning, fontSize: fontSizes.sm, marginBottom: spacing.xs }}>
+          You can't add expenses to this {props.noun.toLowerCase()}. Ask the organiser to let you spend.
+        </Text>
+      )}
       <View style={s.optionRow} accessibilityRole="radiogroup">
         {options.map((opt) => {
           const selected = props.value === opt.value;
@@ -313,6 +322,17 @@ export function FundingStepView({ value, onChange, currency, allowContributorPoo
               onPress={() => onChange({ ...value, allowPeerExpenses: !value.allowPeerExpenses })}>
               <Text style={{ color: colors.primary, fontSize: fontSizes.lg }}>{value.allowPeerExpenses ? '☑' : '☐'}</Text>
               <Text style={[s.optionText, { color: colors.text, flex: 1 }]}>Also allow regular split expenses in this event</Text>
+            </TouchableOpacity>
+          )}
+          {/* Phase 3: everyone in the event can spend, unless the organiser keeps a list. */}
+          {preset !== 'sponsor_budget' && (
+            <TouchableOpacity testID="pool-spenders-listed" style={[s.optionRow, { marginTop: spacing.sm, alignItems: 'center' }]}
+              accessibilityRole="checkbox" accessibilityState={{ checked: value.spendersMode === 'listed' }}
+              onPress={() => onChange({ ...value, spendersMode: value.spendersMode === 'listed' ? 'everyone' : 'listed' })}>
+              <Text style={{ color: colors.primary, fontSize: fontSizes.lg }}>{value.spendersMode === 'listed' ? '☑' : '☐'}</Text>
+              <Text style={[s.optionText, { color: colors.text, flex: 1 }]}>
+                Only people I choose can spend (others can still claim back money they spent). Choose them on the pool screen after inviting.
+              </Text>
             </TouchableOpacity>
           )}
         </>

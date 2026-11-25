@@ -1,0 +1,21 @@
+appId: com.traxettle.app
+name: "Subflow: switch to another registered user"
+# env: EMAIL. Signs out whoever is signed in, signs in, then sets or enters the PIN (1234).
+---
+- runFlow: sign-out.yaml
+- tapOn:
+    id: "login-email-input"
+- inputText: ${EMAIL}
+# iOS password autofill swallows typing into a hidden password field: show it first.
+- tapOn:
+    text: "Show password"
+    optional: true
+- tapOn:
+    id: "login-password-input"
+- inputText: "Password123!"
+# Submit with the keyboard's Enter key: hiding the keyboard on iOS can tap "Sign in with Apple".
+- pressKey: Enter
+- tapOn:
+    id: "login-submit-button"
+    optional: true
+- runFlow: after-sign-in.yaml

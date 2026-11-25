@@ -34,7 +34,7 @@ import { getResolvedApiBaseUrl } from '../../../config/dev-options';
 import { PoolTab } from '../../../components/pool/PoolTab';
 import { SpenderPermissions } from '../../../components/pool/SpenderPermissions';
 import { poolNoun } from '../../../components/pool/poolFormat';
-import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, POOL_LEGS_NETTED_NOTE, POOL_LEGS_PAID_SEPARATELY_NOTE, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg, poolExpenseByline, poolLegLabel, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, POOL_LEGS_NETTED_NOTE, POOL_LEGS_PAID_SEPARATELY_NOTE, isExpenseVisibleTo, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg, originalAmountText, poolExpenseByline, poolLegLabel, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
 import { FxRatesAttribution } from '../../../components/FxRatesAttribution';
 import type {
   Event as TraxettleEvent,
@@ -1276,25 +1276,10 @@ export default function EventDetailPage() {
   // All user IDs that belong to my entity (for private expense ownership check)
   const myEntityMembers: string[] = myGroup ? myGroup.members : (currentUserId ? [currentUserId] : []);
 
-  // Helper: does an expense involve my entity? (shared expense where my entity is in the splits)
-  const isSharedWithMyEntity = (exp: Expense) => {
-    if (exp.isPrivate) return false;
-    if (!myEntityId) return false;
-    return exp.splits?.some((s: any) => s.entityId === myEntityId);
-  };
-
-  // Helper: is a private expense owned by my entity?
-  // Private expense belongs to an entity if the creator (paidBy) is a member of that entity.
-  const isMyEntityPrivate = (exp: Expense) => {
-    if (!exp.isPrivate) return false;
-    return myEntityMembers.includes(exp.paidBy);
-  };
-
-  // Visible expenses for this user's entity:
-  // - All shared expenses where this entity is in the splits
-  // - Private expenses created by a member of this entity
+  // The expenses this entity sees, in the list and the totals: pool spends, shared expenses it's in
+  // or paid for (including "on behalf of" ones), and its own private expenses.
   const visibleExpenses = currentUserId
-    ? expenses.filter(exp => isPoolFundedExpense(exp) || isSharedWithMyEntity(exp) || isMyEntityPrivate(exp))
+    ? expenses.filter(exp => isExpenseVisibleTo(exp, { entityId: myEntityId, memberIds: myEntityMembers }))
     : expenses.filter(exp => !exp.isPrivate); // fallback for unauthenticated: show shared only
 
   // A claim's pay-back status lives on its reimbursement leg, which is one of the event's settlements.
@@ -1381,19 +1366,19 @@ export default function EventDetailPage() {
         </SummaryGrid>
       ) : (
       <SummaryGrid>
-        <SummaryCard>
+        <SummaryCard data-testid="summary-total-expense">
           <SummaryLabel>Total Expense</SummaryLabel>
           <SummaryValue>{currSym}{myTotalExpense.toFixed(2)}</SummaryValue>
         </SummaryCard>
-        <SummaryCard>
+        <SummaryCard data-testid="summary-total-shared">
           <SummaryLabel>Total Shared</SummaryLabel>
           <SummaryValue>{currSym}{myTotalShared.toFixed(2)}</SummaryValue>
         </SummaryCard>
-        <SummaryCard>
+        <SummaryCard data-testid="summary-your-shared">
           <SummaryLabel>Your Shared</SummaryLabel>
           <SummaryValue>{currSym}{myYourShared.toFixed(2)}</SummaryValue>
         </SummaryCard>
-        <SummaryCard>
+        <SummaryCard data-testid="summary-private-expense">
           <SummaryLabel>Private Expense</SummaryLabel>
           <SummaryValue>{currSym}{myPrivateExpense.toFixed(2)}</SummaryValue>
         </SummaryCard>
@@ -1461,7 +1446,7 @@ export default function EventDetailPage() {
             <div style={{ marginBottom: 16 }}>
               <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Approval Status</h3>
               {approvalEntries.map(([entityId, approval]) => (
-                <div key={entityId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--color-border, #eee)' }}>
+                <div key={entityId} data-testid={`settlement-approval-${entityId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--color-border, #eee)' }}>
                   <StatusDot $status={approval.approved ? 'completed' : 'pending'} />
                   <span style={{ flex: 1 }}>{approval.displayName || entityId}</span>
                   <Badge $variant={approval.approved ? 'success' : 'warning'}>
@@ -1749,6 +1734,12 @@ export default function EventDetailPage() {
             refreshKey={poolRefreshKey}
             onChanged={() => fetchAllRef.current()}
           />
+          {/* "Several of us": who can spend and approve (Phase 3). A Budget has its own Spenders tab. */}
+          {!isSponsorPool && (
+            <div style={{ marginTop: 16 }}>
+              <SpenderPermissions event={event} participants={participants} groups={groups} canEdit={isAdmin && event.status === 'active'} onSaved={() => fetchAllRef.current()} />
+            </div>
+          )}
         </TabPanel>
       )}
 
@@ -1837,7 +1828,15 @@ export default function EventDetailPage() {
                               : <>Paid by: {getUserName(expense.paidBy)} · {expense.paidOnBehalfOf && expense.paidOnBehalfOf.length > 0 ? 'On Behalf' : expense.splitType.charAt(0).toUpperCase() + expense.splitType.slice(1)} split{!expense.isPrivate && ` · ${expense.splits.length} split(s)`}{expense.attachments?.length ? ` · ${expense.attachments.length} receipt(s)` : ''}</>}
                           </ListItemSub>
                         </ListItemInfo>
-                        <Amount>{sym}{expense.amount.toFixed(2)}</Amount>
+                        <Amount>
+                          {sym}{expense.amount.toFixed(2)}
+                          {/* Entered in another currency (Phase 3) */}
+                          {originalAmountText(expense) && (
+                            <span style={{ display: 'block', fontSize: 11, opacity: 0.7, fontWeight: 400 }} data-testid={`expense-original-${expense.id}`}>
+                              {originalAmountText(expense)}
+                            </span>
+                          )}
+                        </Amount>
                         {(event.status === 'active' || event.status === 'review') && (currentUserId === expense.paidBy || isAdmin) && (
                           <>
                             <Link href={`/events/${eventId}/expenses/${expense.id}/edit`} onClick={(e) => e.stopPropagation()}>
@@ -2285,7 +2284,7 @@ export default function EventDetailPage() {
               Are you sure you want to delete &ldquo;{event?.name}&rdquo;?
             </p>
             {pendingSettlementTotal !== null && pendingSettlementTotal > 0 && (
-              <WarningBox>
+              <WarningBox data-testid="delete-pending-settlement">
                 <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>
                   ⚠️ Pending Settlement: {currSym}{pendingSettlementTotal.toFixed(2)} {event?.currency}
                 </p>
@@ -2326,15 +2325,15 @@ export default function EventDetailPage() {
       </Modal>
 
       {/* Generic Confirmation Modal (replaces all window.confirm calls) */}
-      <Modal open={confirmModal.open} onClose={closeConfirmModal}>
+      <Modal open={confirmModal.open} onClose={closeConfirmModal} dataTestId="confirm-modal">
         <ModalHeader>
           <ModalTitle>{confirmModal.title}</ModalTitle>
         </ModalHeader>
         <ModalBody>
           <p style={{ margin: '0 0 20px', fontSize: 14, lineHeight: 1.6 }}>{confirmModal.message}</p>
           <ModalFooter>
-            <Button type="button" $variant="outline" onClick={closeConfirmModal}>Cancel</Button>
-            <Button type="button" $variant={confirmModal.variant === 'warning' ? 'primary' : 'danger'} onClick={confirmModal.onConfirm}>
+            <Button type="button" $variant="outline" onClick={closeConfirmModal} data-testid="confirm-modal-cancel">Cancel</Button>
+            <Button type="button" $variant={confirmModal.variant === 'warning' ? 'primary' : 'danger'} onClick={confirmModal.onConfirm} data-testid="confirm-modal-confirm">
               {confirmModal.confirmLabel}
             </Button>
           </ModalFooter>
@@ -2342,7 +2341,7 @@ export default function EventDetailPage() {
       </Modal>
 
       {/* Mark Paid Modal */}
-      <Modal open={showMarkPaidModal} onClose={() => setShowMarkPaidModal(false)}>
+      <Modal open={showMarkPaidModal} onClose={() => setShowMarkPaidModal(false)} dataTestId="settlement-pay-modal">
         <ModalHeader>
           <ModalTitle>Pay Externally and Mark Paid</ModalTitle>
         </ModalHeader>
@@ -2383,6 +2382,7 @@ export default function EventDetailPage() {
                 <Label htmlFor="mark-paid-reference">Reference ID (optional)</Label>
                 <Input
                   id="mark-paid-reference"
+                  data-testid="settlement-pay-reference"
                   value={markPaidReferenceId}
                   onChange={(e) => setMarkPaidReferenceId(e.target.value)}
                   placeholder="UTR / txn ID / bank reference"
@@ -2431,6 +2431,7 @@ export default function EventDetailPage() {
               $variant="primary"
               disabled={markPaidSubmitting || markPaidUploading || !markPaidTarget}
               onClick={() => markPaidTarget && doMarkPaid(markPaidTarget.id, markPaidTarget.settlementCurrency || markPaidTarget.currency)}
+              data-testid="settlement-pay-submit"
             >
               {markPaidSubmitting ? 'Submitting…' : 'I\'ve Paid'}
             </Button>

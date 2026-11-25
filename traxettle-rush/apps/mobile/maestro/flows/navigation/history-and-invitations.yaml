@@ -1,12 +1,12 @@
 appId: com.traxettle.app
-name: History and Invitations Smoke
+name: Navigation — invitations inbox and closed-events history
 ---
-- launchApp:
-    clearState: false
-- extendedWaitUntil:
-    visible:
-      id: "dashboard-create-event-button"
-    timeout: 30000
+- evalScript: ${output.runId = Date.now().toString()}
+- runFlow:
+    file: ../../subflows/sign-up.yaml
+    env:
+      NAME: "Nav User ${output.runId}"
+      EMAIL: "nav${output.runId}@example.com"
 - tapOn:
     id: "dashboard-avatar-menu"
 - tapOn:
@@ -17,7 +17,7 @@ name: History and Invitations Smoke
 - assertVisible: "Email 3-month history"
 - tapOn: "See all active"
 - assertVisible: "Show newest 5"
-- back
+- runFlow: ../../subflows/go-back.yaml
 - extendedWaitUntil:
     visible:
       id: "dashboard-create-event-button"
@@ -30,7 +30,7 @@ name: History and Invitations Smoke
     visible: "Email last 3 months"
     timeout: 10000
 - assertVisible: "Showing latest 5 closed events"
-- back
+- runFlow: ../../subflows/go-back.yaml
 - extendedWaitUntil:
     visible:
       id: "dashboard-create-event-button"

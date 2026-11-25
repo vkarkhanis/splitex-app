@@ -1,0 +1,11 @@
+appId: com.traxettle.app
+name: "Subflow: set the app PIN (1234) after signing in"
+---
+- tapOn:
+    id: "setup-pin-input"
+- inputText: "1234"
+- tapOn:
+    id: "setup-pin-confirm-input"
+- inputText: "1234"
+- tapOn:
+    id: "setup-pin-submit-button"

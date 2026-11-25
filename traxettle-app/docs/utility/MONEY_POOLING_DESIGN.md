@@ -11,6 +11,13 @@
 
   Phase 2 test plan: [MONEY_POOLING_PHASE2_E2E.md](../runbook/MONEY_POOLING_PHASE2_E2E.md).
 - **Released with Phase 2, as a Pro feature (decided 2026-11-23):** the Phase 2 branch sets `CONTRIBUTOR_POOLS_IN_PRODUCTION = true`, with the web user guide, the Play Store text, the review notes and the RevenueCat descriptions updated. It reaches users when the Phase 2 web and app builds ship. The App Store text, the trial offers and the other console steps are in plan §11.
+- **Phase 3 built** on branch `feature/money-pooling-enhancements-phase3` (2026-11-24), following [MONEY_POOLING_PHASE3_PROPOSAL.md](MONEY_POOLING_PHASE3_PROPOSAL.md) (as built: its §9):
+  - a spender list in "Several of us" pools (*Who can spend*: everyone, or only people the organiser chooses);
+  - approvers, who approve other people's spends and claims and nothing else;
+  - the approval rule (never / above an amount / always) can be changed after creation;
+  - pool spends and ordinary split expenses entered in another currency, converted to the event's currency (needs the organiser's Pro, `multiCurrencySettlement`).
+
+  Phase 3 test plan: [MONEY_POOLING_PHASE3_E2E.md](../runbook/MONEY_POOLING_PHASE3_E2E.md). Release steps for Phases 1–3: [RELEASE_MONEY_POOLING.md](../deployment/RELEASE_MONEY_POOLING.md).
 **Date:** 2026-09-15
 **Scope:** Additive feature. The existing peer-to-peer split model remains fully supported and unchanged.
 

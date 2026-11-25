@@ -1,0 +1,271 @@
+appId: com.traxettle.app
+name: Pools — a spend entered in dollars in a rupee kitty (Pro, Phase 3)
+# The Phase 3 hand-test steps C1–C4 on mobile. The organiser (Pro) creates a rupee Kitty that settles
+# in dollars at a set rate of 1 INR = 0.0125 USD (so 1 USD = 80 INR), pays in ₹1,000, and spends $10:
+# the form previews ₹800.00 and the expense list shows ₹800.00 with $10.00 under it. Editing to $12
+# keeps the rate (₹960.00); switching back to INR 900 drops the dollar line. No live rates.
+---
+- evalScript: ${output.runId = Date.now().toString()}
+- runFlow:
+    file: ../../subflows/sign-up.yaml
+    env:
+      NAME: "FX Kitty Owner ${output.runId}"
+      EMAIL: "fxkitty${output.runId}@example.com"
+- runFlow: ../../subflows/switch-to-pro.yaml
+
+# A rupee Kitty, settled in dollars at a set rate.
+- tapOn:
+    id: "dashboard-create-event-button"
+- tapOn:
+    id: "create-event-name-input"
+- inputText: "Goa Kitty FX ${output.runId}"
+- pressKey: Enter
+- scrollUntilVisible:
+    element:
+      id: "create-event-currency-INR"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-currency-INR"
+- scrollUntilVisible:
+    element:
+      id: "funding-pool"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "funding-pool"
+- tapOn:
+    id: "funder-contributors"
+- tapOn:
+    id: "preset-trip_kitty"
+- scrollUntilVisible:
+    element:
+      id: "pool-per-person-input"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "pool-per-person-input"
+- inputText: "1000"
+- runFlow:
+    file: ../../subflows/close-number-pad.yaml
+    env:
+      LABEL: "Each person puts in.*"
+- scrollUntilVisible:
+    element:
+      id: "create-event-settlement-USD"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-settlement-USD"
+- scrollUntilVisible:
+    element:
+      id: "create-event-fx-mode-predefined"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-fx-mode-predefined"
+- scrollUntilVisible:
+    element:
+      id: "create-event-fx-rate-input"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-fx-rate-input"
+- inputText: "0.0125"
+- runFlow:
+    file: ../../subflows/close-number-pad.yaml
+    env:
+      LABEL: "1 INR = .*"
+- scrollUntilVisible:
+    element:
+      id: "create-event-submit-button"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-submit-button"
+- tapOn:
+    text: "OK"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-tab-expenses"
+    timeout: 20000
+
+# Pay in ₹1,000 (the organiser holds the money, so it counts at once).
+- scrollUntilVisible:
+    element:
+      id: "event-detail-pool-card"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "event-detail-pool-card"
+- extendedWaitUntil:
+    visible:
+      id: "pool-contributions"
+    timeout: 20000
+- scrollUntilVisible:
+    element:
+      id: "mark-paid-.*"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "mark-paid-.*"
+    index: 0
+- tapOn:
+    id: "mark-paid-submit"
+- extendedWaitUntil:
+    visible: ".*1,000\\.00.*"
+    timeout: 15000
+
+# C1: $10 from the kitty. The form previews the rupee amount at the event's set rate.
+- scrollUntilVisible:
+    element:
+      id: "pool-add-expense"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "pool-add-expense"
+- extendedWaitUntil:
+    visible:
+      id: "paid-with-pool"
+    timeout: 15000
+- tapOn:
+    id: "paid-with-pool"
+- tapOn:
+    id: "create-expense-title-input"
+- inputText: "Visa fee ${output.runId}"
+- pressKey: Enter
+- tapOn:
+    id: "create-expense-amount-input"
+- inputText: "10"
+- runFlow:
+    file: ../../subflows/close-number-pad.yaml
+    env:
+      LABEL: "Amount \\(.*\\)"
+- tapOn:
+    id: "currency-USD"
+- extendedWaitUntil:
+    visible: ".*≈ ₹800\\.00 at 1 USD = 80 INR \\(the event's set rate\\)\\. It's recorded in INR\\..*"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: "create-expense-submit-button"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-expense-submit-button"
+- tapOn:
+    text: "OK"
+    optional: true
+
+# C2: ₹800 comes out of the kitty, and the list shows both amounts.
+- extendedWaitUntil:
+    visible: ".*200\\.00.*"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 3000
+- repeat:
+    while:
+      visible:
+        id: "pool-summary"
+    times: 3
+    commands:
+      - runFlow: ../../subflows/go-back.yaml
+      - waitForAnimationToEnd:
+          timeout: 3000
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-tab-expenses"
+    timeout: 15000
+- tapOn:
+    id: "event-detail-tab-expenses"
+- extendedWaitUntil:
+    visible: ".*Visa fee ${output.runId}.*"
+    timeout: 15000
+- assertVisible: "₹800\\.00"
+- assertVisible:
+    id: "expense-original-.*"
+    text: "\\$10\\.00"
+
+# C3: change $10 to $12. The edit form keeps the saved rate.
+- tapOn:
+    id: "event-detail-edit-expense-.*"
+- extendedWaitUntil:
+    visible:
+      id: "edit-expense-amount-input"
+    timeout: 15000
+- tapOn:
+    id: "edit-expense-amount-input"
+- eraseText: 10
+- inputText: "12"
+- runFlow:
+    file: ../../subflows/close-number-pad.yaml
+    env:
+      LABEL: "Amount \\(.*\\)"
+- extendedWaitUntil:
+    visible: ".*≈ ₹960\\.00 at 1 USD = 80 INR.*"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: "edit-expense-submit-button"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "edit-expense-submit-button"
+- tapOn:
+    text: "OK"
+    optional: true
+- extendedWaitUntil:
+    visible: "₹960\\.00"
+    timeout: 20000
+- assertVisible:
+    id: "expense-original-.*"
+    text: "\\$12\\.00"
+
+# C4: back to rupees, ₹900. No dollar line any more.
+- tapOn:
+    id: "event-detail-edit-expense-.*"
+- extendedWaitUntil:
+    visible:
+      id: "edit-expense-amount-input"
+    timeout: 15000
+- tapOn:
+    id: "currency-INR"
+- tapOn:
+    id: "edit-expense-amount-input"
+- eraseText: 10
+- inputText: "900"
+- runFlow:
+    file: ../../subflows/close-number-pad.yaml
+    env:
+      LABEL: "Amount \\(.*\\)"
+- assertNotVisible:
+    id: "fx-preview"
+- scrollUntilVisible:
+    element:
+      id: "edit-expense-submit-button"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "edit-expense-submit-button"
+- tapOn:
+    text: "OK"
+    optional: true
+- extendedWaitUntil:
+    visible: "₹900\\.00"
+    timeout: 20000
+- assertNotVisible:
+    id: "expense-original-.*"

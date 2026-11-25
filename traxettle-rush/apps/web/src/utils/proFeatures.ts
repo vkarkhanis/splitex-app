@@ -12,6 +12,7 @@ export function proBadges(groupPools: boolean = GROUP_POOLS_RELEASED): string[] 
   return [
     'Unlimited events',
     'Multi-currency settlement',
+    'Expenses in another currency',
     ...(groupPools ? [GROUP_POOLS_PRO_FEATURE.title] : []),
     'Analytics (coming soon)',
     'More power-user features',
@@ -21,6 +22,6 @@ export function proBadges(groupPools: boolean = GROUP_POOLS_RELEASED): string[] 
 /** Help's line about pooling: "Just me" is free; "Several of us" is Pro once released. */
 export function poolingHelpLine(groupPools: boolean = GROUP_POOLS_RELEASED): string {
   return groupPools
-    ? 'Pool money: fund a budget yourself ("Just me", free), or pool money with your group ("Several of us", Pro for the person who creates it; everyone else joins free)'
+    ? 'Pool money: fund a budget yourself ("Just me", free), or pool money with your group ("Several of us", Pro for the person who creates it; everyone else joins free). The organiser can choose who spends and who approves'
     : 'Pool money: fund a budget yourself ("Just me") and approve what the people you allow spend from it';
 }

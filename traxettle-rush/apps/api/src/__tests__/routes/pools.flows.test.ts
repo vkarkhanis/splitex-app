@@ -237,11 +237,13 @@ describe('spending from the pool', () => {
     expect(list).toHaveLength(1);
   });
 
-  it('requires pool expenses in the pool currency', async () => {
+  it('refuses a spend in another currency unless the organiser has Pro (Phase 3)', async () => {
     const eventId = await fundedKitty();
+    store.seed('users', ALICE, { tier: 'free' }); // the creator's Pro lapsed
     const res = await api.spend(eventId, BOB, 10, { currency: 'USD' });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain('pool currency');
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('OTHER_CURRENCY_NOT_ALLOWED');
+    expect(res.body.error).toBe('Expenses in another currency need the organiser to have Pro. Enter the amount in INR.');
   });
 
   it('refuses peer-to-peer expenses in a pure pool event but accepts them in a hybrid', async () => {
@@ -971,7 +973,8 @@ describe('route validation edges', () => {
     const eventId = await fundedPair();
     const exp = (await api.spend(eventId, BOB, 100)).body.data;
     expect((await request(app).put(`/api/expenses/${exp.id}`).set(auth(CAROL)).send({ title: 'x' })).status).toBe(403);
-    expect((await request(app).put(`/api/expenses/${exp.id}`).set(auth(BOB)).send({ currency: 'USD' })).status).toBe(400);
+    store.seed('users', ALICE, { tier: 'free' }); // another currency needs the organiser's Pro (Phase 3)
+    expect((await request(app).put(`/api/expenses/${exp.id}`).set(auth(BOB)).send({ currency: 'USD' })).body.code).toBe('OTHER_CURRENCY_NOT_ALLOWED');
     expect((await request(app).put(`/api/expenses/${exp.id}`).set(auth(BOB)).send({ amount: 0 })).status).toBe(400);
     expect((await request(app).put(`/api/expenses/${exp.id}`).set(auth(BOB)).send({ amount: 'lots' })).status).toBe(400);
   });

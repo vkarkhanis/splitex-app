@@ -1,0 +1,12 @@
+# Maestro workspace config. The runner passes it with --config for every run.
+# "*/*" picks up every flow when the whole flows folder runs; "*" when one area folder runs
+# (MAESTRO_FLOWS="pools").
+flows:
+  - "*/*"
+  - "*"
+platform:
+  ios:
+    # By default iOS reports only the contents of a view marked "modal". The app's dialogs and
+    # sheets are React Native modals, and with the default Maestro sometimes saw an empty screen
+    # while one was open (e.g. the Close Event confirmation). Report the whole screen instead.
+    snapshotKeyHonorModalViews: false

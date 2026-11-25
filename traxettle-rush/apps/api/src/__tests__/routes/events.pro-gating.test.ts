@@ -103,6 +103,49 @@ describe('events pro gating', () => {
     expect(res.body.success).toBe(true);
   });
 
+  describe('editing a multi-currency event', () => {
+    const fxEvent = {
+      id: 'evt-fx', name: 'Tokyo trip', type: 'event', status: 'active', currency: 'USD',
+      settlementCurrency: 'INR', fxRateMode: 'predefined', predefinedFxRates: { USD_INR: 83 },
+      createdBy: 'firebase-user-1', admins: ['firebase-user-1'],
+    };
+    let update: jest.SpyInstance;
+
+    beforeEach(() => {
+      // A free admin (or a creator whose Pro lapsed): the capability check fails.
+      assertCapabilityMock.mockRejectedValue(new Error('requires Pro'));
+      jest.spyOn(EventService.prototype, 'getEvent').mockResolvedValue({ ...fxEvent } as any);
+      update = jest.spyOn(EventService.prototype, 'updateEvent').mockImplementation(async (_id, _uid, dto) => ({ ...fxEvent, ...dto }) as any);
+    });
+
+    it('lets them rename it: the edit form resends the unchanged FX settings', async () => {
+      const res = await request(app())
+        .put('/api/events/evt-fx')
+        .set('Authorization', 'Bearer real-firebase-token')
+        .send({ name: 'Tokyo, final', description: '', type: 'event', currency: 'USD', settlementCurrency: 'INR', status: 'active' });
+
+      expect(res.status).toBe(200);
+      expect(update).toHaveBeenCalled();
+      expect(assertCapabilityMock).not.toHaveBeenCalled();
+    });
+
+    it('still needs Pro to change the settlement currency or the rate', async () => {
+      const newCurrency = await request(app())
+        .put('/api/events/evt-fx')
+        .set('Authorization', 'Bearer real-firebase-token')
+        .send({ name: 'Tokyo trip', currency: 'USD', settlementCurrency: 'EUR' });
+      expect(newCurrency.status).toBe(403);
+      expect(newCurrency.body.code).toBe('FEATURE_REQUIRES_PRO');
+
+      const newRate = await request(app())
+        .put('/api/events/evt-fx')
+        .set('Authorization', 'Bearer real-firebase-token')
+        .send({ predefinedFxRates: { USD_INR: 84 } });
+      expect(newRate.status).toBe(403);
+      expect(update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('free-tier event limit', () => {
     const createPlainEvent = () =>
       request(app())

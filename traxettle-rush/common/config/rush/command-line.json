@@ -208,8 +208,26 @@
     {
       "commandKind": "global",
       "name": "test:regression",
-      "summary": "Run the regression test suite to verify all existing functionality",
-      "shellCommand": "bash -lc \"cd apps/api && rushx test:regression\""
+      "summary": "Full regression: type checks, every unit suite and every Playwright browser test (scripts/regression/run.sh full)",
+      "shellCommand": "bash scripts/regression/run.sh full"
+    },
+    {
+      "commandKind": "global",
+      "name": "test:regression:quick",
+      "summary": "Quick regression: type checks and every unit suite (scripts/regression/run.sh quick)",
+      "shellCommand": "bash scripts/regression/run.sh quick"
+    },
+    {
+      "commandKind": "global",
+      "name": "test:regression:mobile",
+      "summary": "Mobile regression: the Maestro flows on a booted simulator or emulator (scripts/regression/run.sh mobile)",
+      "shellCommand": "bash scripts/regression/run.sh mobile"
+    },
+    {
+      "commandKind": "global",
+      "name": "test:regression:all",
+      "summary": "Everything: full regression plus the Maestro mobile flows (scripts/regression/run.sh all)",
+      "shellCommand": "bash scripts/regression/run.sh all"
     },
     {
       "commandKind": "global",

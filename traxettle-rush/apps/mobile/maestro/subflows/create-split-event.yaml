@@ -1,0 +1,41 @@
+appId: com.traxettle.app
+name: "Subflow: create a split-expenses event from the dashboard"
+# env: EVENT (name), CURRENCY (e.g. USD). Settles in the same currency. Ends on the event's screen.
+---
+- tapOn:
+    id: "dashboard-create-event-button"
+- tapOn:
+    id: "create-event-name-input"
+- inputText: ${EVENT}
+- pressKey: Enter
+- scrollUntilVisible:
+    element:
+      id: "create-event-currency-${CURRENCY}"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-currency-${CURRENCY}"
+- scrollUntilVisible:
+    element:
+      id: "create-event-settlement-same"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-settlement-same"
+- scrollUntilVisible:
+    element:
+      id: "create-event-submit-button"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-submit-button"
+- tapOn:
+    text: "OK"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-tab-expenses"
+    timeout: 20000

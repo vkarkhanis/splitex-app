@@ -1,0 +1,404 @@
+#!/usr/bin/env node
+/* eslint-disable no-console */
+/**
+ * One-off: removes the test accounts that Maestro runs created in PRODUCTION on 2026-11-24, and
+ * everything tied to them. (A Release test app reached the production API by mistake; the suite now
+ * uses a Debug app and a safety check. See traxettle-app/docs/runbook/REGRESSION_SUITE.md.)
+ *
+ * It removes:
+ *   - Firebase Authentication users;
+ *   - users/{uid} with all its subcollections (sessions);
+ *   - their events with all subcollections (participants), and each event's expenses,
+ *     settlements, invitations, groups and pool records;
+ *   - invitations sent to or by them, and groups made only of them.
+ *
+ * Safety:
+ *   - Works from the exact 31 email addresses below (all @example.com), never a prefix or a domain.
+ *   - DRY RUN unless you pass --apply: it prints what it would delete and changes nothing.
+ *   - Skips (and reports) any event that has a participant who isn't one of these accounts, or
+ *     whose name doesn't end with one of their run ids. Same for groups and invitations.
+ *   - Refuses to run if --project doesn't match the credentials' project, or if Firebase emulator
+ *     variables are set.
+ *
+ * Usage, from anywhere in the repo after `rush install`:
+ *
+ *   GOOGLE_APPLICATION_CREDENTIALS=/path/to/prod-service-account.json \
+ *     node traxettle-rush/apps/api/scripts/cleanup-prod-test-accounts-2026-11-24.js --project <prod-project-id>
+ *
+ *   # read the plan, then run the same command with --apply
+ *
+ * Credentials (an Admin SDK service account, not the app's google-services.json), as the API reads
+ * them: a service-account key file (GOOGLE_APPLICATION_CREDENTIALS or FIREBASE_PRIVATE_KEY_FILE, JSON
+ * or a bare PEM key) and/or FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY. The key file needn't contain
+ * "project_id": the project is --project. With none of these, Application Default Credentials.
+ *
+ * Simplest: use the production API's own credentials from Secret Manager (needs the Google Cloud CLI,
+ * signed in with access to the project's secrets). No key file is saved:
+ *
+ *   node traxettle-rush/apps/api/scripts/cleanup-prod-test-accounts-2026-11-24.js \
+ *     --project <prod-project-id> --from-secret traxettle-prod-api-config
+ *
+ * With --apply it writes what it deleted to ~/traxettle-prod-cleanup-2026-11-24.result.json.
+ * Testing it against the emulator: set FIRESTORE_EMULATOR_HOST and FIREBASE_AUTH_EMULATOR_HOST and
+ * pass --project traxettle-local.
+ */
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const EMAILS = [
+  'maestro.auth.1795518094086@example.com',
+  'maestro.auth.1795518184284@example.com',
+  'maestro.auth.1795518304958@example.com',
+  'maestro.auth.1795518354625@example.com',
+  'maestro.auth.1795518418084@example.com',
+  'maestro.auth.1795518515523@example.com',
+  'maestro.auth.1795518802228@example.com',
+  'maestro.auth.1795518895239@example.com',
+  'maestro.auth.1795519016593@example.com',
+  'maestro.auth.1795519149376@example.com',
+  'nav1795519290236@example.com',
+  'evtmgr1795519357182@example.com',
+  'evtmgr1795519491295@example.com',
+  'evtmgr1795519582693@example.com',
+  'evtmgr1795519734775@example.com',
+  'invited1795519734775@example.com',
+  'nav1795519841480@example.com',
+  'evtmgr1795519913074@example.com',
+  'invited1795519913074@example.com',
+  'nav1795520019005@example.com',
+  'maestro.auth.1795520080723@example.com',
+  'maestro.auth.1795520271811@example.com',
+  'grpadm1795520403164@example.com',
+  'grpmb1795520403164@example.com',
+  'grpadm1795520560572@example.com',
+  'grpmb1795520560572@example.com',
+  'grpadm1795520777025@example.com',
+  'grpmb1795520777025@example.com',
+  'sadm1795521015180@example.com',
+  'smb1795521015180@example.com',
+  'fxadm1795521346670@example.com',
+];
+
+// Every address must be one of the test patterns: a guard against a typo widening the list.
+const EMAIL_PATTERN = /^(maestro\.auth\.|nav|evtmgr|invited|grpadm|grpmb|sadm|smb|fxadm)(\d{13})@example\.com$/;
+const RUN_IDS = new Set();
+for (const email of EMAILS) {
+  const m = email.match(EMAIL_PATTERN);
+  if (!m) throw new Error(`Not a test address: ${email}`);
+  RUN_IDS.add(m[2]);
+}
+const EMAIL_SET = new Set(EMAILS);
+const MAX_EVENTS = 20; // 8 expected; more means something is off
+const POOL_COLLECTIONS = ['poolContributions', 'poolCycles', 'poolAdvances'];
+const EVENT_COLLECTIONS = ['expenses', 'settlements', 'invitations', ...POOL_COLLECTIONS];
+
+// ── Arguments and connection ────────────────────────────────────────────────────────────
+const args = process.argv.slice(2);
+const apply = args.includes('--apply');
+const argValue = (flag) => {
+  const i = args.indexOf(flag);
+  const v = i >= 0 ? args[i + 1] : undefined;
+  return v && !v.startsWith('--') ? v : undefined;
+};
+const projectArg = argValue('--project');
+if (!args.includes('--project') || !projectArg || projectArg.startsWith('--')) {
+  console.error('Pass the production project id: --project <id>');
+  process.exit(2);
+}
+
+let admin;
+try {
+  admin = require('firebase-admin'); // resolves from apps/api/node_modules
+} catch {
+  console.error('firebase-admin not found. Run `rush install` in traxettle-rush first.');
+  process.exit(2);
+}
+
+const usingEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST || process.env.FIREBASE_AUTH_EMULATOR_HOST);
+if (usingEmulator && projectArg !== 'traxettle-local') {
+  console.error('Firebase emulator variables are set (FIRESTORE_EMULATOR_HOST / FIREBASE_AUTH_EMULATOR_HOST).');
+  console.error('Unset them to clean production. (The emulator is only for testing this script, with --project traxettle-local.)');
+  process.exit(2);
+}
+
+/**
+ * Builds the credential the way the API does (src/config/firebase.ts): the project id, client email
+ * and private key can each come from the key file or from FIREBASE_* variables, so a key file
+ * without "project_id" works too. The project is always --project, checked against both.
+ */
+/**
+ * --from-secret <name> [--gcp-project <id>]: reads the production API's own config from Secret
+ * Manager with `gcloud` (FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY), so no key
+ * file or shell variables are needed. The secret's project defaults to --project. Prints no values.
+ */
+function readSecretConfig() {
+  const name = argValue('--from-secret');
+  if (!name) return null;
+  const gcpProject = argValue('--gcp-project') || projectArg;
+  let raw;
+  try {
+    raw = require('child_process').execFileSync(
+      'gcloud', ['secrets', 'versions', 'access', 'latest', `--secret=${name}`, `--project=${gcpProject}`],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      console.error('gcloud is not installed or not on PATH. Install the Google Cloud CLI and run `gcloud auth login`, or use another way in the script header.');
+    } else {
+      console.error(`gcloud couldn't read secret "${name}" in project "${gcpProject}":`);
+      console.error(String(err.stderr || err.message).trim());
+      console.error('Check `gcloud auth login` and that your account can read secrets in that project (pass --gcp-project if the secret lives in another project).');
+    }
+    process.exit(2);
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    console.error(`Secret "${name}" isn't JSON. Expected the API config written by deploy-prod.sh.`);
+    process.exit(2);
+  }
+}
+
+function credential() {
+  if (usingEmulator) return undefined;
+  const secret = readSecretConfig() || {};
+  const FIREBASE_PROJECT_ID = secret.FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID;
+  const FIREBASE_CLIENT_EMAIL = secret.FIREBASE_CLIENT_EMAIL || process.env.FIREBASE_CLIENT_EMAIL;
+  const FIREBASE_PRIVATE_KEY = secret.FIREBASE_PRIVATE_KEY || process.env.FIREBASE_PRIVATE_KEY;
+  const keyFile = argValue('--from-secret') ? null : (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_PRIVATE_KEY_FILE);
+  let sa = {};
+  if (keyFile) {
+    let text;
+    try {
+      text = fs.readFileSync(path.resolve(keyFile), 'utf8');
+    } catch (err) {
+      console.error(`Couldn't read the key file ${keyFile}: ${err.message}`);
+      process.exit(2);
+    }
+    if (text.trim().startsWith('-----BEGIN')) {
+      sa = { private_key: text }; // a bare PEM private key, as deploy-prod.sh allows; the email comes from FIREBASE_CLIENT_EMAIL
+    } else {
+      try {
+        sa = JSON.parse(text);
+      } catch (err) {
+        console.error(`The key file ${keyFile} is neither JSON nor a PEM private key: ${err.message}`);
+        process.exit(2);
+      }
+    }
+    if (sa.project_info || sa.client) {
+      console.error(`${keyFile} is the app's Firebase config (google-services.json), not a service-account key. It can't sign in as an admin.`);
+      console.error('Leave out GOOGLE_APPLICATION_CREDENTIALS and use the production API\'s own credentials instead (see the script header), or a key from the Firebase console: Project settings → Service accounts → Generate new private key.');
+      process.exit(2);
+    }
+  }
+  for (const [where, id] of [['The key file', sa.project_id], ['FIREBASE_PROJECT_ID', FIREBASE_PROJECT_ID]]) {
+    if (id && id !== projectArg) {
+      console.error(`${where} is for project "${id}", not "${projectArg}". Stopping.`);
+      process.exit(2);
+    }
+  }
+  const clientEmail = sa.client_email || FIREBASE_CLIENT_EMAIL;
+  const privateKey = sa.private_key || FIREBASE_PRIVATE_KEY;
+  if (!keyFile && !clientEmail && !privateKey) return admin.credential.applicationDefault();
+  const missing = [!clientEmail && 'client_email (or FIREBASE_CLIENT_EMAIL)', !privateKey && 'private_key (or FIREBASE_PRIVATE_KEY)'].filter(Boolean);
+  if (missing.length) {
+    console.error(`Missing ${missing.join(' and ')}${keyFile ? ` in ${keyFile}` : ''}.`);
+    if (keyFile) console.error(`That file has: ${Object.keys(sa).join(', ') || 'nothing'}. A service-account key has client_email and private_key.`);
+    console.error('Get one from the Firebase console: Project settings → Service accounts → Generate new private key.');
+    process.exit(2);
+  }
+  return admin.credential.cert({ projectId: projectArg, clientEmail, privateKey: privateKey.replace(/\\n/g, '\n') });
+}
+
+try {
+  admin.initializeApp({ projectId: projectArg, ...(usingEmulator ? {} : { credential: credential() }) });
+} catch (err) {
+  console.error(`Couldn't use these credentials: ${err.message}`);
+  process.exit(2);
+}
+const db = admin.firestore();
+const auth = admin.auth();
+
+// ── Helpers ─────────────────────────────────────────────────────────────────────────────
+const chunk = (arr, n) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
+
+async function queryIn(collection, field, values, op = 'in') {
+  const docs = new Map();
+  for (const group of chunk(values, 10)) {
+    if (!group.length) continue;
+    const snap = await db.collection(collection).where(field, op, group).get();
+    snap.docs.forEach((d) => docs.set(d.ref.path, d));
+  }
+  return [...docs.values()];
+}
+
+const endsWithRunId = (name) => {
+  const m = String(name || '').match(/(\d{13})\s*$/);
+  return Boolean(m && RUN_IDS.has(m[1]));
+};
+
+// ── 1. Find the accounts ────────────────────────────────────────────────────────────────
+async function findAccounts() {
+  const byUid = new Map(); // uid -> { email, inAuth, inUsers }
+  for (const email of EMAILS) {
+    try {
+      const u = await auth.getUserByEmail(email);
+      byUid.set(u.uid, { email, inAuth: true, inUsers: false });
+    } catch (err) {
+      if (err.code !== 'auth/user-not-found') throw err;
+    }
+  }
+  for (const doc of await queryIn('users', 'email', EMAILS)) {
+    const email = doc.get('email');
+    if (!EMAIL_SET.has(email)) continue;
+    const entry = byUid.get(doc.id) || { email, inAuth: false, inUsers: false };
+    entry.inUsers = true;
+    byUid.set(doc.id, entry);
+  }
+  return byUid;
+}
+
+// ── 2. Work out what to delete ──────────────────────────────────────────────────────────
+async function plan(accounts) {
+  const uids = [...accounts.keys()];
+  const isTest = (uid) => accounts.has(uid);
+  const skipped = [];
+
+  const eventDocs = new Map();
+  for (const d of await queryIn('events', 'createdBy', uids)) eventDocs.set(d.id, d);
+  for (const d of await queryIn('events', 'participantIds', uids, 'array-contains-any')) eventDocs.set(d.id, d);
+
+  const events = [];
+  for (const doc of eventDocs.values()) {
+    const data = doc.data() || {};
+    const participants = await doc.ref.collection('participants').get();
+    const people = new Set([...(data.participantIds || []), ...participants.docs.map((p) => p.id), data.createdBy].filter(Boolean));
+    const outsiders = [...people].filter((uid) => !isTest(uid));
+    if (outsiders.length || !endsWithRunId(data.name)) {
+      skipped.push({ kind: 'event', id: doc.id, name: data.name, why: outsiders.length ? `has ${outsiders.length} other participant(s)` : "name doesn't end with a test run id" });
+      continue;
+    }
+    events.push({ id: doc.id, name: data.name, status: data.status, ref: doc.ref });
+  }
+  if (events.length > MAX_EVENTS) throw new Error(`Found ${events.length} events, more than the ${MAX_EVENTS} expected. Stopping.`);
+  const eventIds = new Set(events.map((e) => e.id));
+
+  // Records that belong to those events.
+  const related = new Map(); // path -> { collection, id, ref }
+  const add = (collection, d) => related.set(d.ref.path, { collection, id: d.id, ref: d.ref });
+  for (const collection of EVENT_COLLECTIONS) {
+    for (const d of await queryIn(collection, 'eventId', [...eventIds])) add(collection, d);
+  }
+  const groupDocs = new Map();
+  for (const d of await queryIn('groups', 'eventId', [...eventIds])) groupDocs.set(d.id, d);
+  for (const d of await queryIn('groups', 'eventIds', [...eventIds], 'array-contains-any')) groupDocs.set(d.id, d);
+  for (const d of await queryIn('groups', 'members', uids, 'array-contains-any')) groupDocs.set(d.id, d);
+  for (const d of groupDocs.values()) {
+    const g = d.data() || {};
+    const groupEvents = [g.eventId, ...(g.eventIds || [])].filter(Boolean);
+    const outsiders = (g.members || []).filter((uid) => !isTest(uid));
+    if (outsiders.length || groupEvents.some((id) => !eventIds.has(id))) {
+      skipped.push({ kind: 'group', id: d.id, name: g.name, why: outsiders.length ? 'has other members' : 'belongs to an event that is kept' });
+      continue;
+    }
+    add('groups', d);
+  }
+
+  // Invitations to or from the accounts, outside those events too.
+  const invites = [
+    ...(await queryIn('invitations', 'inviteeEmail', EMAILS)),
+    ...(await queryIn('invitations', 'invitedBy', uids)),
+  ];
+  for (const d of invites) {
+    if (related.has(d.ref.path)) continue;
+    const inv = d.data() || {};
+    const eventKept = inv.eventId && !eventIds.has(inv.eventId) && (await db.collection('events').doc(inv.eventId).get()).exists;
+    if (eventKept && !EMAIL_SET.has(inv.inviteeEmail)) {
+      skipped.push({ kind: 'invitation', id: d.id, why: `invites ${inv.inviteeEmail} to an event that is kept` });
+      continue;
+    }
+    add('invitations', d);
+  }
+
+  // A last check, by name: events and groups the test runs named (ending in a run id) that aren't
+  // linked to these accounts. Reported only, never deleted.
+  const handled = new Set([...events.map((e) => e.ref.path), ...related.keys()]); // related is keyed by path
+  skipped.forEach((x) => handled.add(`${x.kind === 'group' ? 'groups' : x.kind === 'event' ? 'events' : 'invitations'}/${x.id}`));
+  const unlinked = [];
+  const NAME_PREFIXES = {
+    events: ['Maestro Event ', 'Maestro Same ', 'Maestro FX ', 'Group Event ', 'Goa Kitty ', 'Probe Event '],
+    groups: ['Family '],
+  };
+  for (const [collection, prefixes] of Object.entries(NAME_PREFIXES)) {
+    for (const prefix of prefixes) {
+      const snap = await db.collection(collection).where('name', '>=', prefix).where('name', '<', `${prefix}\uf8ff`).get();
+      snap.docs
+        .filter((d) => endsWithRunId(d.get('name')) && !handled.has(d.ref.path))
+        .forEach((d) => unlinked.push({ collection, id: d.id, name: d.get('name') }));
+    }
+  }
+
+  return { accounts, events, related: [...related.values()], skipped, unlinked };
+}
+
+// ── 3. Report, and delete with --apply ──────────────────────────────────────────────────
+function report(p) {
+  const target = usingEmulator ? `the local EMULATOR (${projectArg})` : `PRODUCTION project "${projectArg}"`;
+  console.log(`\n${apply ? 'DELETING from' : 'DRY RUN against'} ${target}\n`);
+  const missing = EMAILS.filter((e) => ![...p.accounts.values()].some((a) => a.email === e));
+  console.log(`Accounts found: ${p.accounts.size} of ${EMAILS.length}`);
+  for (const [uid, a] of p.accounts) console.log(`  ${a.email}  uid=${uid}${a.inAuth ? '' : '  (no Auth user)'}${a.inUsers ? '' : '  (no users doc)'}`);
+  if (missing.length) console.log(`  Not found (nothing to delete): ${missing.join(', ')}`);
+  console.log(`\nEvents to delete, with all subcollections: ${p.events.length}`);
+  for (const e of p.events) console.log(`  ${e.name}  [${e.status}]  id=${e.id}`);
+  const counts = {};
+  p.related.forEach((r) => { counts[r.collection] = (counts[r.collection] || 0) + 1; });
+  console.log('\nOther records to delete:', Object.keys(counts).length ? counts : 'none');
+  console.log(`\nKept (not test-only, look at these yourself): ${p.skipped.length ? '' : 'none'}`);
+  p.skipped.forEach((s) => console.log(`  ${s.kind} ${s.id}${s.name ? ` "${s.name}"` : ''}: ${s.why}`));
+  console.log(`\nNamed like test data but not linked to these accounts (not deleted): ${p.unlinked.length ? '' : 'none'}`);
+  p.unlinked.forEach((u) => console.log(`  ${u.collection}/${u.id} "${u.name}"`));
+}
+
+async function execute(p) {
+  const result = { at: new Date().toISOString(), project: projectArg, events: [], records: [], users: [], authUsers: [] };
+  for (const group of chunk(p.related, 400)) {
+    const batch = db.batch();
+    group.forEach((r) => batch.delete(r.ref));
+    await batch.commit();
+    result.records.push(...group.map((r) => `${r.collection}/${r.id}`));
+  }
+  for (const e of p.events) {
+    await db.recursiveDelete(e.ref); // the event and its participants (and any other subcollection)
+    result.events.push(`${e.id} ${e.name}`);
+  }
+  for (const [uid, a] of p.accounts) {
+    if (a.inUsers) {
+      await db.recursiveDelete(db.collection('users').doc(uid)); // the profile and its sessions
+      result.users.push(uid);
+    }
+  }
+  const authUids = [...p.accounts].filter(([, a]) => a.inAuth).map(([uid]) => uid);
+  if (authUids.length) {
+    const res = await auth.deleteUsers(authUids);
+    result.authUsers = authUids;
+    res.errors.forEach((e) => console.error(`  Auth delete failed for ${authUids[e.index]}: ${e.error.message}`));
+  }
+  const out = path.join(os.homedir(), 'traxettle-prod-cleanup-2026-11-24.result.json');
+  fs.writeFileSync(out, JSON.stringify(result, null, 2));
+  console.log(`\nDone: ${result.events.length} events, ${result.records.length} records, ${result.users.length} user docs, ${result.authUsers.length} Auth users. Log: ${out}`);
+}
+
+(async () => {
+  const p = await plan(await findAccounts());
+  report(p);
+  if (!apply) {
+    console.log('\nNothing was changed. Run again with --apply to delete the above.');
+    return;
+  }
+  await execute(p);
+})().catch((err) => {
+  console.error(`\nStopped: ${err.message || err}`);
+  process.exit(1);
+});

@@ -76,6 +76,16 @@ describe('FundingStepView — "Several of us" for someone without Pro', () => {
   });
 });
 
+describe('FundingStepView — who can spend (Phase 3)', () => {
+  it('a group pool can be limited to people chosen later', async () => {
+    await mount(false);
+    await act(async () => { byId('funder-contributors').props.onPress(); });
+    expect(latest.spendersMode).toBe('everyone');
+    await act(async () => { byId('pool-spenders-listed').props.onPress(); });
+    expect(latest.spendersMode).toBe('listed');
+  });
+});
+
 describe('FundingStepView — with Pro', () => {
   it('lets them pick "Several of us" and its kind of pool, with no Pro marks', async () => {
     await mount(false);

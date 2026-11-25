@@ -18,6 +18,8 @@ import {
   CONTRIBUTION_STATUS,
   advanceStatusText,
   canApproveDraw,
+  isPoolApprover,
+  originalAmountText,
   describeSettleUpRow,
   earlyRepaymentImpact,
   entityKey,
@@ -53,7 +55,7 @@ import type {
 import { api } from '../api';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { useFeedback } from '../context/FeedbackContext';
+import { ModalToasts, useFeedback } from '../context/FeedbackContext';
 import { useEventSocket } from '../hooks/useSocket';
 import { fontSizes, radii, spacing } from '../theme';
 import { PoolMeterView, ProofLink } from '../components/pool/PoolViews';
@@ -134,8 +136,11 @@ export default function PoolScreen({ route, navigation }: any) {
   const canAct = cycle.status === 'open' && !viewingPast && (event.status === 'active' || event.status === 'review');
   const sponsor = config.funderMode === 'sponsor';
   // Your own pending expenses wait for someone else (unless you hold the money).
+  // Approvers decide other people's spends too (Phase 3).
+  const canDecide = isManager || Boolean(me && isPoolApprover(config, me));
   const approvableDraws = entries.filter((e) => e.type === 'draw' && e.status === 'pending'
-    && canApproveDraw(me ?? '', e.actorUserId, config.custodianUserId, isManager));
+    && canApproveDraw(me ?? '', e.actorUserId, config.custodianUserId, canDecide));
+  const spendersListed = config.spendersMode === 'listed';
   // Payments waiting on you come first, so they're seen without scrolling.
   const myPayments = poolPaymentActions(legs, me);
   const myPaymentsText = poolPaymentActionsText(myPayments.toConfirm.length, myPayments.toPay.length);
@@ -347,6 +352,7 @@ export default function PoolScreen({ route, navigation }: any) {
                     {e.fundingSource === 'pool_reimbursement' ? 'Reimbursement' : e.alreadyIncurred ? 'Pool spend · already paid' : 'Pool spend · asking first'}
                     {e.paidFrom === 'advance' ? ' · money they hold' : e.paidFrom === 'sponsor_card' ? ` · ${custodianName === 'You' ? 'your' : `${custodianName}'s`} card or UPI` : ''}
                     {' · '}{nameOf('user', e.actorUserId)}{e.receiptUrls.length ? ` · ${e.receiptUrls.length} receipt(s)` : ''}
+                    {originalAmountText({ currency, ...e }) ? ` · entered as ${originalAmountText({ currency, ...e })}` : ''}
                   </Text>
                 </View>
                 <Text style={[st.amount, { color: colors.text }]}>{money(-e.amountMinor)}</Text>
@@ -460,27 +466,77 @@ export default function PoolScreen({ route, navigation }: any) {
           })}
         </View>
 
-        {/* Sponsor budgets: who may spend */}
-        {sponsor && (
+        {/* Who may spend (a Budget always; a "Several of us" pool by choice) and who may approve (Phase 3) */}
+        {(
           <View style={card} testID="pool-spender-permissions">
-            <Text style={h2}>Who can spend</Text>
-            <Text style={meta}>Spenders pay from the budget or claim reimbursements with a receipt.</Text>
+            <Text style={h2}>{sponsor ? 'Who can spend' : 'Who can spend and approve'}</Text>
+            <Text style={meta}>
+              {sponsor
+                ? 'Spenders pay from the budget or claim reimbursements with a receipt.'
+                : "Approvers decide other people's spends and claims, and nothing else. Nobody approves their own."}
+            </Text>
+            {!sponsor && (
+              <View style={[st.row, { borderColor: colors.border }]} testID="spenders-mode">
+                <Text style={[st.rowTitle, { color: colors.text, flex: 1 }]}>Who can spend</Text>
+                {(['everyone', 'listed'] as const).map((m) => (
+                  <Btn key={m} testID={`spenders-mode-${m}`} label={m === 'everyone' ? 'Everyone' : 'People I choose'} small
+                    color={spendersListed === (m === 'listed') ? colors.success : colors.primary} outline={spendersListed !== (m === 'listed')}
+                    disabled={!isAdmin || busy || event.status !== 'active'}
+                    onPress={() => run('Update spenders', () => poolService.updateConfig(eventId, { spendersMode: m }), { title: 'Saved', message: 'Spending permissions updated.' })} />
+                ))}
+              </View>
+            )}
+            <View style={[st.row, { borderColor: colors.border }]} testID="approval-mode">
+              <Text style={[st.rowTitle, { color: colors.text, flex: 1 }]}>Spends need approval</Text>
+              {(['none', 'always', 'above_threshold'] as const).map((m) => {
+                const on = (config.expenseApproval || 'none') === m;
+                return (
+                  <Btn key={m} testID={`approval-mode-${m}`} small
+                    label={m === 'none' ? 'Never' : m === 'always' ? 'Always' : on && config.approvalThresholdMinor != null ? `Above ${money(config.approvalThresholdMinor)}` : 'Above…'}
+                    color={on ? colors.success : colors.primary} outline={!on}
+                    disabled={!isAdmin || busy || event.status !== 'active'}
+                    onPress={() => (m === 'above_threshold'
+                      ? setSheet({
+                          kind: 'amount', title: 'Approval needed above', initialMinor: Number(config.approvalThresholdMinor) || 0,
+                          hint: 'Spends above this amount wait for approval.',
+                          submit: (minor) => poolService.updateConfig(eventId, { expenseApproval: 'above_threshold', approvalThresholdMinor: minor }),
+                          done: () => ({ title: 'Saved', message: 'Spending permissions updated.' }),
+                        })
+                      : run('Update approval', () => poolService.updateConfig(eventId, { expenseApproval: m }), { title: 'Saved', message: 'Spending permissions updated.' }))} />
+                );
+              })}
+            </View>
+            {(config.expenseApproval || 'none') === 'none' && (config.approverUserIds || []).length > 0 && (
+              <Text testID="approvers-unused" style={[meta, { marginTop: spacing.xs }]}>
+                Spends don't need approval in this {noun.toLowerCase()}. Choose "Always" or "Above…" to use approvers.
+              </Text>
+            )}
             {participants.filter((p) => p.userId !== config.custodianUserId).map((p) => {
               const allowed = (config.authorizedSpenders || []).includes(p.userId);
+              const approver = (config.approverUserIds || []).includes(p.userId);
               return (
                 <View key={p.userId} style={[st.row, { borderColor: colors.border }]}>
                   <Text style={[st.rowTitle, { color: colors.text, flex: 1 }]}>{p.displayName || p.email || 'Member'}</Text>
-                  <Btn testID={`spender-${p.userId}`} label={allowed ? 'Can spend ✓' : 'Allow'} color={allowed ? colors.success : colors.primary} small outline={!allowed}
+                  {(sponsor || spendersListed) && (
+                    <Btn testID={`spender-${p.userId}`} label={allowed ? 'Can spend ✓' : 'Allow'} color={allowed ? colors.success : colors.primary} small outline={!allowed}
+                      disabled={!isAdmin || busy || event.status !== 'active'}
+                      onPress={() => run('Update spenders', () => poolService.updateConfig(eventId, {
+                        authorizedSpenders: allowed
+                          ? (config.authorizedSpenders || []).filter((id) => id !== p.userId)
+                          : [...(config.authorizedSpenders || []), p.userId],
+                      }), { title: 'Saved', message: 'Spending permissions updated.' })} />
+                  )}
+                  <Btn testID={`approver-${p.userId}`} label={approver ? 'Approver ✓' : 'Approver'} color={approver ? colors.success : colors.primary} small outline={!approver}
                     disabled={!isAdmin || busy || event.status !== 'active'}
-                    onPress={() => run('Update spenders', () => poolService.updateConfig(eventId, {
-                      authorizedSpenders: allowed
-                        ? (config.authorizedSpenders || []).filter((id) => id !== p.userId)
-                        : [...(config.authorizedSpenders || []), p.userId],
+                    onPress={() => run('Update approvers', () => poolService.updateConfig(eventId, {
+                      approverUserIds: approver
+                        ? (config.approverUserIds || []).filter((id) => id !== p.userId)
+                        : [...(config.approverUserIds || []), p.userId],
                     }), { title: 'Saved', message: 'Spending permissions updated.' })} />
                 </View>
               );
             })}
-            {participants.length <= 1 && <Text style={[meta, { marginTop: spacing.sm }]}>Invite people from the event screen, then allow them here.</Text>}
+            {participants.length <= 1 && <Text style={[meta, { marginTop: spacing.sm }]}>Invite people from the event screen, then choose them here.</Text>}
             {/* Spends on the sponsor's card or UPI (§9.3): on unless the sponsor turns it off. */}
             <View style={[st.row, { borderColor: colors.border }]}>
               <View style={{ flex: 1 }}>
@@ -526,6 +582,7 @@ export default function PoolScreen({ route, navigation }: any) {
                       ? `${nameOf('user', e.fromUserId || e.actorUserId)} → ${nameOf('user', e.toUserId || '')}`
                       : e.entityType ? nameOf(e.entityType, e.entityId!) : nameOf('user', e.actorUserId)} · {new Date(e.at).toLocaleDateString()}
                     {e.status === 'pending' ? ' · awaiting approval' : e.status === 'rejected' ? ' · rejected' : e.status === 'initiated' ? ' · awaiting confirmation' : ''}
+                    {originalAmountText({ currency, ...e }) ? ` · entered as ${originalAmountText({ currency, ...e })}` : ''}
                     {e.paidFrom === 'advance' ? ' · paid with money they hold' : e.paidFrom === 'sponsor_card' ? " · on the custodian's card or UPI" : ''}
                     {e.fundingSource === 'pool_reimbursement' ? payBackText(e.status, e.settlementStatus, event.status) : repayText(e.status, e.settlementStatus, event.status)}
                     {e.flags?.includes('exceeds_tolerance') ? ' · over the limit' : ''}
@@ -651,6 +708,7 @@ function Sheet(props: { title: string; children: React.ReactNode; onClose: () =>
           </View>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
   );
 }

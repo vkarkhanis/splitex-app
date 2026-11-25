@@ -28,6 +28,8 @@ import {
   REPAYMENT_STATUS,
   advanceStatusText,
   canApproveDraw,
+  isPoolApprover,
+  originalAmountText,
   describeSettleUpRow,
   earlyRepaymentImpact,
   entityKey,
@@ -259,8 +261,10 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
   const cycleOpen = cycle.status === 'open' && !viewingPast;
   const canAct = cycleOpen && eventEditable;
   // Your own pending expenses wait for someone else (unless you hold the money).
+  // Approvers decide other people's spends too (Phase 3).
+  const canDecide = isManager || Boolean(currentUserId && isPoolApprover(config, currentUserId));
   const approvableDraws = entries.filter((e) => e.type === 'draw' && e.status === 'pending'
-    && canApproveDraw(currentUserId ?? '', e.actorUserId, config.custodianUserId, isManager));
+    && canApproveDraw(currentUserId ?? '', e.actorUserId, config.custodianUserId, canDecide));
   const outstanding = summary.arrears.reduce((s, a) => s + a.outstandingMinor, 0);
   const sponsor = config.funderMode === 'sponsor';
   // Money others lent to a sponsor pool: the custodian pays it back at close (design doc §10).
@@ -419,6 +423,7 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
                     </ItemTitle>
                     <ItemMeta>
                       {nameOf('user', e.actorUserId)} · {new Date(e.at).toLocaleDateString()}
+                      {originalAmountText({ currency, ...e }) && <span data-testid={`approval-original-${e.id}`}> · entered as {originalAmountText({ currency, ...e })}</span>}
                       {e.receiptUrls.map((u, i) => <span key={u}> · <SmallLink href={resolveFileHref(u)} target="_blank" rel="noreferrer">receipt{e.receiptUrls.length > 1 ? ` ${i + 1}` : ''}</SmallLink></span>)}
                     </ItemMeta>
                   </ItemMain>
@@ -553,7 +558,7 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
                           <Button $size="sm" $variant="outline" onClick={() => setModal({ kind: 'confirm', contribution: c })}>Record payment</Button>
                         )}
                         {isManager && c.status === 'pending' && c.receivedMinor === 0 && c.kind === 'regular' && (
-                          <Button $size="sm" $variant="ghost" disabled={busy} onClick={() => run('Waived', () => poolApi.waive(c.id), 'Excused for this cycle.')}>Waive</Button>
+                          <Button $size="sm" $variant="ghost" disabled={busy} onClick={() => run('Waived', () => poolApi.waive(c.id), 'Excused for this cycle.')} data-testid={`waive-${c.id}`}>Waive</Button>
                         )}
                       </Actions>
                     )}
@@ -773,6 +778,7 @@ function LedgerRow({ entry: e, currency, nameOf, eventStatus }: {
         </ItemTitle>
         <ItemMeta>
           {who} · {new Date(e.at).toLocaleDateString()}
+          {originalAmountText({ currency, ...e }) && ` · entered as ${originalAmountText({ currency, ...e })}`}
           {e.paidFrom === 'advance' ? ' · paid with money they hold' : e.paidFrom === 'sponsor_card' ? " · on the custodian's card or UPI" : ''}
           {e.receiptUrls.map((u, i) => <span key={u}> · <SmallLink href={resolveFileHref(u)} target="_blank" rel="noreferrer">{e.type === 'draw' ? 'receipt' : 'proof'}{e.receiptUrls.length > 1 ? ` ${i + 1}` : ''}</SmallLink></span>)}
         </ItemMeta>
@@ -889,11 +895,11 @@ function MarkPaidModal(props: {
         </Field>
         <Field>
           <Label htmlFor="mp-ref">Reference (optional)</Label>
-          <Input id="mp-ref" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="UPI / transaction ID" maxLength={200} />
+          <Input id="mp-ref" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="UPI / transaction ID" maxLength={200} data-testid="mark-paid-reference" />
         </Field>
         <Field>
           <Label htmlFor="mp-proof">Proof (optional)</Label>
-          <Input id="mp-proof" type="file" accept={RECEIPT_ACCEPT} onChange={(e) => void onFile(e.target.files?.[0])} disabled={uploading} />
+          <Input id="mp-proof" type="file" accept={RECEIPT_ACCEPT} onChange={(e) => void onFile(e.target.files?.[0])} disabled={uploading} data-testid="mark-paid-proof" />
           {uploading && <ItemMeta>Uploading…</ItemMeta>}
           {proofUrl && !uploading && <ItemMeta>Proof attached ✓</ItemMeta>}
         </Field>

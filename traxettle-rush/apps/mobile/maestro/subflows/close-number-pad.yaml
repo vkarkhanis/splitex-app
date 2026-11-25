@@ -1,0 +1,18 @@
+appId: com.traxettle.app
+name: "Subflow: close the number pad"
+# env: LABEL, the text of the field's label (a regex). A number pad has no Enter key, and an open
+# keyboard covers the buttons below it.
+# - iOS: tap the label; a tap on plain text in the form closes the keyboard. (Don't use
+#   hideKeyboard on iOS: it can tap the screen.)
+# - Android: hideKeyboard (a back press). The label may be under the keyboard there.
+---
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: ${LABEL}
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - hideKeyboard

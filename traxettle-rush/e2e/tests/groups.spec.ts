@@ -12,10 +12,8 @@ test.describe('Group Management', () => {
   });
 
   test('should show empty groups state', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}`);
     await page.getByTestId('tab-groups').click();
     await expect(page.getByTestId('groups-panel')).toBeVisible();
@@ -26,10 +24,8 @@ test.describe('Group Management', () => {
   });
 
   test('should open create group modal', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}`);
     await page.getByTestId('tab-groups').click();
     await page.getByTestId('create-group-btn').click();
@@ -40,10 +36,8 @@ test.describe('Group Management', () => {
   });
 
   test('should disable create group submit when name is empty', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}`);
     await page.getByTestId('tab-groups').click();
     await page.getByTestId('create-group-btn').click();
@@ -51,10 +45,8 @@ test.describe('Group Management', () => {
   });
 
   test('should fill and submit create group form', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}`);
     await page.getByTestId('tab-groups').click();
     await page.getByTestId('create-group-btn').click();
@@ -75,10 +67,8 @@ test.describe('Group Management', () => {
   });
 
   test('should close create group modal on cancel', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}`);
     await page.getByTestId('tab-groups').click();
     await page.getByTestId('create-group-btn').click();

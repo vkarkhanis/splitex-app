@@ -39,6 +39,13 @@ import {
   toPoolError,
   validateFundingChoice,
   withPreset,
+  canClaimFromPool,
+  canSpendFromPool,
+  fxRateText,
+  isListedSpender,
+  isPoolApprover,
+  originalAmountText,
+  usesSpenderList,
 } from '../index';
 import type { FundingChoice, PoolOverdraftState } from '../index';
 
@@ -568,3 +575,56 @@ describe('settleUpFigures', () => {
   });
 });
 
+
+describe('Phase 3: who may spend, claim and approve', () => {
+  const groups = [{ id: 'fam', members: ['priya'] }];
+  const kitty = { funderMode: 'contributors' as const, authorizedSpenders: ['ravi'], authorizedSpenderGroups: ['fam'] };
+
+  it('a "Several of us" pool lets everyone spend until the organiser keeps a list', () => {
+    expect(usesSpenderList({ funderMode: 'contributors' })).toBe(false);
+    expect(usesSpenderList({ funderMode: 'contributors', spendersMode: 'listed' })).toBe(true);
+    expect(usesSpenderList({ funderMode: 'sponsor', spendersMode: 'everyone' })).toBe(true); // a Budget always does
+    expect(canSpendFromPool(kitty, 'zara', [], false)).toBe(true);
+    const listed = { ...kitty, spendersMode: 'listed' as const };
+    expect(isListedSpender(listed, 'ravi', groups)).toBe(true);
+    expect(isListedSpender(listed, 'priya', groups)).toBe(true); // through her family
+    expect(canSpendFromPool(listed, 'zara', groups, false)).toBe(false);
+    expect(canSpendFromPool(listed, 'zara', groups, true)).toBe(true); // managers always may
+  });
+
+  it('anyone in a "Several of us" pool can claim back; a Budget\'s guests can\'t', () => {
+    expect(canClaimFromPool({ ...kitty, spendersMode: 'listed' }, 'zara', groups, false)).toBe(true);
+    expect(canClaimFromPool({ funderMode: 'sponsor', authorizedSpenders: ['ravi'] }, 'zara', [], false)).toBe(false);
+    expect(canClaimFromPool({ funderMode: 'sponsor', authorizedSpenders: ['ravi'] }, 'ravi', [], false)).toBe(true);
+  });
+
+  it('knows who has the approver permission', () => {
+    expect(isPoolApprover({ approverUserIds: ['ravi'] }, 'ravi')).toBe(true);
+    expect(isPoolApprover({}, 'ravi')).toBe(false);
+  });
+
+  it('offers only "claim it back" to someone who can\'t spend', () => {
+    const base = { model: 'hybrid' as const, isCustodian: false, currency: 'INR', noun: 'Kitty', allowCardSpends: true, custodianName: 'Anita' };
+    expect(paidWithOptions(base).map((o) => o.value)).toEqual(['pool_card', 'pool_reimbursement', 'self']);
+    expect(paidWithOptions({ ...base, canSpend: false }).map((o) => o.value)).toEqual(['pool_reimbursement', 'self']);
+    // A Budget's guest can't claim either.
+    expect(paidWithOptions({ ...base, model: 'pool', canSpend: false, canClaim: false })).toEqual([]);
+  });
+
+  it('sends "only people I choose" with a group pool, never with a Budget', () => {
+    const kittyChoice: FundingChoice = { ...DEFAULT_FUNDING_CHOICE, kind: 'pool', funder: 'contributors', preset: 'trip_kitty', spendersMode: 'listed' };
+    expect(buildFundingPayload(kittyChoice, 'INR').pool?.overrides).toEqual({ spendersMode: 'listed' });
+    expect(buildFundingPayload({ ...kittyChoice, spendersMode: 'everyone' }, 'INR').pool?.overrides).toBeUndefined();
+    const budget: FundingChoice = { ...kittyChoice, funder: 'sponsor', preset: 'sponsor_budget', targetAmount: '50000', approval: 'none' };
+    expect(buildFundingPayload(budget, 'INR').pool?.overrides?.spendersMode).toBeUndefined();
+  });
+});
+
+describe('Phase 3: expenses entered in another currency', () => {
+  it('shows what was entered and the rate', () => {
+    expect(originalAmountText({ currency: 'JPY', originalAmount: 5000, originalCurrency: 'INR' })).toBe(formatMinor(500000, 'INR'));
+    expect(originalAmountText({ currency: 'INR' })).toBeNull();
+    expect(originalAmountText({ currency: 'INR', originalAmount: 10, originalCurrency: 'INR' })).toBeNull();
+    expect(fxRateText('INR', 'JPY', 1.793217891)).toBe('1 INR = 1.79322 JPY');
+  });
+});

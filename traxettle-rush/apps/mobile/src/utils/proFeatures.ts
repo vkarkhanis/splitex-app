@@ -25,7 +25,12 @@ const BASE_FEATURES: ProFeature[] = [
   {
     icon: '💱',
     title: 'Multi-Currency Settlement',
-    desc: 'Split expenses across currencies with automatic FX conversion at EOD rates.',
+    desc: 'Settle an event in a different currency from its expenses, at a rate you set or the end-of-day rate.',
+  },
+  {
+    icon: '🌍',
+    title: 'Expenses in Another Currency',
+    desc: 'Enter a cost in the currency you paid in; it is converted to the event’s currency. Everyone in the events you create can use it.',
   },
   {
     icon: '📊',
@@ -39,10 +44,10 @@ const BASE_FEATURES: ProFeature[] = [
   },
 ];
 
-/** The upgrade screen's list: group pools go right after multi-currency when released. */
+/** The upgrade screen's list: group pools go right after the currency features when released. */
 export function proFeatureList(groupPools: boolean): ProFeature[] {
   if (!groupPools) return BASE_FEATURES;
-  const at = BASE_FEATURES.findIndex((f) => f.title === 'Multi-Currency Settlement') + 1;
+  const at = BASE_FEATURES.findIndex((f) => f.title === 'Expenses in Another Currency') + 1;
   return [...BASE_FEATURES.slice(0, at), { icon: '👥', ...GROUP_POOLS_PRO_FEATURE }, ...BASE_FEATURES.slice(at)];
 }
 
@@ -54,7 +59,7 @@ export function proSummaryLine(groupPools: boolean): string {
 /** Shown once a purchase is confirmed by the server. */
 export function proReadyMessage(groupPools: boolean): string {
   return groupPools
-    ? 'You now have access to all Pro features, including group pools and multi-currency settlement.'
+    ? 'You now have access to all Pro features, including group pools, multi-currency settlement and expenses in other currencies.'
     : 'You now have access to all Pro features including multi-currency settlement.';
 }
 
@@ -64,7 +69,7 @@ export function poolingHelpCard(groupPools: boolean): ProFeature & { tag?: strin
     ? {
       icon: '👛',
       title: 'Pool Money',
-      desc: 'Collect money up front and spend from it. "Just me" budgets are free; "Several of us" pools (trip kitty, shared fund, club treasury, collection) need Pro for the person who creates them. Everyone else joins free.',
+      desc: 'Collect money up front and spend from it. "Just me" budgets are free; "Several of us" pools (trip kitty, shared fund, club treasury, collection) need Pro for the person who creates them. Everyone else joins free. The organiser can choose who spends and who approves spends.',
     }
     : {
       icon: '👛',

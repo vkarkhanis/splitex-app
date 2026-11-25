@@ -9,6 +9,7 @@ import {
   getEventSettlements,
   paySettlement,
   retrySettlement,
+  switchTier,
 } from '../helpers/api';
 
 test.describe('Settlement Flows (Mock Payments Only)', () => {
@@ -20,10 +21,8 @@ test.describe('Settlement Flows (Mock Payments Only)', () => {
 
     const eventRes = await createTestEvent(adminToken, { currency: 'USD' });
     const eventId = eventRes.data?.id;
-    if (!eventId) {
-      test.skip(true, 'Failed to create event');
-      return;
-    }
+    // Fail loudly: a skipped test would hide a broken event creation.
+    expect(eventId, 'the event should be created').toBeTruthy();
 
     await addParticipantToEvent(eventId, payerToken, adminToken);
 
@@ -71,6 +70,8 @@ test.describe('Settlement Flows (Mock Payments Only)', () => {
   test('multi-currency settlement with predefined FX uses conversion data and mocked provider', async () => {
     const adminToken = 'mock-settle-admin-2';
     const payerToken = 'mock-settle-payer-2';
+    // Settling in another currency needs Pro; without it the event was refused and the test skipped.
+    expect((await switchTier(adminToken, 'pro')).status).toBe(200);
 
     const eventRes = await createTestEvent(adminToken, {
       currency: 'USD',
@@ -79,10 +80,8 @@ test.describe('Settlement Flows (Mock Payments Only)', () => {
       predefinedFxRates: { USD_INR: 82.5 },
     });
     const eventId = eventRes.data?.id;
-    if (!eventId) {
-      test.skip(true, 'Failed to create event');
-      return;
-    }
+    // Fail loudly: a skipped test would hide a broken event creation.
+    expect(eventId, 'the event should be created').toBeTruthy();
 
     await addParticipantToEvent(eventId, payerToken, adminToken);
 
@@ -122,10 +121,8 @@ test.describe('Settlement Flows (Mock Payments Only)', () => {
 
     const eventRes = await createTestEvent(adminToken, { currency: 'USD' });
     const eventId = eventRes.data?.id;
-    if (!eventId) {
-      test.skip(true, 'Failed to create event (likely infra/quota constraint)');
-      return;
-    }
+    // Fail loudly: a skipped test would hide a broken event creation.
+    expect(eventId, 'the event should be created').toBeTruthy();
 
     await addParticipantToEvent(eventId, payerToken, adminToken);
     await createSplitExpense(

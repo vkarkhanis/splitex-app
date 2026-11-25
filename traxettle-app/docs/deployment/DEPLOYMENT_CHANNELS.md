@@ -2,6 +2,8 @@
 
 This document covers all deployment channels: Web (staging/production), Mobile Android (internal testing/Play Store), and Mobile iOS (TestFlight/App Store).
 
+For the money-pooling release (Phases 1–3), follow [RELEASE_MONEY_POOLING.md](RELEASE_MONEY_POOLING.md): it puts these steps in order.
+
 ---
 
 ## Overview
@@ -10,92 +12,57 @@ This document covers all deployment channels: Web (staging/production), Mobile A
 |---------|--------|---------------|-----------|
 | Web Staging | traxettle-staging | Next.js build | Cloud Run (staging) |
 | Web Production | traxettle-production | Next.js build | Cloud Run (production) |
-| Android Internal | traxettle-staging | `.aab` (signed) | Play Console → Internal Testing |
-| Android Production | traxettle-production | `.aab` (signed) | Play Console → Production |
-| iOS Internal | traxettle-staging | `.ipa` (signed) | TestFlight |
-| iOS Production | traxettle-production | `.ipa` (signed) | App Store Connect |
+| Android Internal | production by default; staging with the 7-tap switch | `.aab` (signed) | Play Console → Internal Testing |
+| Android Production | the same `.aab`, promoted | `.aab` (signed) | Play Console → Production |
+| iOS Internal | production by default; staging with the 7-tap switch | `.ipa` (signed) | TestFlight |
+| iOS Production | the same build, promoted | `.ipa` (signed) | App Store Connect |
+
+**Order for a release:** deploy the API, then the web app, then upload the apps. New apps may call
+endpoints or send fields an older API rejects.
 
 ---
 
-## 1. Web — Staging
+## 1. API and Web — Staging
 
-### Prerequisites
-- GCP project with Cloud Run enabled
-- `gcloud` CLI authenticated (`gcloud auth login`)
-- Firebase service account credentials configured in Cloud Run environment
-
-### Steps
+Run these from `traxettle-rush/`, on a clean checkout of the branch you're deploying: both scripts
+upload the working tree. Details and first-time setup: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md) §5 and §11.
 
 ```bash
-# 1. Build the web app
-cd apps/web
-NEXT_PUBLIC_APP_ENV=staging \
-NEXT_PUBLIC_API_URL=https://traxettle-api-staging-lomxjapdhq-uc.a.run.app \
-rushx build
+# API (Cloud Run traxettle-api-staging). Needs gcloud and jq.
+bash scripts/api-deployment/deploy-staging-gmail.sh
 
-# 2. Build the API
-cd apps/api
-rushx build
-
-# 3. Deploy API to Cloud Run (staging)
-gcloud run deploy traxettle-api-staging \
-  --source apps/api \
-  --region us-central1 \
-  --set-env-vars="APP_ENV=staging,PORT=3001,FIREBASE_USE_EMULATOR=false" \
-  --set-env-vars="FIREBASE_PROJECT_ID=traxettle-staging" \
-  --set-env-vars="FIREBASE_CLIENT_EMAIL=<service-account-email>" \
-  --set-env-vars="FIREBASE_PRIVATE_KEY=<base64-encoded-private-key>" \
-  --set-env-vars="FIREBASE_STORAGE_BUCKET=traxettle-staging.firebasestorage.app" \
-  --set-env-vars="JWT_SECRET=<jwt-secret>" \
-  --set-env-vars="JWT_REFRESH_SECRET=<jwt-refresh-secret>" \
-  --allow-unauthenticated
-
-# 4. Deploy Web to Cloud Run (staging) or static hosting
-gcloud run deploy traxettle-web-staging \
-  --source apps/web \
-  --region us-central1 \
-  --set-env-vars="NEXT_PUBLIC_APP_ENV=staging" \
-  --set-env-vars="NEXT_PUBLIC_API_URL=https://traxettle-api-staging-lomxjapdhq-uc.a.run.app" \
-  --allow-unauthenticated
+# Web (Cloud Run traxettle-web-staging, behind Firebase Hosting). Needs gcloud, firebase and rsync.
+bash scripts/web-deployment/deploy-web-staging.sh
 ```
 
 ### Verify
 ```bash
-curl https://traxettle-api-staging-lomxjapdhq-uc.a.run.app/health
+curl https://traxettle-api-staging-943648574702.us-central1.run.app/health
+gcloud run services logs read traxettle-api-staging --project traxettle-staging --region us-central1 --limit 100 | grep -i firebase
 ```
+
+The logs must say *Initializing Firebase with real credentials*. *Using mock services* means the
+Firebase key was packaged as null (usually a missing `jq`): the API is running on in-memory data.
 
 ---
 
-## 2. Web — Production
+## 2. API and Web — Production
 
-Same as staging but with production env vars:
+The same, with the production scripts. Their settings come from `.traxettle/api-prod.env` and
+`.traxettle/web-prod.env` (gitignored), created once by `scripts/api-deployment/configure-prod.sh` and
+`scripts/web-deployment/configure-prod.sh`.
 
 ```bash
-# Build
-cd apps/web
-NEXT_PUBLIC_APP_ENV=production \
-NEXT_PUBLIC_API_URL=https://<production-api-url> \
-rushx build
-
-# Deploy API
-gcloud run deploy traxettle-api-production \
-  --source apps/api \
-  --region us-central1 \
-  --set-env-vars="APP_ENV=production,PORT=3001" \
-  --set-env-vars="FIREBASE_PROJECT_ID=<production-firebase-project>" \
-  --set-env-vars="FIREBASE_CLIENT_EMAIL=<prod-service-account>" \
-  --set-env-vars="FIREBASE_PRIVATE_KEY=<prod-private-key>" \
-  --set-env-vars="JWT_SECRET=<prod-jwt-secret>" \
-  --allow-unauthenticated
-
-# Deploy Web
-gcloud run deploy traxettle-web-production \
-  --source apps/web \
-  --region us-central1 \
-  --set-env-vars="NEXT_PUBLIC_APP_ENV=production" \
-  --set-env-vars="NEXT_PUBLIC_API_URL=https://<production-api-url>" \
-  --allow-unauthenticated
+bash scripts/api-deployment/deploy-prod-gmail.sh
+bash scripts/web-deployment/deploy-web-prod.sh
 ```
+
+```bash
+curl https://traxettle-api-prod-ncwutlgtga-uc.a.run.app/health
+bash scripts/api-deployment/verify-deployed-api-env.sh production
+```
+
+To undo a deploy, send traffic back to the previous revision (Cloud Run → the service → Revisions).
 
 ---
 
@@ -163,10 +130,8 @@ rushx build:android:production
 #    → Add release notes → Review → Start rollout
 ```
 
-> **Note:** The production build currently falls back to the staging API URL. Set `EXPO_PUBLIC_API_URL` before building when a production API is available:
-> ```bash
-> EXPO_PUBLIC_API_URL=https://your-prod-api.run.app bash scripts/build-android.sh production
-> ```
+> **Note:** Like iOS, the release build opens on the production API and switches to staging with 7 taps on
+> "Traxettle" on the sign-in screen. Upload it to internal testing first, then promote the same release.
 
 ---
 

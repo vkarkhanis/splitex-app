@@ -1,249 +1,139 @@
 appId: com.traxettle.app
-name: Same Currency Settlement (Mock)
+name: Settlement — same currency, from an expense to a closed event
+# Two people: the organiser pays for dinner, settles up, both approve the plan, the member records
+# the payment, the organiser confirms it and closes the event.
 ---
-- launchApp:
-    clearState: true
 - evalScript: ${output.runId = Date.now().toString()}
-- tapOn:
-    id: "dashboard-open-profile"
-    optional: true
-- tapOn:
-    id: "profile-signout-button"
-    optional: true
-- tapOn:
-    text: "Sign Out"
-    optional: true
-- tapOn:
-    id: "login-go-register"
-    optional: true
-- tapOn:
-    id: "register-display-name-input"
-    optional: true
-- tapOn:
-    id: "login-go-register"
-    optional: true
+- runFlow:
+    file: ../../subflows/sign-up.yaml
+    env:
+      NAME: "Settle Admin ${output.runId}"
+      EMAIL: "sadm${output.runId}@example.com"
+- runFlow:
+    file: ../../subflows/create-split-event.yaml
+    env:
+      EVENT: "Maestro Same ${output.runId}"
+      CURRENCY: "USD"
+- runFlow:
+    file: ../../subflows/invite.yaml
+    env:
+      EMAIL: "smb${output.runId}@example.com"
 
-# Register user-1 (admin / payee)
+# The member joins.
+- runFlow:
+    file: ../../subflows/sign-up.yaml
+    env:
+      NAME: "Settle Member ${output.runId}"
+      EMAIL: "smb${output.runId}@example.com"
+- runFlow: ../../subflows/accept-invitation.yaml
+
+# The organiser adds dinner and settles up; the plan goes to review.
+- runFlow:
+    file: ../../subflows/sign-in.yaml
+    env:
+      EMAIL: "sadm${output.runId}@example.com"
+- runFlow:
+    file: ../../subflows/open-event.yaml
+    env:
+      EVENT: "Maestro Same ${output.runId}"
+- runFlow:
+    file: ../../subflows/add-expense.yaml
+    env:
+      TITLE: "Dinner ${output.runId}"
+      AMOUNT: "120"
+- tapOn:
+    id: "event-detail-settle-button"
+- tapOn:
+    id: "confirm-button-settle-now"
 - extendedWaitUntil:
     visible:
-      id: "register-display-name-input"
+      id: "event-detail-approve-settlement"
     timeout: 20000
 - tapOn:
-    id: "register-display-name-input"
-- inputText: "Settle Admin ${output.runId}"
-- tapOn:
-    id: "register-email-input"
-- inputText: "sadm${output.runId}@example.com"
-- tapOn:
-    id: "register-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- extendedWaitUntil:
-    visible:
-      id: "dashboard-create-event-button"
-    timeout: 30000
-
-# Create event in USD
-- tapOn:
-    id: "dashboard-create-event-button"
-- tapOn:
-    id: "create-event-name-input"
-- inputText: "Maestro Same ${output.runId}"
-- tapOn:
-    id: "create-event-currency-USD"
-- tapOn:
-    id: "create-event-settlement-same"
-- tapOn:
-    id: "create-event-submit-button"
-- tapOn: "OK"
-- assertVisible: "Maestro Same ${output.runId}"
-
-# Invite user-2
-- extendedWaitUntil:
-    visible:
-      id: "event-detail-tab-participants"
-    timeout: 20000
-- tapOn:
-    id: "event-detail-tab-participants"
-- tapOn:
-    id: "event-detail-open-invite-modal-participants"
-- tapOn:
-    id: "event-detail-invite-email-input"
-- inputText: "smb${output.runId}@example.com"
-- tapOn:
-    text: "Send"
-- tapOn:
-    text: "Send"
-    optional: true
-- extendedWaitUntil:
-    notVisible: "Invite to Event"
-    timeout: 10000
-- tapOn:
-    id: "event-detail-tab-invitations"
-- extendedWaitUntil:
-    visible: "smb${output.runId}@example.com"
-    timeout: 10000
-
-# Switch to user-2
-- launchApp:
-    clearState: true
-- tapOn:
-    id: "dashboard-open-profile"
-    optional: true
-- tapOn:
-    id: "profile-signout-button"
-    optional: true
-- tapOn:
-    text: "Sign Out"
-    optional: true
-- tapOn:
-    id: "login-go-register"
-    optional: true
-- tapOn:
-    id: "register-display-name-input"
-    optional: true
-- tapOn:
-    id: "login-go-register"
-    optional: true
-
-# Register user-2 and accept invite
-- extendedWaitUntil:
-    visible:
-      id: "register-display-name-input"
-    timeout: 20000
-- tapOn:
-    id: "register-display-name-input"
-- inputText: "Settle Member ${output.runId}"
-- tapOn:
-    id: "register-email-input"
-- inputText: "smb${output.runId}@example.com"
-- tapOn:
-    id: "register-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- assertVisible:
-    id: "dashboard-open-invitations"
-- tapOn:
-    id: "dashboard-open-invitations"
-- extendedWaitUntil:
-    visible: "Accept"
-    timeout: 10000
-- tapOn: "Accept"
-- assertVisible: "Accepted"
-- tapOn: "OK"
-
-# Switch back to user-1 and create expense + settlement
-- launchApp:
-    clearState: true
-- extendedWaitUntil:
-    visible:
-      id: "login-email-input"
-    timeout: 20000
-- tapOn:
-    id: "login-email-input"
-- inputText: "sadm${output.runId}@example.com"
-- tapOn:
-    id: "login-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- tapOn:
-    id: "login-submit-button"
-    optional: true
-- extendedWaitUntil:
-    visible: "Maestro Same ${output.runId}"
-    timeout: 20000
-- tapOn: "Maestro Same ${output.runId}"
-- tapOn:
-    id: "event-detail-add-expense-button"
-- tapOn:
-    id: "create-expense-title-input"
-- inputText: "Dinner ${output.runId}"
-- tapOn:
-    id: "create-expense-amount-input"
-- inputText: "120"
-- pressKey: Enter
-- scrollUntilVisible:
-    element:
-      id: "create-expense-submit-button"
-    direction: DOWN
-- tapOn:
-    id: "create-expense-submit-button"
-    optional: true
-- extendedWaitUntil:
-    notVisible: "Add Expense"
-    timeout: 30000
+    id: "event-detail-approve-settlement"
 - tapOn:
     text: "OK"
     optional: true
 - extendedWaitUntil:
-    visible: "Maestro Same ${output.runId}"
-    timeout: 10000
-- assertVisible: "Dinner ${output.runId}"
-- tapOn:
-    id: "event-detail-settle-button"
-- tapOn: "Generate"
-- assertVisible: "Settlements"
+    visible: ".*You have approved.*"
+    timeout: 20000
 
-# User-2 pays (mock)
-- launchApp:
-    clearState: true
-- extendedWaitUntil:
-    visible:
-      id: "login-email-input"
-    timeout: 20000
+# The member approves too, then records paying $60.
+- runFlow:
+    file: ../../subflows/sign-in.yaml
+    env:
+      EMAIL: "smb${output.runId}@example.com"
+- runFlow:
+    file: ../../subflows/open-event.yaml
+    env:
+      EVENT: "Maestro Same ${output.runId}"
+- scrollUntilVisible:
+    element:
+      id: "event-detail-approve-settlement"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
 - tapOn:
-    id: "login-email-input"
-- inputText: "smb${output.runId}@example.com"
+    id: "event-detail-approve-settlement"
 - tapOn:
-    id: "login-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- tapOn:
-    id: "login-submit-button"
+    text: "OK"
     optional: true
-- extendedWaitUntil:
-    visible: "Maestro Same ${output.runId}"
-    timeout: 20000
-- tapOn: "Maestro Same ${output.runId}"
-- extendedWaitUntil:
-    visible:
+- scrollUntilVisible:
+    element:
       id: "event-detail-settlement-pay-.*"
-    timeout: 15000
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible: ".*\\$60\\.00.*"
 - tapOn:
     id: "event-detail-settlement-pay-.*"
-- assertVisible: "initiated"
-- assertVisible: "Retry Payment"
-- tapOn: "Retry Payment"
-- assertVisible: "initiated"
-
-# User-1 confirms receipt
-- launchApp:
-    clearState: true
 - extendedWaitUntil:
-    visible:
-      id: "login-email-input"
-    timeout: 20000
+    visible: "Pay Settlement"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: "event-detail-mark-paid-submit"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
 - tapOn:
-    id: "login-email-input"
-- inputText: "sadm${output.runId}@example.com"
+    id: "event-detail-mark-paid-submit"
 - tapOn:
-    id: "login-password-input"
-- inputText: "Password123!"
-- pressKey: Enter
-- tapOn:
-    id: "login-submit-button"
+    text: "OK"
     optional: true
-- extendedWaitUntil:
-    visible: "Maestro Same ${output.runId}"
-    timeout: 20000
-- tapOn: "Maestro Same ${output.runId}"
-- extendedWaitUntil:
-    visible:
+
+# The organiser confirms receipt; the event is settled and can be closed.
+- runFlow:
+    file: ../../subflows/sign-in.yaml
+    env:
+      EMAIL: "sadm${output.runId}@example.com"
+- runFlow:
+    file: ../../subflows/open-event.yaml
+    env:
+      EVENT: "Maestro Same ${output.runId}"
+- scrollUntilVisible:
+    element:
       id: "event-detail-settlement-confirm-.*"
-    timeout: 15000
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
 - tapOn:
     id: "event-detail-settlement-confirm-.*"
+- tapOn:
+    text: "OK"
+    optional: true
+- scrollUntilVisible:
+    element:
+      id: "event-detail-close-event"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "event-detail-close-event"
+- tapOn:
+    id: "confirm-button-close"
 - extendedWaitUntil:
-    visible: "Settled"
-    timeout: 15000
-- assertVisible: "Close Event"
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 20000
+- assertNotVisible: ".*Maestro Same ${output.runId}.*"

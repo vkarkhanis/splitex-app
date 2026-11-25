@@ -12,6 +12,8 @@ import { PoolError, PoolService } from '../services/pool.service';
 import { SettlementService } from '../services/settlement.service';
 import { poolCreateSchema } from '../validation/pool.schemas';
 import { groupPoolRefusal } from '../utils/pro-gates';
+import { ExpenseFxError, ExpenseFxService } from '../services/expense-fx.service';
+import { EventAccessError, requireEventAccess } from '../utils/event-access';
 
 const emailService = new EmailService();
 
@@ -21,6 +23,7 @@ const entitlementService = new EntitlementService();
 const poolService = new PoolService();
 const settlementService = new SettlementService();
 const planner = settlementService.calculateSettlementPlan.bind(settlementService);
+const expenseFx = new ExpenseFxService();
 
 /** Keep a pool's roster in step after a genuine membership change. Never fails the caller. */
 async function syncPoolMembership(eventId: string, actorId: string, change: { joinedUserIds?: string[]; leftUserIds?: string[] }) {
@@ -36,6 +39,30 @@ function parseLimit(v: any): number | null {
   const n = Number.parseInt(String(v || ''), 10);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.min(n, 200);
+}
+
+const FX_FIELDS = ['currency', 'settlementCurrency', 'fxRateMode', 'predefinedFxRates'] as const;
+
+/** Compares currency and FX values: blank and missing both mean "not set". */
+function normalizeFxValue(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string') return value.trim() || null;
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+    return entries.length > 0 ? JSON.stringify(entries) : null;
+  }
+  return String(value);
+}
+
+/**
+ * The currency and FX settings an update would actually change. The web and app edit forms send
+ * every field, unchanged ones included, so a field counts only if its value differs from the event's.
+ */
+export function changedFxFields(dto: UpdateEventDto, current: Record<string, any> | null | undefined): string[] {
+  return FX_FIELDS.filter((field) => {
+    const next = (dto as Record<string, unknown>)[field];
+    return next !== undefined && normalizeFxValue(next) !== normalizeFxValue(current?.[field]);
+  });
 }
 
 function requiresProForFx(body: CreateEventDto | UpdateEventDto): boolean {
@@ -147,10 +174,40 @@ router.get('/:eventId', requireAuth, async (req: AuthenticatedRequest, res) => {
     if (!event) {
       return res.status(404).json({ success: false, error: 'Event not found' } as ApiResponse);
     }
-    return res.json({ success: true, data: event } as ApiResponse);
+    // Phase 3: whether expenses may be entered in another currency (the creator's multi-currency Pro).
+    const otherCurrencyExpenses = await expenseFx.otherCurrencyAllowed(event);
+    return res.json({ success: true, data: { ...event, otherCurrencyExpenses } } as ApiResponse);
   } catch (err) {
     console.error('GET /events/:id error:', err);
     return res.status(500).json({ success: false, error: 'Failed to fetch event' } as ApiResponse);
+  }
+});
+
+// What an amount in another currency comes to in the event currency, for the expense form (Phase 3).
+router.get('/:eventId/fx-preview', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    await requireEventAccess(req.params.eventId, req.user!.uid);
+    const event = await eventService.getEvent(req.params.eventId);
+    if (!event) return res.status(404).json({ success: false, error: 'Event not found' } as ApiResponse);
+    const amount = Number(req.query.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ success: false, error: 'amount must be greater than zero' } as ApiResponse);
+    }
+    if (!(await expenseFx.otherCurrencyAllowed(event))) {
+      return res.status(403).json({
+        success: false,
+        error: `Expenses in another currency need the organiser to have Pro. Enter the amount in ${event.currency}.`,
+        code: 'OTHER_CURRENCY_NOT_ALLOWED',
+      } as ApiResponse);
+    }
+    const from = String(req.query.from || '');
+    const quote = await expenseFx.quote(event, from, amount);
+    return res.json({ success: true, data: { from: from.toUpperCase(), to: event.currency, ...quote } } as ApiResponse);
+  } catch (err) {
+    if (err instanceof ExpenseFxError) return res.status(err.status).json({ success: false, error: err.message, code: err.code } as ApiResponse);
+    if (err instanceof EventAccessError) return res.status(err.statusCode).json({ success: false, error: err.message } as ApiResponse);
+    console.error('GET /events/:id/fx-preview error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to get the rate' } as ApiResponse);
   }
 });
 
@@ -272,18 +329,21 @@ router.put('/:eventId', requireAuth, async (req: AuthenticatedRequest, res) => {
       }
     }
 
-    // During review, block currency/FX changes (would invalidate settlements)
+    // Only real changes count: the edit forms resend the current currency with every save, so a
+    // rename during review, or by an admin without Pro, used to be refused.
     const currentEvent = await eventService.getEvent(req.params.eventId);
-    if (currentEvent?.status === 'review') {
-      if (dto.currency || dto.settlementCurrency || dto.fxRateMode || dto.predefinedFxRates) {
-        return res.status(403).json({
-          success: false,
-          error: 'Cannot change currency or FX settings while settlement is under review. Regenerate settlement first.',
-        } as ApiResponse);
-      }
+    const fxChanges = changedFxFields(dto, currentEvent as Record<string, any> | null);
+
+    // During review, block currency/FX changes (would invalidate settlements)
+    if (currentEvent?.status === 'review' && fxChanges.length > 0) {
+      return res.status(403).json({
+        success: false,
+        error: 'Cannot change currency or FX settings while settlement is under review. Regenerate settlement first.',
+      } as ApiResponse);
     }
 
-    if (requiresProForFx(dto)) {
+    // Keeping an event's existing FX settings doesn't need Pro; changing them does.
+    if (fxChanges.length > 0 && requiresProForFx(dto)) {
       try {
         await entitlementService.assertCapability(uid, 'multiCurrencySettlement');
       } catch {

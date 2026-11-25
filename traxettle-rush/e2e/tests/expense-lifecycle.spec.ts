@@ -34,10 +34,8 @@ test.describe('Expense Lifecycle — Edit & Delete', () => {
   });
 
   test('should navigate to expense edit page from event detail', async ({ page }) => {
-    if (!eventId || !expenseId) {
-      test.skip(true, 'No event/expense created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId && expenseId, 'test data should be set up').toBeTruthy();
     await loginAsMockUser(page, adminToken);
     await page.goto(`/events/${eventId}`);
     await expect(page.getByTestId('tab-expenses')).toBeVisible();
@@ -59,10 +57,8 @@ test.describe('Expense Lifecycle — Edit & Delete', () => {
   });
 
   test('should update expense via API', async () => {
-    if (!eventId || !expenseId) {
-      test.skip(true, 'No event/expense created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId && expenseId, 'test data should be set up').toBeTruthy();
 
     const updateRes = await apiRequest('PUT', `/api/expenses/${expenseId}`, {
       title: 'Updated Expense Title',
@@ -82,10 +78,8 @@ test.describe('Expense Lifecycle — Edit & Delete', () => {
   });
 
   test('should delete expense via API', async () => {
-    if (!eventId || !expenseId) {
-      test.skip(true, 'No event/expense created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId && expenseId, 'test data should be set up').toBeTruthy();
 
     const deleteRes = await apiRequest('DELETE', `/api/expenses/${expenseId}`, undefined, adminToken);
     expect(deleteRes.success).toBe(true);
@@ -96,10 +90,8 @@ test.describe('Expense Lifecycle — Edit & Delete', () => {
   });
 
   test('member cannot delete admin expense without admin role', async () => {
-    if (!eventId || !expenseId) {
-      test.skip(true, 'No event/expense created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId && expenseId, 'test data should be set up').toBeTruthy();
 
     const deleteRes = await apiRequest('DELETE', `/api/expenses/${expenseId}`, undefined, memberToken);
     expect(deleteRes.success).toBe(false);
@@ -111,10 +103,8 @@ test.describe('Event Lifecycle — Update & Delete', () => {
     const adminToken = 'mock-event-update-admin';
     const eventRes = await createTestEvent(adminToken);
     const eventId = eventRes.data?.id;
-    if (!eventId) {
-      test.skip(true, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     const updateRes = await apiRequest('PUT', `/api/events/${eventId}`, {
       name: 'Updated Event Name',
@@ -129,10 +119,8 @@ test.describe('Event Lifecycle — Update & Delete', () => {
     const adminToken = 'mock-event-delete-admin';
     const eventRes = await createTestEvent(adminToken);
     const eventId = eventRes.data?.id;
-    if (!eventId) {
-      test.skip(true, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     const deleteRes = await apiRequest('DELETE', `/api/events/${eventId}`, undefined, adminToken);
     expect(deleteRes.success).toBe(true);
@@ -143,10 +131,8 @@ test.describe('Event Lifecycle — Update & Delete', () => {
     const memberToken = 'mock-event-nodelete-member';
     const eventRes = await createTestEvent(adminToken);
     const eventId = eventRes.data?.id;
-    if (!eventId) {
-      test.skip(true, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     await addParticipantToEvent(eventId, memberToken, adminToken);
     const deleteRes = await apiRequest('DELETE', `/api/events/${eventId}`, undefined, memberToken);
@@ -157,10 +143,8 @@ test.describe('Event Lifecycle — Update & Delete', () => {
     const adminToken = 'mock-event-dashboard-del';
     const eventRes = await createTestEvent(adminToken, { name: 'To Be Deleted' });
     const eventId = eventRes.data?.id;
-    if (!eventId) {
-      test.skip(true, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     await loginAsMockUser(page, adminToken);
     await page.goto('/dashboard');

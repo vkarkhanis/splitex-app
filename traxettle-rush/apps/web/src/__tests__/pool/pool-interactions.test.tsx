@@ -64,6 +64,14 @@ async function type(el: Element | null, value: string) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+async function change(el: Element | null, value: string) {
+  const select = el as HTMLSelectElement;
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!;
+  await act(async () => {
+    setter.call(select, value);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
 async function pick(el: Element | null, files: File[]) {
   const input = el as HTMLInputElement;
   Object.defineProperty(input, 'files', { value: files, configurable: true });
@@ -150,7 +158,7 @@ describe('ReceiptField', () => {
 // ── SpenderPermissions ────────────────────────────────────────────────────
 
 describe('SpenderPermissions', () => {
-  const event = { id: 'e1', currency: 'INR', poolConfig: { custodianUserId: 'alice', authorizedSpenders: [], authorizedSpenderGroups: [], spenderCapsMinor: {} } } as any;
+  const event = { id: 'e1', currency: 'INR', poolConfig: { funderMode: 'sponsor', preset: 'sponsor_budget', custodianUserId: 'alice', authorizedSpenders: [], authorizedSpenderGroups: [], spenderCapsMinor: {}, expenseApproval: 'always' } } as any;
   const participants = [{ userId: 'alice', displayName: 'Alice' }, { userId: 'bob', displayName: 'Bob' }] as any;
   const groups = [{ id: 'g1', name: 'Shopping', members: ['bob'] }] as any;
 
@@ -163,14 +171,32 @@ describe('SpenderPermissions', () => {
     await click(container.querySelector('input[aria-label="Allow group Shopping to spend"]'));
     await click(q('save-spenders'));
     expect(mockApi.put).toHaveBeenCalledWith('/api/pools/event/e1/config', {
-      authorizedSpenders: ['bob'], authorizedSpenderGroups: ['g1'], spenderCapsMinor: { bob: 2500000 }, allowSponsorCardSpends: true,
+      authorizedSpenders: ['bob'], authorizedSpenderGroups: ['g1'], spenderCapsMinor: { bob: 2500000 },
+      approverUserIds: [], expenseApproval: 'always', allowSponsorCardSpends: true,
     });
     expect(onSaved).toHaveBeenCalled();
   });
 
+  it('a "Several of us" pool: everyone spends until the organiser chooses people; approvers and approval are set here too', async () => {
+    const kitty = { id: 'k1', currency: 'INR', poolConfig: { funderMode: 'contributors', preset: 'trip_kitty', custodianUserId: 'alice', expenseApproval: 'none' } } as any;
+    await render(<SpenderPermissions event={kitty} participants={participants} groups={groups} canEdit onSaved={jest.fn()} />);
+    expect(q('spender-bob')).toBeNull(); // everyone can spend: no list
+    await click(q('approver-bob'));
+    expect(q('approvers-unused')!.textContent).toMatch(/Spends don.t need approval in this kitty/);
+    await change(q('approval-mode'), 'above_threshold');
+    await type(q('approval-threshold'), '1000');
+    await change(q('spenders-mode'), 'listed');
+    await click(q('spender-bob'));
+    await click(q('save-spenders'));
+    expect(mockApi.put).toHaveBeenCalledWith('/api/pools/event/k1/config', {
+      spendersMode: 'listed', authorizedSpenders: ['bob'], authorizedSpenderGroups: [], spenderCapsMinor: {},
+      approverUserIds: ['bob'], expenseApproval: 'above_threshold', approvalThresholdMinor: 100000, allowSponsorCardSpends: true,
+    });
+  });
+
   it('is read-only without permission and nudges to invite people first', async () => {
     await render(<SpenderPermissions event={event} participants={[participants[0]]} groups={[]} canEdit={false} onSaved={jest.fn()} />);
-    expect(q('spender-permissions')!.textContent).toMatch(/Invite people below/);
+    expect(q('spender-permissions')!.textContent).toMatch(/Invite people, then choose who can spend and approve/);
     expect(q('save-spenders')).toBeNull();
   });
 

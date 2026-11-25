@@ -6,6 +6,7 @@ This checklist reflects the current Free/Pro rollout across API, Mobile, and Web
 ## Locked Rules
 - Existing Free cap of 3 active/closed events remains unchanged in API event routes.
 - Pro-only FX/multi-currency is server-enforced.
+- Expenses in another currency are server-enforced by the **event creator's** Pro, for everyone in the event; keeping the currency when editing reuses the stored rate.
 - Pro-only group pools ("Several of us") are server-enforced at creation and conversion; only the creator needs Pro, and a lapse never blocks an existing pool.
 - RevenueCat is entitlement source-of-truth in production.
 - Local tier switch: Mobile + Web.
@@ -20,12 +21,13 @@ This checklist reflects the current Free/Pro rollout across API, Mobile, and Web
   - `EntitlementSource = 'revenuecat' | 'manual_override' | 'system'`
   - `UserCapabilities.multiCurrencySettlement`
   - `UserCapabilities.contributorPools` (optional: a client treats a missing value as unknown and doesn't lock the option)
-  - `PRO_FEATURE_CODES.contributorPools = 'contributor_pools'`
+  - `PRO_FEATURE_CODES.contributorPools = 'contributor_pools'` (defined in `apps/api/src/services/entitlement.service.ts`)
 - `/api/users/profile` includes entitlement and capabilities.
 - Gated feature denial payload:
   - `status: 403`
   - `code: FEATURE_REQUIRES_PRO`
   - `feature: multi_currency_settlement` or `feature: contributor_pools`
+- Expenses in another currency are refused with their own code, `403 OTHER_CURRENCY_NOT_ALLOWED`, and the API's message: *Expenses in another currency need the organiser to have Pro. Enter the amount in INR.*
 
 ## Implemented Backend Services/Routes
 - Entitlements:
@@ -43,6 +45,7 @@ This checklist reflects the current Free/Pro rollout across API, Mobile, and Web
 - Existing Free 3-event guard remains untouched.
 - Group pools: `groupPoolRefusal` (`apps/api/src/utils/pro-gates.ts`) runs on `POST /api/events` with a "Several of us" pool and on `POST /api/pools/event/:id/convert`. If the subscription lookup fails, the API returns a server error instead of "needs Pro". Tests: `routes/pools.pro-gating.test.ts`; other pool suites make the creator Pro with `makePro`.
 - A new user's first profile load reports capabilities from the entitlement service's defaults, so `contributorPools` is present from the start.
+- Expenses in another currency: `assertAllowed` in `apps/api/src/services/expense-fx.service.ts`, on expense and pool-spend create and edit. `GET /api/events/:id` returns `otherCurrencyExpenses` so the apps know whether to offer the currency picker. Tests: `routes/pools.phase3.test.ts`, `routes/pools.flows.test.ts`.
 
 ## Settlement Safety Policy
 - Non-production defaults to mocked payment.
@@ -58,12 +61,14 @@ This checklist reflects the current Free/Pro rollout across API, Mobile, and Web
 - Internal tier switch UI is available only in local/internal enabled builds.
 - API denial `FEATURE_REQUIRES_PRO` is handled in UX, with the message chosen by `feature` (`proRequiredMessage`).
 - Create event: a PRO badge and an **Upgrade to Pro** notice on "Several of us" for free users.
-- Pro lists (upgrade screen, Profile row, purchase message, Help) include group pools only where "Several of us" is released (`useContributorPoolsAvailable`).
+- Pro lists (upgrade screen, Profile row, purchase message, Help) include *Expenses in Another Currency*, and group pools where "Several of us" is released (`useContributorPoolsAvailable`, now everywhere).
+- Add/edit expense: the currency chips appear only when the event's `otherCurrencyExpenses` is true.
 - Free trial: shown on iOS only when RevenueCat says the account is eligible; Google Play's trial is read from the default option (`resolveIntroOffer`, Money Pooling Phase 2 plan §10A).
 
 ## Web Implementation Status
 - Event create page uses profile capabilities for FX gating, and for the PRO badge on "Several of us" (submitting is blocked with the group-pools message).
-- `/pro` and `/help` list group pools only where "Several of us" is released (`apps/web/src/utils/proFeatures.ts`).
+- `/pro` and `/help` list *Expenses in another currency*, and group pools where "Several of us" is released (`apps/web/src/utils/proFeatures.ts`).
+- Add/edit expense: the currency picker is disabled, with an explanation, unless the event's `otherCurrencyExpenses` is true.
 - Local-only tier switch UI exists on profile page.
 - Staging/TestFlight/internal web is read-only for switching.
 - Web listens to `user:tier-updated` and refreshes entitlement state.

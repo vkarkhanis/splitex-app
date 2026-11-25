@@ -19,7 +19,8 @@ import {
 } from '@traxettle/ui';
 import { api } from '../../../../../utils/api';
 import type { EventFundingModel, EventParticipant, Group, OnBehalfOfEntry, PoolConfig, PoolCycleSummary, PoolLedger } from '@traxettle/shared';
-import { entityKey, paidWithOptions, paidWithPayload, resolveFundingModel, toMinor } from '@traxettle/shared';
+import { canClaimFromPool, canSpendFromPool, entityKey, paidWithOptions, paidWithPayload, resolveFundingModel, toMinor } from '@traxettle/shared';
+import { FxPreviewLine, currencyOptions, useFxPreview } from '../../../../../components/OtherCurrency';
 import { PaidWithControl, SpendTimingControl } from '../../../../../components/pool/PaidWithControl';
 import type { PaidWith, SpendTiming } from '../../../../../components/pool/PaidWithControl';
 import { ReceiptField } from '../../../../../components/pool/ReceiptField';
@@ -255,6 +256,11 @@ export default function CreateExpensePage() {
   const [uploading, setUploading] = useState(false);
   const [refusal, setRefusal] = useState<{ code?: string; message: string } | null>(null);
   const isPoolDraw = paidWith !== 'self';
+  // Phase 3: the event's currency, and whether expenses may be entered in another one (converted on save).
+  const [eventCurrency, setEventCurrency] = useState('');
+  const [otherCurrencyAllowed, setOtherCurrencyAllowed] = useState(false);
+  const [eventAdmins, setEventAdmins] = useState<string[]>([]);
+  const fx = useFxPreview(eventId, form.currency, eventCurrency, form.amount);
 
   // Current user's entity ID (group ID if in a group, else userId from auth)
   const [currentUserId, setCurrentUserId] = useState<string>('');
@@ -281,16 +287,21 @@ export default function CreateExpensePage() {
     : undefined;
   const allowCardSpends = poolConfig?.allowSponsorCardSpends !== false;
   const preferredSource = poolConfig?.funderMode === 'sponsor' && !isCustodian ? 'pool_reimbursement' as const : undefined;
+  // Not on a pool's spender list: they can only claim back their own money (Phase 3).
+  const canSpend = !poolConfig || !currentUserId
+    || canSpendFromPool(poolConfig, currentUserId, groups, isCustodian || eventAdmins.includes(currentUserId));
+  const canClaim = !poolConfig || !currentUserId
+    || canClaimFromPool(poolConfig, currentUserId, groups, isCustodian || eventAdmins.includes(currentUserId));
 
   // The custodian's "Pool funds" isn't offered to anyone else: start them on their first option.
   useEffect(() => {
     if (!poolConfig || !currentUserId || isCustodian || paidWith !== 'pool') return;
     const first = paidWithOptions({
-      model: fundingModel, isCustodian: false, currency: form.currency, noun: poolNoun(poolConfig),
-      allowCardSpends, heldMinor, hasAdvances, custodianName, preferred: preferredSource,
+      model: fundingModel, isCustodian: false, currency: eventCurrency || form.currency, noun: poolNoun(poolConfig),
+      allowCardSpends, heldMinor, hasAdvances, custodianName, preferred: preferredSource, canSpend, canClaim,
     })[0];
     if (first) setPaidWith(first.value);
-  }, [poolConfig, currentUserId, isCustodian, paidWith, fundingModel, form.currency, allowCardSpends, heldMinor, hasAdvances, custodianName, preferredSource]);
+  }, [poolConfig, currentUserId, isCustodian, paidWith, fundingModel, eventCurrency, form.currency, allowCardSpends, heldMinor, hasAdvances, custodianName, preferredSource, canSpend, canClaim]);
 
   const [entities, setEntities] = useState<SplitEntry[]>([]);
 
@@ -307,7 +318,10 @@ export default function CreateExpensePage() {
       setGroups(gData);
       if (eRes.data?.currency) {
         setForm(f => ({ ...f, currency: eRes.data.currency }));
+        setEventCurrency(eRes.data.currency);
       }
+      setOtherCurrencyAllowed(Boolean(eRes.data?.otherCurrencyExpenses));
+      setEventAdmins([eRes.data?.createdBy, ...(eRes.data?.admins || [])].filter(Boolean));
       const model = resolveFundingModel(eRes.data);
       setFundingModel(model);
       if (model !== 'peer_to_peer' && eRes.data?.poolConfig) {
@@ -480,7 +494,7 @@ export default function CreateExpensePage() {
         setError(`Say whether you've already paid with the ${poolNoun(poolConfig).toLowerCase()}'s money or are asking first.`);
         return;
       }
-      if (isReceiptRequired(poolConfig, fundingSourceOf, toMinor(amount, form.currency), { askingFirst }) && receipts.length === 0) {
+      if (isReceiptRequired(poolConfig, fundingSourceOf, fx.amountMinor || toMinor(amount, form.currency), { askingFirst }) && receipts.length === 0) {
         setError('Attach a receipt to record this.');
         return;
       }
@@ -560,9 +574,9 @@ export default function CreateExpensePage() {
                 value={paidWith}
                 onChange={(v) => { setPaidWith(v); setRefusal(null); setError(''); }}
                 summary={poolSummary}
-                currency={form.currency}
+                currency={eventCurrency || form.currency}
                 noun={poolNoun(poolConfig)}
-                amountMinor={(() => { const n = parseFloat(form.amount); return Number.isFinite(n) && n > 0 ? toMinor(n, form.currency) : 0; })()}
+                amountMinor={fx.amountMinor}
                 disabled={loading}
                 preferred={preferredSource}
                 isCustodian={isCustodian}
@@ -570,6 +584,8 @@ export default function CreateExpensePage() {
                 heldMinor={heldMinor}
                 hasAdvances={hasAdvances}
                 custodianName={custodianName}
+                canSpend={canSpend}
+                canClaim={canClaim}
               />
             )}
             {needsSpendTiming && (
@@ -625,22 +641,21 @@ export default function CreateExpensePage() {
                   data-testid="expense-currency-select"
                   value={form.currency}
                   onChange={(e) => updateForm({ currency: e.target.value })}
-                  disabled={loading || isPoolDraw}
+                  // Another currency needs the organiser's multi-currency Pro (Phase 3); otherwise it's the event's.
+                  disabled={loading || !otherCurrencyAllowed}
+                  title={otherCurrencyAllowed ? undefined : `Expenses are in ${eventCurrency || form.currency}. Another currency needs the organiser to have Pro.`}
                 >
-                  <option value="USD">$ USD</option>
-                  <option value="EUR">€ EUR</option>
-                  <option value="GBP">£ GBP</option>
-                  <option value="INR">₹ INR</option>
-                  <option value="JPY">¥ JPY</option>
+                  {currencyOptions(eventCurrency || form.currency).map((c) => <option key={c} value={c}>{c}</option>)}
                 </Select>
               </Field>
             </Row>
+            <FxPreviewLine quote={fx.quote} error={fx.error} />
 
             <ReceiptField
               eventId={eventId}
               value={receipts}
               onChange={setReceipts}
-              required={isReceiptRequired(poolConfig, fundingSourceOf, (() => { const n = parseFloat(form.amount); return Number.isFinite(n) && n > 0 ? toMinor(n, form.currency) : 0; })(), { askingFirst })}
+              required={isReceiptRequired(poolConfig, fundingSourceOf, fx.amountMinor, { askingFirst })}
               disabled={loading}
               onUploadingChange={setUploading}
             />

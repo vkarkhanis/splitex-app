@@ -29,6 +29,8 @@ export const DEFAULT_FUNDING_SOURCE: ExpenseFundingSource = 'self';
 
 /** "Several of us put money in" vs "just me" (single sponsor). */
 export type PoolFunderMode = 'contributors' | 'sponsor';
+/** Who may spend from a "Several of us" pool (Phase 3). A Budget always keeps a list. */
+export type PoolSpendersMode = 'everyone' | 'listed';
 export type PoolCycleMode = 'single' | 'recurring';
 export type PoolRecurrence = 'monthly' | 'quarterly' | 'custom';
 export type PoolSurplusPolicy = 'refund_pro_rata' | 'refund_equal' | 'carry_forward' | 'retain';
@@ -49,10 +51,21 @@ export interface PoolConfig {
   defaultContributionMinor?: number | null;
   /** Who physically holds the money: confirms contributions, pays out legs. */
   custodianUserId: string;
-  /** Sponsor mode: users allowed to draw from the pool without contributing. */
+  /** Who may spend: a Budget's spenders, or a "Several of us" pool's when `spendersMode` is `listed`. */
   authorizedSpenders?: string[];
-  /** Sponsor mode: every member of these groups may draw from the pool. */
+  /** Every member of these groups may spend (same rule as `authorizedSpenders`). */
   authorizedSpenderGroups?: string[];
+  /**
+   * "Several of us" pools (Phase 3). `everyone` (absent): anyone in the event can spend. `listed`:
+   * only managers and the people or groups listed above; anyone else can claim back money they
+   * spent, always with approval. A Budget always uses its list, whatever this says.
+   */
+  spendersMode?: PoolSpendersMode;
+  /**
+   * People who may approve or reject other people's spends and claims (Phase 3). Narrower than
+   * event admin: they can't settle up, close a month, change settings or handle the money.
+   */
+  approverUserIds?: string[];
   /** Optional cap per spender (userId or groupId → minor units). */
   spenderCapsMinor?: Record<string, number>;
   surplusPolicy: PoolSurplusPolicy;
@@ -298,6 +311,9 @@ export interface PoolLedgerEntry {
   alreadyIncurred?: boolean;
   /** Pool spends by someone other than the custodian: how they paid. */
   paidFrom?: PoolPaidFrom;
+  /** Draws entered in another currency (Phase 3): what was entered; `amountMinor` is converted. */
+  originalAmount?: number;
+  originalCurrency?: string;
   /** type 'advance': which kind of hand-over, and between whom. */
   advanceKind?: PoolAdvanceKind;
   fromUserId?: string;
@@ -607,6 +623,53 @@ export function isPoolFundedExpense(expense: { fundingSource?: ExpenseFundingSou
  */
 export function canApproveDraw(approverId: string, payerId: string, custodianUserId: string, approverIsManager: boolean): boolean {
   return approverIsManager && (approverId !== payerId || approverId === custodianUserId);
+}
+
+/** Whether the pool keeps a list of who may spend: always for a Budget, by choice otherwise (Phase 3). */
+export function usesSpenderList(config: Pick<PoolConfig, 'funderMode' | 'spendersMode'>): boolean {
+  return config.funderMode === 'sponsor' || config.spendersMode === 'listed';
+}
+
+/** On the spender list, by name or through one of the listed groups. Managers aren't implied. */
+export function isListedSpender(
+  config: Pick<PoolConfig, 'authorizedSpenders' | 'authorizedSpenderGroups'>,
+  userId: string,
+  groups: Array<{ id: string; members?: string[] }>,
+): boolean {
+  if ((config.authorizedSpenders || []).includes(userId)) return true;
+  const listed = config.authorizedSpenderGroups || [];
+  return groups.some((g) => listed.includes(g.id) && (g.members || []).includes(userId));
+}
+
+/**
+ * May this person spend pool money (not just claim back their own)? Managers always may; without
+ * a list, everyone in the event may. The API also checks they're in the event.
+ */
+export function canSpendFromPool(
+  config: Pick<PoolConfig, 'funderMode' | 'spendersMode' | 'authorizedSpenders' | 'authorizedSpenderGroups'>,
+  userId: string,
+  groups: Array<{ id: string; members?: string[] }>,
+  isManager: boolean,
+): boolean {
+  return isManager || !usesSpenderList(config) || isListedSpender(config, userId, groups);
+}
+
+/**
+ * May this person claim back money they spent? Anyone who can spend; and in a "Several of us"
+ * pool, anyone in the event (D2: their claims always wait for approval). A Budget's guests can't.
+ */
+export function canClaimFromPool(
+  config: Pick<PoolConfig, 'funderMode' | 'spendersMode' | 'authorizedSpenders' | 'authorizedSpenderGroups'>,
+  userId: string,
+  groups: Array<{ id: string; members?: string[] }>,
+  isManager: boolean,
+): boolean {
+  return config.funderMode === 'contributors' || canSpendFromPool(config, userId, groups, isManager);
+}
+
+/** Has the approver permission (Phase 3). Managers approve anyway; see `canApproveDraw`. */
+export function isPoolApprover(config: Pick<PoolConfig, 'approverUserIds'>, userId: string): boolean {
+  return (config.approverUserIds || []).includes(userId);
 }
 
 /** Funding sources an expense may use in an event with this funding model. */

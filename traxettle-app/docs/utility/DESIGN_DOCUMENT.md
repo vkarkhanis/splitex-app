@@ -655,9 +655,9 @@ interface Notification {
 - Group admins can view group private expenses
 
 #### EC-002: Currency Conversion
-- Support for multiple currencies in same event
-- Real-time exchange rate conversion
-- Settlement in event's default currency
+- An event has one currency. With the organiser's Pro, an expense can be entered in another currency: it's converted to the event's currency when saved (the event's predefined rate, else the day's end-of-day rate), and the entered amount and rate are kept for display
+- Editing keeps the saved rate; changing the currency fetches a new one
+- Settlement can be in a different currency from the event's (multi-currency settlement, Pro), converted at the predefined or end-of-day rate
 
 #### EC-003: Partial Payments
 - Users can make partial payments
@@ -947,12 +947,13 @@ This design document provides a comprehensive foundation for building the Traxet
 - Current capabilities:
   - `multiCurrencySettlement` (Pro-only when entitlement is active/grace)
   - `contributorPools` (Pro-only when entitlement is active/grace): creating "Several of us" pools (Kitty, Fund, Treasury, Collection, and hybrids built on them). Optional in the payload, so clients treat a missing value as unknown.
+- `multiCurrencySettlement` also decides, from the **event creator's** entitlement, whether anyone in that event can enter an expense in another currency. `GET /api/events/:id` returns it as a computed `otherCurrencyExpenses` flag (not stored).
 
 ### 16.3 Enforcement Boundaries
 - API is source of truth for all entitlement checks.
 - Existing Free event cap (3 active/closed events) remains unchanged.
 - FX/multi-currency fields are denied server-side for Free users.
-- Group pools are denied server-side for Free users when an event is created with a "Several of us" pool (`POST /api/events`) or one is added to an existing event (`POST /api/pools/event/:id/convert`): `403 FEATURE_REQUIRES_PRO`, `feature: contributor_pools` (`apps/api/src/utils/pro-gates.ts`). Only the creator needs Pro. Everything after creation (spending, approvals, cycle closes, settling up, dissolving) is never checked, so a lapse can't trap money in a pool. Design: [MONEY_POOLING_DESIGN.md §12](MONEY_POOLING_DESIGN.md).
+- Group pools are denied server-side for Free users when an event is created with a "Several of us" pool (`POST /api/events`) or one is added to an existing event (`POST /api/pools/event/:id/convert`): `403 FEATURE_REQUIRES_PRO`, `feature: contributor_pools` (`apps/api/src/utils/pro-gates.ts`). Only the creator needs Pro. Everything after creation (spending, approvals, cycle closes, settling up, dissolving) is never checked, so a lapse can't trap money in a pool. The one exception is a new expense or pool spend in another currency, which checks the creator's current Pro (`403 OTHER_CURRENCY_NOT_ALLOWED`); editing one and keeping its currency reuses the stored rate and isn't checked. Design: [MONEY_POOLING_DESIGN.md §12](MONEY_POOLING_DESIGN.md).
 
 ### 16.4 Environment Matrix
 - Local:
