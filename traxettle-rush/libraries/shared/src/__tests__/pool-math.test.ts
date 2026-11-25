@@ -5,6 +5,7 @@ import {
   computeFundingState,
   computeOverdraftState,
   evaluateDraw,
+  lentTopUps,
   nextOverdraftLatch,
   reconcileCycle,
   splitForMembershipChange,
@@ -19,6 +20,14 @@ const paid = (entityKey: string, amount: number, expected = amount): Contributio
   status: amount >= expected ? 'confirmed' : amount > 0 ? 'partial' : 'pending',
   expectedMinor: expected,
   receivedMinor: amount,
+});
+const topUp = (entityKey: string, amount: number, gift?: boolean): ContributionLike => ({
+  entityKey,
+  kind: 'top_up',
+  status: 'confirmed',
+  expectedMinor: amount,
+  receivedMinor: amount,
+  ...(gift ? { gift: true } : {}),
 });
 const spend = (amount: number, consumption?: DrawLike['consumption']): DrawLike => ({
   amountMinor: amount,
@@ -494,6 +503,31 @@ describe('reconcileCycle — share bases', () => {
     expect(net(r, 'user:b')).toBe(-100000);
   });
 
+  it('commitment: a gift pays for spending, lowering everyone\'s share by commitment', () => {
+    const r = reconcileCycle(base({
+      contributions: [paid('user:a', 3000), paid('user:b', 1000), topUp('user:c', 2000, true)],
+      draws: [spend(6000)],
+    }));
+    // ₹6,000 spent − ₹2,000 gift = ₹4,000 shared 3:1 by commitment.
+    expect(r.entityShares.find((e) => e.entityId === 'a')!.fairShareMinor).toBe(3000);
+    expect(r.entityShares.find((e) => e.entityId === 'b')!.fairShareMinor).toBe(1000);
+    expect(net(r, 'user:c')).toBe(0);
+    expect(r.closingBalanceMinor).toBe(0);
+  });
+
+  it('consumption: a gift lowers shares by commitment', () => {
+    const r = reconcileCycle(base({
+      surplusPolicy: 'refund_pro_rata',
+      deficitPolicy: 'collect_by_consumption',
+      contributions: [paid('user:a', 1000), paid('user:b', 1000), topUp('user:c', 1000, true)],
+      draws: [spend(4000, [{ key: 'user:a', weight: 1 }, { key: 'user:b', weight: 1 }])],
+    }));
+    expect(r.shareBasis).toBe('consumption');
+    expect(r.entityShares.find((e) => e.entityId === 'a')!.fairShareMinor).toBe(1500);
+    expect(r.entityShares.find((e) => e.entityId === 'b')!.fairShareMinor).toBe(1500);
+    expect(r.closingBalanceMinor).toBe(-1000);
+  });
+
   it('commitment: shares equally when nobody committed anything', () => {
     const r = reconcileCycle(base({ openingCredits: { 'user:a': 500, 'user:b': 500 }, draws: [spend(600)] }));
     expect(net(r, 'user:a')).toBe(200);
@@ -562,6 +596,58 @@ describe('reconcileCycle — UC-2 sponsor budget', () => {
   it('repays a non-sponsor who fronted cover', () => {
     const r = sponsor([spend(80500000)], { extraCover: [{ entityKey: 'user:helper', amountMinor: 500000 }] });
     expect(r.settlementBalances).toEqual({ 'user:helper': 500000, 'user:sponsor': -500000 });
+  });
+
+  // Design doc §10: money others add is a loan the sponsor pays back, unless it's a gift.
+  describe('money added by others (§10)', () => {
+    const anita = (contributions: ContributionLike[], draws: DrawLike[]) =>
+      reconcileCycle(base({
+        custodianEntityKey: 'user:anita',
+        roster: users('anita'),
+        surplusPolicy: 'retain',
+        deficitPolicy: 'custodian_absorbs',
+        contributions,
+        draws,
+        forDissolution: true,
+      }));
+
+    it('worked example: pays Priya back ₹10,000, keeps Ravi\'s ₹5,000 gift, Anita bears ₹1,07,000', () => {
+      const r = anita(
+        [paid('user:anita', 10000000), topUp('user:priya', 1000000), topUp('user:ravi', 500000, true)],
+        [spend(11200000)],
+      );
+      expect(r.closingBalanceMinor).toBe(300000);
+      expect(r.giftsMinor).toBe(500000);
+      expect(net(r, 'user:anita')).toBe(-700000);
+      expect(net(r, 'user:priya')).toBe(1000000);
+      expect(net(r, 'user:ravi')).toBe(0);
+      expect(r.entityShares.find((e) => e.entityId === 'anita')!.fairShareMinor).toBe(10700000);
+      // Anita pays out the ₹3,000 left in the pool plus ₹7,000 of her own.
+      expect(r.settlementBalances).toEqual({ 'user:priya': 1000000, 'user:anita': -1000000 });
+    });
+
+    it('pays a lender back in full even when the pool ends with money left', () => {
+      const r = anita([paid('user:anita', 100000), topUp('user:priya', 20000)], [spend(50000)]);
+      expect(r.settlementBalances).toEqual({ 'user:priya': 20000, 'user:anita': -20000 });
+    });
+
+    it("never pays back the sponsor's own top-up", () => {
+      const r = anita([paid('user:anita', 100000), topUp('user:anita', 20000)], [spend(50000)]);
+      expect(r.settlementBalances).toEqual({});
+    });
+
+    it('a gift lowers the sponsor\'s cost and is never paid back', () => {
+      const r = anita([paid('user:anita', 100000), topUp('user:ravi', 30000, true)], [spend(120000)]);
+      expect(r.settlementBalances).toEqual({});
+      expect(net(r, 'user:anita')).toBe(10000);
+      expect(r.closingBalanceMinor).toBe(10000);
+    });
+
+    it('ignores a top-up the sponsor has not confirmed yet', () => {
+      const pending: ContributionLike = { entityKey: 'user:priya', kind: 'top_up', status: 'initiated', expectedMinor: 20000, receivedMinor: 0 };
+      const r = anita([paid('user:anita', 100000), pending], [spend(50000)]);
+      expect(r.settlementBalances).toEqual({});
+    });
   });
 });
 
@@ -632,6 +718,10 @@ describe('reconcileCycle — invariants (property test)', () => {
         const received = rand() < 0.2 ? 0 : Math.floor(rand() * expected * 1.2);
         return { entityKey: `user:${id}`, kind: 'regular', status: rand() < 0.1 ? 'waived' : 'confirmed', expectedMinor: expected, receivedMinor: received };
       });
+      for (const id of ids) {
+        if (rand() < 0.4) contributions.push(topUp(`user:${id}`, Math.floor(rand() * 500_000), rand() < 0.5));
+      }
+      if (rand() < 0.3) contributions.push(topUp('user:outsider', Math.floor(rand() * 300_000), rand() < 0.5));
       const draws: DrawLike[] = Array.from({ length: Math.floor(rand() * 6) }, () => ({
         amountMinor: Math.floor(rand() * 900_000),
         fundingSource: rand() < 0.5 ? 'pool' : 'pool_reimbursement',
@@ -652,7 +742,7 @@ describe('reconcileCycle — invariants (property test)', () => {
       const sumNet = r.entityShares.reduce((s, e) => s + e.netMinor, 0);
       const sumFair = r.entityShares.reduce((s, e) => s + e.fairShareMinor, 0);
       expect(sumNet).toBe(r.closingBalanceMinor);
-      expect(sumFair).toBe(r.poolSpendMinor + r.reimbursementsMinor);
+      expect(sumFair).toBe(r.poolSpendMinor + r.reimbursementsMinor - r.giftsMinor);
       expect(Object.values(r.settlementBalances).reduce((s, v) => s + v, 0)).toBe(0);
       for (const e of r.entityShares) expect(Number.isInteger(e.netMinor)).toBe(true);
     }
@@ -696,5 +786,21 @@ describe('splitForMembershipChange', () => {
 
   it('refuses to let the custodian leave', () => {
     expect(() => splitForMembershipChange(r, ['user:a'], 'user:a')).toThrow('custodian');
+  });
+});
+
+// ── lentTopUps (§10) ──────────────────────────────────────────────────────
+
+describe('lentTopUps', () => {
+  it('sums confirmed, non-gift top-ups by anyone but the custodian', () => {
+    expect(lentTopUps([
+      { kind: 'top_up', receivedMinor: 1000, fromUserId: 'priya' },
+      { kind: 'top_up', receivedMinor: 500, fromUserId: 'priya' },
+      { kind: 'top_up', receivedMinor: 700, fromUserId: 'ravi', gift: true },
+      { kind: 'top_up', receivedMinor: 900, fromUserId: 'anita' },
+      { kind: 'top_up', receivedMinor: 0, fromUserId: 'dev' },
+      { kind: 'regular', receivedMinor: 5000, fromUserId: 'dev' },
+      { kind: 'overdraft_cover', receivedMinor: 300, fromUserId: 'dev' },
+    ], 'anita')).toEqual({ totalMinor: 1500, byUser: { priya: 1500 } });
   });
 });

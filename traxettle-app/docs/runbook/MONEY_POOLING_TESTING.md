@@ -122,6 +122,45 @@ Use INR and round numbers so the arithmetic is easy to check.
 5. Try a pool spend without a receipt → refused (receipts are mandatory for budgets).
 6. **Finish & report** → nobody owes anyone; the unspent budget stays with the sponsor; event → settled.
 
+### Phase 1 enhancements (design doc §9.2 and §10)
+
+> For full end-to-end runs (each event from creation to Settled, with expected text and balances
+> at every step), use [MONEY_POOLING_PHASE1_E2E.md](MONEY_POOLING_PHASE1_E2E.md). The steps below
+> are the short version.
+
+Use a fresh "Just me" budget with two invited people, one allowed to spend (the **spender**), and the
+sponsor (**custodian**).
+
+**Rejected spends already paid with the pool's money (§9.2)**
+
+1. As the spender, **Add expense**: *My money — claim it back* is listed first, marked **Suggested**, and selected.
+2. Switch to **Pool funds**: the form now asks *"I've already paid with the budget's money"* or *"I'm asking before
+   I spend"*. Submitting without choosing is refused with a prompt.
+3. Record one as **already paid** (₹500) and one as **asking first** (₹700). The sponsor's approval list shows
+   *Pool spend · already paid* and *Pool spend · asking first*.
+4. As the sponsor, **Reject** the already-paid one: a warning says the spender will owe ₹500 back. Confirm →
+   **Pool payments** shows *spender → you · Repayment (spend not approved) · To pay*; the expense shows *Owed back*.
+   Reject the asking-first one → no payment is created.
+5. As the spender, try to **delete** the rejected already-paid expense → refused ("only the custodian or an admin").
+   Edit its amount instead → it goes back to *awaiting approval* and the repayment disappears; reject again →
+   a new repayment for the new amount.
+6. The spender taps **Mark paid** on the repayment, the sponsor taps **Received** → *Repaid*.
+7. **Finish & report** while a repayment is unpaid → the preview lists it under **Paid separately**; the event waits in
+   *payment* until it's paid and confirmed (from the Settlements list, where it's labelled *paid on its own*). It isn't
+   netted against other payments; netting is planned for Phase 2 (design doc §11).
+
+**Money added by others (§10)**
+
+1. As the spender, **Add money** ₹10,000: the sheet offers *"{sponsor} pays it back when the budget closes"*
+   (default) or *"It's a gift — don't pay me back"*. Keep the default. As the third person, add ₹5,000 as a **gift**.
+2. The Budget list shows *top-up · paid back at close* and *gift*. The sponsor's **Confirm** sheet says
+   *"You'll pay this back to … when the budget closes"* (or *"A gift…"*).
+3. Before confirming, **Finish & report** is refused: *"Confirm or reject the money people have added…"*.
+4. Confirm both. The summary shows *"You'll pay back ₹10,000 that others added"* to the sponsor and
+   *"₹10,000 to get back from {sponsor}"* to the spender.
+5. **Finish & report** → one payment, **sponsor → spender ₹10,000**, settled with *I've Paid* → *Confirm* (or the
+   spender's *Mark as Paid*). The gift is not paid back.
+
 ### UC-1 Shared-living fund
 
 1. **Pool money → Several of us → Fund**, 15,000 per person per month. Invite flatmates — **no extra cycles** are created while nobody has paid.

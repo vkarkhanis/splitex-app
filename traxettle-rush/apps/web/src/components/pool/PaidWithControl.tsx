@@ -58,6 +58,8 @@ interface Props {
   /** The amount being entered, in minor units (for the live projection). */
   amountMinor: number;
   disabled?: boolean;
+  /** Listed first and marked "Suggested" (spenders in a sponsor pool: claiming back is risk-free). */
+  preferred?: PaidWith;
 }
 
 /**
@@ -65,8 +67,9 @@ interface Props {
  * Choosing a pool option removes the split UI rather than adding to it.
  * Not rendered at all for split-expenses events.
  */
-export function PaidWithControl({ model, value, onChange, summary, currency, noun, amountMinor, disabled }: Props) {
+export function PaidWithControl({ model, value, onChange, summary, currency, noun, amountMinor, disabled, preferred }: Props) {
   const options = allowedFundingSources(model);
+  if (preferred && options.includes(preferred)) options.sort((a, b) => Number(b === preferred) - Number(a === preferred));
   const o = summary?.overdraft;
   let status: { tone: 'ok' | 'warn' | 'stop'; text: string } | null = null;
   if (o && value !== 'self') {
@@ -91,12 +94,38 @@ export function PaidWithControl({ model, value, onChange, summary, currency, nou
         {options.map((opt) => (
           <Option key={opt} type="button" role="radio" aria-checked={value === opt} $selected={value === opt}
             onClick={() => onChange(opt)} disabled={disabled} data-testid={`paid-with-${opt}`}>
-            <strong>{COPY[opt].title}</strong>
+            <strong>{COPY[opt].title}{opt === preferred ? ' · Suggested' : ''}</strong>
             <span>{COPY[opt].text}</span>
           </Option>
         ))}
       </Options>
       {status && <Status $tone={status.tone} data-testid="paid-with-status">{status.text}</Status>}
+    </Wrap>
+  );
+}
+
+export type SpendTiming = 'paid' | 'asking';
+
+/**
+ * Pool spend by anyone but the custodian: already paid with the pool's money, or asking first.
+ * Rejecting an already-paid spend means the spender owes it back (design doc §9.2).
+ */
+export function SpendTimingControl({ value, onChange, noun, disabled }: { value: SpendTiming | null; onChange: (v: SpendTiming) => void; noun: string; disabled?: boolean }) {
+  const choices: Array<[SpendTiming, string, string]> = [
+    ['paid', `I've already paid with the ${noun.toLowerCase()}'s money`, "If it's not approved, you'll owe it back."],
+    ['asking', "I'm asking before I spend", "Spend only once it's approved."],
+  ];
+  return (
+    <Wrap data-testid="spend-timing">
+      <Options role="radiogroup" aria-label="Has it been paid?">
+        {choices.map(([opt, title, text]) => (
+          <Option key={opt} type="button" role="radio" aria-checked={value === opt} $selected={value === opt}
+            onClick={() => onChange(opt)} disabled={disabled} data-testid={`spend-timing-${opt}`}>
+            <strong>{title}</strong>
+            <span>{text}</span>
+          </Option>
+        ))}
+      </Options>
     </Wrap>
   );
 }

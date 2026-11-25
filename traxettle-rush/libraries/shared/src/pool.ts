@@ -161,6 +161,11 @@ export interface PoolContribution {
   /** The actual payer. For a group, its designated payer. */
   fromUserId: string;
   kind: PoolContributionKind;
+  /**
+   * top_up only: given to the event, not lent. Absent ⇒ a loan, paid back at close
+   * (in a "Just me" pool by the sponsor). See design doc §10.
+   */
+  gift?: boolean;
   /** Agreed amount for this cycle. Defines the contributor's fair-share weight. */
   expectedMinor: number;
   /** Amount the custodian has confirmed receiving. */
@@ -194,11 +199,17 @@ export interface PoolDrawState {
   decidedBy?: string | null;
   decidedAt?: string | null;
   reason?: string | null;
-  /** pool_reimbursement: the settlement leg paying the claimant back. */
+  /**
+   * pool_reimbursement: the settlement leg paying the claimant back.
+   * pool, rejected after it was already paid: the `pool_repayment` leg from the spender to the custodian.
+   */
   settlementId?: string | null;
   /** pool_reimbursement filed by the custodian: no leg needed. */
   selfReimbursed?: boolean;
-  /** The money had already been spent when recorded (never refused, only flagged). */
+  /**
+   * The money had already been spent when recorded (never refused, only flagged).
+   * For a pool spend: "I've already paid with the pool's money", as opposed to asking first.
+   */
   alreadyIncurred?: boolean;
 }
 
@@ -216,9 +227,11 @@ export interface PoolLedgerEntry {
   entityType?: 'user' | 'group';
   contributionKind?: PoolContributionKind;
   fundingSource?: 'pool' | 'pool_reimbursement';
+  /** Pool spends: already paid with the pool's money (true) or asking before spending (false). */
+  alreadyIncurred?: boolean;
   receiptUrls: string[];
   flags?: PoolExpenseFlag[];
-  /** pool_reimbursement: status of the leg paying the claimant back. */
+  /** pool_reimbursement: status of the leg paying the claimant back. A rejected, already-paid pool spend: of its repayment leg. */
   settlementStatus?: string | null;
   /** Whether this entry currently moves the balance. */
   counted: boolean;
@@ -247,13 +260,15 @@ export interface PoolEntityShare {
   openingCreditMinor: number;
   /** Confirmed regular + top-up money put in this cycle. */
   contributedMinor: number;
+  /** The part of it given as gifts (consumed, never paid back). */
+  giftedMinor?: number;
   /** Money fronted to cover a deficit at close. */
   coverMinor: number;
   /** Agreed share weight (non-waived regular expected amounts). */
   commitmentMinor: number;
   /** This entity's fair share of the cycle's spending. */
   fairShareMinor: number;
-  /** opening + contributed − fairShare + cover. > 0 ⇒ owed · < 0 ⇒ owes. */
+  /** opening + contributed − gifted − fairShare + cover. > 0 ⇒ owed · < 0 ⇒ owes. */
   netMinor: number;
 }
 

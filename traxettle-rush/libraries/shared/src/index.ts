@@ -361,13 +361,37 @@ export function deletedPaymentParty<P extends { userId: string; deleted?: boolea
   return participants.find((p) => p.deleted && (p.userId === leg.fromUserId || p.userId === leg.toUserId)) ?? null;
 }
 
-export type SettlementKind = 'standard' | 'pool_reimbursement' | 'pool_cycle' | 'pool_member_exit';
+export type SettlementKind = 'standard' | 'pool_reimbursement' | 'pool_repayment' | 'pool_cycle' | 'pool_member_exit';
 
 /** Legs that belong to an active pool rather than the event's final settlement. */
 export function isPoolSideLeg(settlement: { kind?: SettlementKind | null } | null | undefined): boolean {
   const kind = settlement?.kind ?? 'standard';
-  return kind === 'pool_reimbursement' || kind === 'pool_cycle' || kind === 'pool_member_exit';
+  return kind === 'pool_reimbursement' || kind === 'pool_repayment' || kind === 'pool_cycle' || kind === 'pool_member_exit';
 }
+
+/** What a pool payment is for, in plain words. Null for the event's ordinary settlement payments. */
+export function poolLegLabel(settlement: { kind?: SettlementKind | null } | null | undefined): string | null {
+  switch (settlement?.kind) {
+    case 'pool_reimbursement': return 'Reimbursement';
+    case 'pool_repayment': return 'Repayment (spend not approved)';
+    case 'pool_member_exit': return 'Leaving settlement';
+    case 'pool_cycle': return 'Cycle refund';
+    default: return null;
+  }
+}
+
+/**
+ * Pool payments not yet done. At settle-up they stay as they are and are paid on their own:
+ * the final settlement isn't netted against them. Netting is planned for Phase 2
+ * (MONEY_POOLING_DESIGN.md §11).
+ */
+export function openPoolSideLegs<T extends { kind?: SettlementKind | null; status?: string | null }>(settlements: T[]): T[] {
+  return settlements.filter((s) => isPoolSideLeg(s) && s.status !== 'completed' && s.status !== 'terminated');
+}
+
+/** Shown wherever the final settlement lists pool payments next to its own payments. */
+export const POOL_LEGS_PAID_SEPARATELY_NOTE =
+  "Pool payments (reimbursements and repayments) are paid on their own. They aren't combined with the other payments.";
 
 type PoolLegLike = Pick<Settlement, 'kind' | 'status' | 'fromUserId' | 'toUserId'>;
 

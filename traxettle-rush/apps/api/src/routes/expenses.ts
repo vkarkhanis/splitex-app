@@ -282,7 +282,7 @@ router.delete('/:expenseId', requireAuth, async (req: AuthenticatedRequest, res)
       if (expenseToDelete.paidBy !== uid && !admin) {
         throw new Error('Forbidden: Only the payer or an admin can delete this expense');
       }
-      ({ legToRemove } = await poolService.assertDrawMutable(expenseToDelete));
+      ({ legToRemove } = await poolService.assertDrawMutable(expenseToDelete, { deletingBy: uid }));
     }
 
     const deleted = await expenseService.deleteExpense(req.params.expenseId, uid, admin);

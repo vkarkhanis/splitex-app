@@ -34,7 +34,7 @@ import { getResolvedApiBaseUrl } from '../../../config/dev-options';
 import { PoolTab } from '../../../components/pool/PoolTab';
 import { SpenderPermissions } from '../../../components/pool/SpenderPermissions';
 import { poolNoun } from '../../../components/pool/poolFormat';
-import { REIMBURSEMENT_STATUS, isPoolFundedEvent, isPoolFundedExpense, reimbursementStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
+import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, POOL_LEGS_PAID_SEPARATELY_NOTE, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg, poolLegLabel, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
 import { FxRatesAttribution } from '../../../components/FxRatesAttribution';
 import type {
   Event as TraxettleEvent,
@@ -1470,6 +1470,9 @@ export default function EventDetailPage() {
             </div>
 
             {/* Settlement transactions preview */}
+            {settlements.some(isPoolSideLeg) && (
+              <p style={{ fontSize: 12, opacity: 0.75, margin: '0 0 8px' }} data-testid="settlement-review-pool-note">{POOL_LEGS_PAID_SEPARATELY_NOTE}</p>
+            )}
             {settlements.filter(s => s.amount > 0.01).map((s) => (
               <TransactionCard key={s.id} $status={s.status} data-testid={`settlement-review-txn-${s.id}`}>
                 <TransactionFlow>
@@ -1478,6 +1481,11 @@ export default function EventDetailPage() {
                     <ArrowIcon>→</ArrowIcon>
                     <span>{getEntityName(s.toEntityId, s.toEntityType)}</span>
                   </TransactionNames>
+                  {poolLegLabel(s) && (
+                    <TransactionMeta data-testid={`settlement-review-kind-${s.id}`}>
+                      {poolLegLabel(s)} · {s.status === 'completed' ? 'already paid' : 'paid on its own'}
+                    </TransactionMeta>
+                  )}
                 </TransactionFlow>
                 <TransactionAmount>
                   {currSym}{s.amount.toFixed(2)}
@@ -1560,6 +1568,9 @@ export default function EventDetailPage() {
               </SummaryCard>
             </SummaryGrid>
 
+            {settlements.some(isPoolSideLeg) && (
+              <p style={{ fontSize: 12, opacity: 0.75, margin: '0 0 8px' }} data-testid="settlement-pool-note">{POOL_LEGS_PAID_SEPARATELY_NOTE}</p>
+            )}
             {settlements.map((s) => {
               const settlementStatus = s.status as string;
               const payerUserId =
@@ -1588,6 +1599,7 @@ export default function EventDetailPage() {
                       {settlementStatus === 'initiated' && 'Marked paid — awaiting payee confirmation'}
                       {settlementStatus === 'failed' && 'Payment failed/rejected — payer should resubmit'}
                       {settlementStatus === 'completed' && 'Payment confirmed ✓'}
+                      {poolLegLabel(s) && ` · ${poolLegLabel(s)}, paid on its own`}
                       {s.fromEntityType === 'group' && ` · Payer: ${getUserName(payerUserId)}`}
                       {s.toEntityType === 'group' && ` · Recipient: ${getUserName(payeeUserId)}`}
                     </TransactionMeta>
@@ -1763,6 +1775,10 @@ export default function EventDetailPage() {
                   const payBack = expense.fundingSource === 'pool_reimbursement'
                     ? reimbursementStatus(expense.poolDraw, legStatusById.get(expense.poolDraw?.settlementId ?? ''))
                     : null;
+                  // A rejected spend already paid with the pool's money is owed back (§9.2).
+                  const repay = expense.fundingSource === 'pool'
+                    ? repaymentStatus(expense.poolDraw?.status, legStatusById.get(expense.poolDraw?.settlementId ?? ''))
+                    : null;
                   return (
                     <ExpenseRowWrapper key={expense.id} data-testid={`expense-item-${expense.id}`}>
                       <ExpenseRowClickable onClick={() => setExpandedExpenseId(isExpanded ? null : expense.id)}>
@@ -1777,6 +1793,11 @@ export default function EventDetailPage() {
                             {payBack && (
                               <Badge $variant={REIMBURSEMENT_STATUS[payBack].tone} style={{ marginLeft: 6, fontSize: 10 }} data-testid={`reimbursement-badge-${expense.id}`}>
                                 {REIMBURSEMENT_STATUS[payBack].label}
+                              </Badge>
+                            )}
+                            {repay && (
+                              <Badge $variant={REPAYMENT_STATUS[repay].tone} style={{ marginLeft: 6, fontSize: 10 }} data-testid={`repayment-badge-${expense.id}`}>
+                                {REPAYMENT_STATUS[repay].label}
                               </Badge>
                             )}
                             <span style={{ fontSize: 11, marginLeft: 6, opacity: 0.5 }}>{isExpanded ? '▲' : '▼'}</span>

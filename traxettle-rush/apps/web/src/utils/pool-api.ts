@@ -32,7 +32,7 @@ export const poolApi = {
   convert: (eventId: string, dto: CreatePoolConfigDto) => api.post(`/api/pools/event/${eventId}/convert`, dto),
   setContributions: (eventId: string, contributions: Array<{ entityId: string; entityType: 'user' | 'group'; expectedMinor: number }>) =>
     api.put<PoolContribution[]>(`/api/pools/event/${eventId}/contributions`, { contributions }),
-  topUp: (eventId: string, body: { amountMinor: number; note?: string }) => api.post<PoolContribution>(`/api/pools/event/${eventId}/top-ups`, body),
+  topUp: (eventId: string, body: { amountMinor: number; note?: string; gift?: boolean }) => api.post<PoolContribution>(`/api/pools/event/${eventId}/top-ups`, body),
   markPaid: (id: string, body: { amountMinor?: number; reference?: string; note?: string; proofUrl?: string }) =>
     api.post<PoolContribution>(`/api/pools/contributions/${id}/mark-paid`, body),
   confirm: (id: string, receivedMinor?: number) =>

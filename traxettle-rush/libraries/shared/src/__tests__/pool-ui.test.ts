@@ -12,12 +12,16 @@ import {
   meterCaption,
   meterGeometry,
   needsTarget,
+  openPoolSideLegs,
+  POOL_LEGS_PAID_SEPARATELY_NOTE,
   poolErrorText,
+  poolLegLabel,
   poolNoun,
   poolPaymentActions,
   poolPaymentActionsText,
   REIMBURSEMENT_STATUS,
   reimbursementStatus,
+  repaymentStatus,
   toPoolError,
   validateFundingChoice,
   withPreset,
@@ -268,5 +272,36 @@ describe('pool payments waiting on a user', () => {
     expect(poolPaymentActionsText(2, 1)).toBe('2 payments to confirm · 1 payment to make');
     expect(poolPaymentActionsText(0, 3)).toBe('3 payments to make');
     expect(poolPaymentActionsText(0, 0)).toBeNull();
+  });
+
+  it('names what each pool payment is for, and nothing for ordinary payments', () => {
+    expect(poolLegLabel({ kind: 'pool_reimbursement' })).toBe('Reimbursement');
+    expect(poolLegLabel({ kind: 'pool_repayment' })).toBe('Repayment (spend not approved)');
+    expect(poolLegLabel({ kind: 'pool_member_exit' })).toBe('Leaving settlement');
+    expect(poolLegLabel({ kind: 'pool_cycle' })).toBe('Cycle refund');
+    expect(poolLegLabel({ kind: 'standard' })).toBeNull();
+    expect(poolLegLabel({})).toBeNull();
+    expect(poolLegLabel(null)).toBeNull();
+  });
+
+  it('lists the pool payments still open at settle-up (paid on their own, not netted)', () => {
+    const withTerminated = [...legs, leg('g', 'bob', 'alice', 'terminated', 'pool_repayment')];
+    expect(openPoolSideLegs(withTerminated).map((l) => l.id)).toEqual(['a', 'b', 'c']);
+    expect(POOL_LEGS_PAID_SEPARATELY_NOTE).toMatch(/aren't combined/);
+  });
+});
+
+describe('repaymentStatus (§9.2)', () => {
+  it('follows the repayment leg of a rejected, already-paid pool spend', () => {
+    expect(repaymentStatus('rejected', 'pending')).toBe('to_repay');
+    expect(repaymentStatus('rejected', 'initiated')).toBe('repay_sent');
+    expect(repaymentStatus('rejected', 'completed')).toBe('repaid');
+  });
+
+  it('is nothing without a leg, or for draws that were not rejected', () => {
+    expect(repaymentStatus('rejected', null)).toBeNull();
+    expect(repaymentStatus('rejected', undefined)).toBeNull();
+    expect(repaymentStatus('approved', 'pending')).toBeNull();
+    expect(repaymentStatus('pending', 'pending')).toBeNull();
   });
 });

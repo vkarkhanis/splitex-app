@@ -84,6 +84,8 @@ export interface ContributionLike {
   status: PoolContributionStatus;
   expectedMinor: number;
   receivedMinor: number;
+  /** top_up only: a gift (consumed) rather than a loan (paid back). */
+  gift?: boolean;
 }
 
 export interface DrawLike {
@@ -153,6 +155,24 @@ export function computeArrears(contributions: Array<ContributionLike & { entityK
   return [...byEntity.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, outstandingMinor]) => ({ ...parseEntityKey(key), outstandingMinor }));
+}
+
+/**
+ * Confirmed top-ups lent (not given) by anyone but the custodian, by payer: what a sponsor
+ * ("Just me") pool's custodian pays back at close. Design doc §10.
+ */
+export function lentTopUps(
+  contributions: Array<{ kind: PoolContributionKind; gift?: boolean; receivedMinor: number; fromUserId: string }>,
+  custodianUserId: string,
+): { totalMinor: number; byUser: Record<string, number> } {
+  const byUser: Record<string, number> = {};
+  let totalMinor = 0;
+  for (const c of contributions) {
+    if (c.kind !== 'top_up' || c.gift || c.fromUserId === custodianUserId || !(c.receivedMinor > 0)) continue;
+    byUser[c.fromUserId] = (byUser[c.fromUserId] || 0) + c.receivedMinor;
+    totalMinor += c.receivedMinor;
+  }
+  return { totalMinor, byUser };
 }
 
 export function computeFundingState(
@@ -326,6 +346,8 @@ export interface ReconcileResult {
   openingBalanceMinor: number;
   confirmedContributionsMinor: number;
   overdraftCoverMinor: number;
+  /** Top-ups given as gifts: they pay for spending and are never paid back. */
+  giftsMinor: number;
   poolSpendMinor: number;
   reimbursementsMinor: number;
   preCoverBalanceMinor: number;
@@ -362,11 +384,14 @@ function basisFor(policy: PoolSurplusPolicy | PoolDeficitPolicy): PoolShareBasis
  * Reconcile a cycle. Each entity's fair share of the cycle's spending is set by
  * the active policy; its net position is what it put in minus that share:
  *
- *   net = openingCredit + contributed − fairShare + cover
+ *   spendToShare = approved spend − gifts
+ *   net = openingCredit + contributed − gifted + cover − fairShare
  *
  * Fair shares are weighted by AGREED commitment, not by what was actually paid,
  * so a member who paid nothing still bears their share and correctly ends up
- * owing. Σ net always equals the closing balance.
+ * owing. A top-up is a loan, paid back through `net` (in a sponsor pool, by the
+ * custodian), unless it was given as a gift, which pays for spending instead.
+ * Σ net always equals the closing balance.
  */
 export function reconcileCycle(input: ReconcileInput): ReconcileResult {
   const rosterKeys = input.roster.map((r) => `${r.entityType}:${r.entityId}`);
@@ -381,12 +406,16 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
 
   const opening: Record<string, number> = {};
   const contributed: Record<string, number> = {};
+  const regular: Record<string, number> = {};
+  const gifted: Record<string, number> = {};
   const cover: Record<string, number> = {};
   const commitment: Record<string, number> = {};
   const fullyWaived: Record<string, boolean> = {};
   for (const k of keys) {
     opening[k] = input.openingCredits[k] || 0;
     contributed[k] = 0;
+    regular[k] = 0;
+    gifted[k] = 0;
     cover[k] = 0;
     commitment[k] = 0;
   }
@@ -397,7 +426,9 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
       continue;
     }
     contributed[c.entityKey] += c.receivedMinor;
+    if (c.kind === 'top_up' && c.gift) gifted[c.entityKey] += c.receivedMinor;
     if (c.kind === 'regular') {
+      regular[c.entityKey] += c.receivedMinor;
       const seen = (regularSeen[c.entityKey] ||= { total: 0, waived: 0 });
       seen.total += 1;
       if (c.status === 'waived') seen.waived += 1;
@@ -411,6 +442,9 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
   const poolSpendMinor = approved.filter((d) => d.fundingSource === 'pool').reduce((s, d) => s + d.amountMinor, 0);
   const reimbursementsMinor = approved.filter((d) => d.fundingSource === 'pool_reimbursement').reduce((s, d) => s + d.amountMinor, 0);
   const spend = poolSpendMinor + reimbursementsMinor;
+  const giftsMinor = keys.reduce((s, k) => s + gifted[k], 0);
+  // Gifts pay for spending; what's left is shared under the policy.
+  const spendToShare = spend - giftsMinor;
 
   const openingBalanceMinor = keys.reduce((s, k) => s + opening[k], 0);
   const confirmedContributionsMinor = keys.reduce((s, k) => s + contributed[k], 0);
@@ -432,32 +466,38 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
   };
 
   if (shareBasis === 'custodian') {
-    // Everyone else's money is consumed in full; the custodian takes whatever is left (or short).
+    // Everyone else's agreed dues are consumed; their top-ups are loans the custodian pays back
+    // (gifts were taken out of spendToShare). The custodian takes whatever is left (or short).
     let othersConsumed = 0;
     for (const k of keys) {
       if (k === input.custodianEntityKey) continue;
-      fairShare[k] = contributed[k];
-      othersConsumed += contributed[k];
+      fairShare[k] = regular[k];
+      othersConsumed += regular[k];
     }
-    fairShare[input.custodianEntityKey] = spend - othersConsumed;
+    fairShare[input.custodianEntityKey] = spendToShare - othersConsumed;
   } else if (shareBasis === 'consumption') {
     for (const d of approved) {
       const weights = d.consumption && d.consumption.length > 0 ? d.consumption : commitmentWeights;
       addShares(allocateMinor(d.amountMinor, weights.length > 0 ? weights : equalWeights));
     }
-  } else if (spend !== 0) {
+    // Gifts lower everyone's share, by commitment.
+    if (giftsMinor !== 0) {
+      addShares(allocateMinor(-giftsMinor, commitmentWeights)); // all-zero weights split equally
+    }
+  } else if (spendToShare !== 0) {
     const weights = shareBasis === 'equal' ? equalWeights : commitmentWeights;
-    addShares(allocateMinor(spend, weights.length > 0 ? weights : sharers.map((k) => ({ key: k, weight: 1 }))));
+    addShares(allocateMinor(spendToShare, weights.length > 0 ? weights : sharers.map((k) => ({ key: k, weight: 1 }))));
   }
 
   const entityShares: PoolEntityShare[] = keys.map((k) => {
     const ref = parseEntityKey(k);
-    const netMinor = opening[k] + contributed[k] - (fairShare[k] || 0) + cover[k];
+    const netMinor = opening[k] + contributed[k] - gifted[k] - (fairShare[k] || 0) + cover[k];
     return {
       entityId: ref.entityId,
       entityType: ref.entityType,
       openingCreditMinor: opening[k],
       contributedMinor: contributed[k],
+      giftedMinor: gifted[k],
       coverMinor: cover[k],
       commitmentMinor: commitment[k],
       fairShareMinor: fairShare[k] || 0,
@@ -486,6 +526,7 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
     openingBalanceMinor,
     confirmedContributionsMinor,
     overdraftCoverMinor,
+    giftsMinor,
     poolSpendMinor,
     reimbursementsMinor,
     preCoverBalanceMinor,

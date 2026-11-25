@@ -28,6 +28,7 @@ describe('poolService', () => {
   it('maps contribution actions to their endpoints', async () => {
     await poolService.setContributions('e1', [{ entityId: 'u', entityType: 'user', expectedMinor: 100 }]);
     await poolService.topUp('e1', { amountMinor: 5 });
+    await poolService.topUp('e1', { amountMinor: 6, gift: true });
     await poolService.markPaid('c1', { amountMinor: 5, reference: 'UPI' });
     await poolService.confirm('c1');
     await poolService.confirm('c1', 7);
@@ -37,6 +38,7 @@ describe('poolService', () => {
     await poolService.waive('c1', 'away');
     expect(mockApi.put).toHaveBeenCalledWith('/api/pools/event/e1/contributions', { contributions: [{ entityId: 'u', entityType: 'user', expectedMinor: 100 }] });
     expect(mockApi.post).toHaveBeenCalledWith('/api/pools/event/e1/top-ups', { amountMinor: 5 });
+    expect(mockApi.post).toHaveBeenCalledWith('/api/pools/event/e1/top-ups', { amountMinor: 6, gift: true });
     expect(mockApi.post).toHaveBeenCalledWith('/api/pools/contributions/c1/mark-paid', { amountMinor: 5, reference: 'UPI' });
     expect(mockApi.post).toHaveBeenCalledWith('/api/pools/contributions/c1/confirm', {});
     expect(mockApi.post).toHaveBeenCalledWith('/api/pools/contributions/c1/confirm', { receivedMinor: 7 });
