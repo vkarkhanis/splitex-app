@@ -46,7 +46,7 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 2.7 | Event types | ✅ Supported | Trip and Event |
 | 2.8 | Event lock on settle/close | ✅ Supported | Payment/settled/closed events block all mutations (expenses, groups, invitations, participants); only status→closed allowed on settled events |
 | 2.9 | Hide closed events from dashboard | ✅ Supported | Closed events filtered out of dashboard; not visible to any user; removed in real-time when closed via WebSocket |
-| 2.10 | Multi-currency settlement | ✅ Supported | Pro-capability gated server-side; Free users get `403 FEATURE_REQUIRES_PRO` on FX event fields |
+| 2.10 | Multi-currency settlement | ✅ Supported | Pro-capability gated server-side; Free users get `403 FEATURE_REQUIRES_PRO` on FX event fields. Only a change to the currency or FX settings counts: renaming a multi-currency event, or editing it during settlement review, works when those are resent unchanged |
 | 2.11 | Event archiving / closed events section | ✅ Supported | Closed events page (web) and screen (mobile) |
 | 2.12 | Event search / filter | ❌ Not Currently Supported | — |
 | 2.13 | Event duplication | ❌ Not Currently Supported | — |
@@ -92,7 +92,7 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 4.19 | Recurring expenses | ❌ Not Currently Supported | — |
 | 4.20 | Expense comments / notes | ❌ Not Currently Supported | — |
 | 4.21 | Expense history / audit log | ❌ Not Currently Supported | — |
-| 4.22 | Multi-currency expenses | ❌ Not Currently Supported | — |
+| 4.22 | Expenses in another currency | ✅ Supported | When the event's creator has Pro (`multiCurrencySettlement`), anyone in the event can enter an expense or pool spend in another currency. The API converts the amount and each split to the event currency at the event's predefined rate, else today's end-of-day rate, and keeps what was entered (`originalAmount`, `originalCurrency`, `fxRate`, `fxRateDate`, `fxRateSource`). Editing keeps the saved rate; a new currency gets a new rate; back to the event currency clears them. A free creator's events refuse it with `403 OTHER_CURRENCY_NOT_ALLOWED`. Preview: `GET /api/events/:eventId/fx-preview`. Totals, balances and settlement use the converted amount |
 
 ---
 
@@ -180,7 +180,7 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 8.4 | Dashboard page | ✅ Supported | Event list with create button, empty state |
 | 8.5 | Create event page | ✅ Supported | Full form with validation; settlement currency, FX rate mode, predefined FX rate inputs |
 | 8.6 | Event detail page | ✅ Supported | Tabbed UI (Expenses, Participants, Groups, Invitations) |
-| 8.7 | Create expense page | ✅ Supported | Entity selection (groups + individuals), radio split type, private toggle, currency symbols, split validation, "On Behalf Of" toggle + entity selector |
+| 8.7 | Create expense page | ✅ Supported | Entity selection (groups + individuals), radio split type, private toggle, currency symbols, split validation, "On Behalf Of" toggle + entity selector; currency picker with a conversion preview (4.22), disabled with an explanation when the organiser isn't Pro |
 | 8.7a | Edit expense page | ✅ Supported | Pre-populated form, same validation as create, accessible to creator or admin, onBehalfOf editing |
 | 8.8 | Invitations page | ✅ Supported | View and accept/decline pending invitations |
 | 8.9 | Profile page | ✅ Supported | View/edit profile; local-only web tier switch controls when env flags are enabled |
@@ -209,13 +209,14 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 9.2 | Mobile authentication | ✅ Supported | Login + Register screens; AuthContext with token persistence via AsyncStorage |
 | 9.3 | Mobile dashboard | ✅ Supported | Event list with pull-to-refresh, FX badge, status badges, create event button |
 | 9.4 | Mobile event detail | ✅ Supported | Summary cards, expense list, settlement cards with dual currency, pay/approve actions, groups |
-| 9.5 | Mobile create expense | ✅ Supported | Full form with entity selection, split calculation, "On Behalf Of" toggle + selector |
+| 9.5 | Mobile create expense | ✅ Supported | Full form with entity selection, split calculation, "On Behalf Of" toggle + selector; currency chips under Amount with a conversion preview (4.22), hidden when the organiser isn't Pro |
 | 9.6 | Mobile create event | ✅ Supported | Event form with settlement currency, FX rate mode, predefined rate input; Pro tier gating |
 | 9.7 | Free/Pro monetization tiers | ✅ Supported | Server-authoritative entitlement + capability model (`multiCurrencySettlement`, `contributorPools`); local/internal testing controls enabled by env |
 | 9.8 | Push notifications | ❌ Not Currently Supported | — |
 | 9.9 | Offline support | ❌ Not Currently Supported | — |
 | 9.10 | Camera for receipt capture | ✅ Supported | Take photo / choose photo on the expense form |
 | 9.11 | In-app purchase (IAP) | ✅ Supported | Google Play Billing / Apple IAP via RevenueCat (`react-native-purchases`) |
+| 9.12 | Free trial for new subscribers | ✅ Supported | The upgrade screen shows *Start free trial* when the store offers the account a trial: iOS checks introductory-offer eligibility, Android reads the offer's free phase. The 7-day offers are created in the stores after the release ([MONEY_POOLING_PHASE2_PLAN.md](../utility/MONEY_POOLING_PHASE2_PLAN.md) §10A) |
 
 ---
 
@@ -314,7 +315,7 @@ This document tracks all functionalities of the Traxettle application. It is kep
 
 ## 16. Money Pooling
 
-Pooling is an additional **funding model**: money is collected first and expenses draw it down. Split-expenses events are unchanged (an absent `fundingModel` means peer-to-peer). Design: [MONEY_POOLING_DESIGN.md](../utility/MONEY_POOLING_DESIGN.md) · Testing: [MONEY_POOLING_TESTING.md](../runbook/MONEY_POOLING_TESTING.md).
+Pooling is an additional **funding model**: money is collected first and expenses draw it down. Split-expenses events are unchanged (an absent `fundingModel` means peer-to-peer). Design: [MONEY_POOLING_DESIGN.md](../utility/MONEY_POOLING_DESIGN.md) · Phase 2: [MONEY_POOLING_PHASE2_PLAN.md](../utility/MONEY_POOLING_PHASE2_PLAN.md) · Phase 3: [MONEY_POOLING_PHASE3_PROPOSAL.md](../utility/MONEY_POOLING_PHASE3_PROPOSAL.md) · Testing: [MONEY_POOLING_TESTING.md](../runbook/MONEY_POOLING_TESTING.md).
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
@@ -327,7 +328,8 @@ Pooling is an additional **funding model**: money is collected first and expense
 | 16.7 | Pool expenses | ✅ Supported | "Paid with: Pool funds" — no splits needed, deducts from the pool. Anyone but the custodian picks how they paid: *money I'm holding* (16.18) or *the custodian's card or UPI* (which a budget can switch off), and whether it's already paid or asking first |
 | 16.8 | Reimbursement claims | ✅ Supported | "My money — claim it back" with receipt → approval → settlement leg paid by the custodian, without settling or locking the event |
 | 16.9 | Graduated overdraft | ✅ Supported | Warn down to −20% of the pool, then pause pre-authorised spending until the overdraft is repaid plus more; already-paid expenses are always recorded and flagged |
-| 16.10 | Approvals & spender controls | ✅ Supported | Approval never / above an amount / always; nobody approves their own spending except the custodian (it's their money); sponsor budgets authorise spenders (people or groups) with optional caps; receipts can be mandatory |
+| 16.10 | Approvals & spender controls | ✅ Supported | Approval never / above an amount / always, changeable after creation; nobody approves their own spending except the custodian (it's their money); sponsor budgets authorise spenders (people or groups) with optional caps; receipts can be mandatory. In *Several of us* pools, **Who can spend** is everyone or only people the organiser chooses (`spendersMode: listed`); anyone else can still claim back their own money, always with approval. Someone holding pool money can't be taken off the list until it's returned (`409 POOL_HOLDER_DELISTED`) |
+| 16.10a | Approvers | ✅ Supported | The organiser names approvers (`approverUserIds`) in any pool. They approve or reject other people's spends and claims, never their own, and can't settle up, close a month, change settings or confirm money. Approving doesn't make someone a spender |
 | 16.11 | Transparency ledger | ✅ Supported | Balance meter, contributions, arrears, spending by person, every movement with receipts, cycle history |
 | 16.12 | Recurring cycles | ✅ Supported | Close a month: carry each person's credit forward (or pay out), open the next month with fresh dues |
 | 16.13 | Membership changes | ✅ Supported | Shared-living funds square up a leaver and carry everyone else forward; treasuries just update the roster |
@@ -341,6 +343,7 @@ Pooling is an additional **funding model**: money is collected first and expense
 | 16.21 | "Several of us" is Pro | ✅ Supported | Kitty, Fund, Treasury and Collection, including hybrid events built on them, need a Pro creator (or converter). Free users get `403 FEATURE_REQUIRES_PRO` with `feature: contributor_pools`, and the apps show a PRO badge. Members join free, and a lapse never blocks an existing pool (§12) |
 | 16.22 | Paying back early | ✅ Supported | The custodian pays back what someone lent before the pool closes; the lender confirms. Allowed while spending is paused, with a warning (§10.6) |
 | 16.23 | Netting at settle-up | ✅ Supported | Unpaid repayments and claims of the cycle being settled are folded into the final payments (fewest payments, including between members). Rows already being paid, earlier cycles and leaving settlements stay separate (§11) |
+| 16.24 | Pool spends in another currency | ✅ Supported | As 4.22. Receipt and approval thresholds and the pool balance use the converted amount; the pool's lists show both amounts (*entered as $10.00*) ([Phase 3](../utility/MONEY_POOLING_PHASE3_PROPOSAL.md) §9) |
 
 ---
 
@@ -356,8 +359,9 @@ Pooling is an additional **funding model**: money is collected first and expense
 | **Phase 4.5** | UX polish: confirmation modals (replace all browser dialogs), consistent badge colors, real-time dashboard updates via WebSocket | ✅ Complete |
 | **Phase 5** | "On Behalf Of" expenses, multi-currency FX settlement, complete mobile app (iOS/Android), Free/Pro monetization tiers, comprehensive tests | ✅ Complete |
 | **Phase 6** | Money pooling (kitty, fund, treasury, collection, sponsor budget, hybrid), receipts on all expenses, expense-access hardening, CI running tests | ✅ Complete |
+| **Phase 7** | Pooling Phases 2–3: *Several of us* for Pro, hand-overs, early repayment, netting, free trial, spender lists, approvers, expenses in another currency; automated regression suite (Playwright and Maestro) | ✅ Complete |
 
 
 ---
 
-*Last updated: October 2026*
+*Last updated: November 2026*

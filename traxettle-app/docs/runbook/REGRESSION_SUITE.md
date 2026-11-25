@@ -189,7 +189,7 @@ Last full check on 2026-11-24: all 7 Maestro flows passed on both platforms (Deb
 | Tiers and Pro gating | ✅ | ✅ `tier-entitlements` | ✅ Pro switch (`switch-to-pro`) |
 | Pools: create, dues, top-ups, gifts, claims, receipts | ✅ | ✅ `pool-ui` | ✅ `pools/kitty` (create, pay in, spend, settle up) |
 | Pools Phase 2: hand-overs, early repayment, netting | ✅ | ✅ `pool-phase2` | — |
-| Pools Phase 3: spender list, approvers, other currency | ✅ | ✅ `pool-phase3` | — |
+| Pools Phase 3: spender list, approvers, other currency | ✅ | Partly: ✅ `pool-phase3` (main paths; see below) | — |
 | Navigation, invitations inbox, closed events | ✅ | ✅ `navigation`, `closed-events` | ✅ `navigation/history-and-invitations` |
 
 ### Still not covered end to end
@@ -198,6 +198,28 @@ Last full check on 2026-11-24: all 7 Maestro flows passed on both platforms (Deb
 - **Account deletion** and closing a deleted user's payment.
 - **Group edit and membership changes,** invitation revoke, the admin role, and inviting someone into a group.
 - **Mobile:** Phase 2 and 3 pool flows, edit and delete, Profile edits, Pro upgrade screen, Unsettled Payments, Apple sign-in.
+
+### The Phase 3 hand-test plan against the suite (2026-11-26)
+
+Of the 57 steps in [MONEY_POOLING_PHASE3_E2E.md](MONEY_POOLING_PHASE3_E2E.md):
+- **18 covered end to end** on web: A1, A2, A5, A8, A13, A14, C1, C2, D2, D3, D5, F3, F4, F5, G1, G2, G3 and G5;
+- **35 partly:**
+  - about 20 by API or unit tests only: the A11 refusal, A7, A9, B4, C3–C5, C8, G6–G8, the toast and dialog fixes (E1–E4), F1 and F2;
+  - the rest end to end, but in a different set-up: a Budget, Kitty or Fund, or the opposite currency direction;
+- **4 not at all:** C7 (a free organiser editing only the amount of a foreign-currency expense), every mobile currency step, E7 (date fields) and E8 (VoiceOver).
+
+E8 (VoiceOver) and O1–O2 (older store builds) can't be automated. The live rate in C5 can only be
+tested with a seeded rate.
+
+The gaps worth closing, most useful first:
+1. **Maestro: Phase 3 permissions** (`flows/pools/phase3-permissions.yaml`): a kitty with chosen spenders, the claim-only form, a pending card spend, an approver approving, the Approver/Always toggles.
+2. **Maestro: a spend in another currency** (`flows/pools/other-currency.yaml`): the chips, the preview at a set rate, the saved row with its dollar line, an edit.
+3. **Editing a foreign-currency expense** on web (C3, C4, D4) in `pool-phase3.spec.ts`, and C7 in `pools.phase3.test.ts`.
+4. **The spender-list lifecycle on web** (A3, A9–A12): Always → Never in the UI, a non-spender's claim still waits, Give money offers only spenders, unticking a holder is refused, then allowed after a return.
+5. **Approvers in a Budget** (B1–B4), including the *You can't add expenses to this budget* text.
+6. **An INR event settled in USD** with a dollar-entered split (D1, D6), checking *≈ $10.00* in Settlement Review.
+7. **Web review lock and free-admin rename** (G6, G8) in `event-edit-delete.spec.ts`.
+8. **Maestro: edit during review and "on behalf of"** (G4, G7), plus explicit toast, dialog-Cancel, menu and date checks (E1, E3, E5–E7).
 
 Add tests for these as the areas change. Update the table when you add coverage.
 

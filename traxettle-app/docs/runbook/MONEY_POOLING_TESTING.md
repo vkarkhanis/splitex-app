@@ -228,7 +228,7 @@ still to pay back"* and taps **Pay back now**. If that would pause spending, the
    "Just me" and split expenses still work.
 2. Switch the user to **Pro** → no badge, and creating works. Add a **free** member: they pay in, spend and settle up.
 3. Switch the creator back to **free** mid-cycle → the pool keeps working: close the cycle, settle up, dissolve.
-4. The Pro page and Help list **Group pools**, in every environment from the Phase 2 release on
+4. The Pro page and Help list **Group pools** (and, from Phase 3, **Expenses in another currency**), in every environment from the Phase 2 release on
    (`CONTRIBUTOR_POOLS_IN_PRODUCTION` is on). Older production builds still hide them.
 
 ### Regression: split-expenses events are unchanged

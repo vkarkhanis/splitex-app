@@ -338,13 +338,13 @@ so far, and money paid back early comes off it (design doc §0).
 | 4.1 | Priya (free) | **Create event → Pool money**. | **Just me** is selected. **Several of us** is shown **locked**: greyed out, dashed border, a **PRO** badge and *🔒 Pro feature*. |
 | 4.2 | Priya | Tap **Several of us**. | It **doesn't get selected**: Just me stays selected, and no Kitty / Fund choices appear. A notice: *Group pools are a Pro feature. Only you need Pro: everyone you invite joins free.* with **Learn how to get Pro** (web), or **Upgrade to Pro** on mobile, which opens the upgrade screen. |
 | 4.3 | Priya | Tap **Just me** again. | The notice goes away. There's no way to create a group pool without Pro. |
-| 4.4 | Priya | Follow **Learn how to get Pro**. | The Pro page lists **Unlimited events · Multi-currency settlement · Group pools · Analytics (coming soon) · More power-user features**. Help's Pro card shows the same, and its feature list has a pooling line. |
+| 4.4 | Priya | Follow **Learn how to get Pro**. | The Pro page lists **Unlimited events · Multi-currency settlement · Group pools · Analytics (coming soon) · More power-user features** (from Phase 3, *Expenses in another currency* follows Multi-currency settlement). Help's Pro card shows the same, and its feature list has a pooling line. |
 | 4.5 | Priya | Create a **Just me** budget, and a **Split expenses** event. | Both are created: they're free. |
 | 4.6 | Priya | Switch to **Pro** (see "Making someone Pro"). Open create event again. | No PRO badge or notice. Create "Book club" as a **Kitty**, ₹1,000 each. It's created. |
 | 4.7 | Ravi (free) | Join "Book club" and pay in; Priya confirms. Ravi adds a ₹300 pool expense. | All of it works on the free plan. |
 | 4.8 | Priya | Settle up "Book club", approve, pay, confirm. Then delete or settle her other test events, and switch back to **Free**. | **Settled**. |
 
-**Mobile:** the upgrade screen lists **Group pools** after Multi-Currency Settlement. Profile's upgrade
+**Mobile:** the upgrade screen lists **Group pools** after Multi-Currency Settlement (from Phase 3, after *Expenses in Another Currency*). Profile's upgrade
 row reads *Unlimited events, group pools, multi-currency & more*. Help has a **Pool Money** card.
 
 **Production builds:** this branch turns `CONTRIBUTOR_POOLS_IN_PRODUCTION` on, so production builds made
@@ -488,8 +488,8 @@ app builds. Use real accounts; a sandbox purchase or the trial (plan §10A.5) gi
 
 | # | Where | Do | Expect |
 |---|---|---|---|
-| R1 | Live web app, free account | Create event → **Pool money**. | **Several of us** is shown locked (PRO, *🔒 Pro feature*). The Pro page lists **Group pools**. |
-| R2 | New TestFlight / Play internal-testing build, free account | The same, plus the upgrade screen and Profile. | Locked card; the upgrade screen lists **Group pools**; Profile reads *Unlimited events, group pools, multi-currency & more*. |
+| R1 | Live web app, free account | Create event → **Pool money**. | **Several of us** is shown locked (PRO, *🔒 Pro feature*). The Pro page lists **Group pools** and **Expenses in another currency**. |
+| R2 | New TestFlight / Play internal-testing build, free account | The same, plus the upgrade screen and Profile. | Locked card; the upgrade screen lists **Expenses in Another Currency** and **Group pools**; Profile reads *Unlimited events, group pools, multi-currency & more*. |
 | R3 | A Pro account, or one on the trial | Create a **Kitty**; invite a free account, which pays in and spends. | Works. |
 | R4 | The 1.0.40 App Store app, still installed | Open an event, add an expense, settle up. | Works against the new API. 1.0.40 still hides "Several of us": it predates this switch. |
 
@@ -535,7 +535,7 @@ the event screen.
 | Spending beyond what you hold | *The budget owes you ₹1,000.00 for spends beyond the money you held.* |
 | Edit expense, a spender's pool spend | **Paid with** can switch between *money I'm holding* and *Anita's card or UPI* |
 | Settle-up figures in a Fund's second month | *Carried in ₹7,000.00 · collected ₹10,000.00 · spent from the pool ₹0.00*, then **Left over ₹17,000.00** |
-| Pro lists | The upgrade screen lists **Group pools** after Multi-Currency Settlement; Profile reads *Unlimited events, group pools, multi-currency & more*; Help has a **Pool Money** card |
+| Pro lists | The upgrade screen lists **Group pools** after Multi-Currency Settlement (from Phase 3, after *Expenses in Another Currency*); Profile reads *Unlimited events, group pools, multi-currency & more*; Help has a **Pool Money** card |
 
 ---
 

@@ -6,33 +6,50 @@ All project documentation is organized under this directory.
 
 ```
 docs/
-├── deployment/          — Deploying to Cloud Run, Play Store, App Store
-│   ├── scripts/         — Shell scripts for staging/production deploys
+├── app/                 — What the app does
+│   ├── Functional.md                — every feature, with its status
+│   └── DEVELOPER_OPTIONS_TESTING.md
+├── deployment/          — Deploying the API and web (Cloud Run), Play Store, App Store
+│   ├── RELEASE_MONEY_POOLING.md     — the money-pooling release (Phases 1–3), in order
 │   ├── DEPLOYMENT_RUNBOOK.md
 │   ├── DEPLOYMENT_CHANNELS.md
-│   └── FIRST_RELEASE_CHECKLIST.md
-├── runbook/             — Running the app locally in different modes
+│   ├── FIRST_RELEASE_CHECKLIST.md
+│   └── APP_REVIEW_RESPONSE.md       — App Review notes and replies
+├── runbook/             — Running and testing the app
 │   ├── LOCAL_DEVELOPMENT.md
+│   ├── REGRESSION_SUITE.md          — the automated suite (unit, API, Playwright, Maestro) and CI
 │   ├── MONEY_POOLING_TESTING.md
-│   └── IOS_SUBSCRIPTIONS_SETUP.md
+│   ├── MONEY_POOLING_PHASE1_E2E.md  — hand-test plans, one per phase
+│   ├── MONEY_POOLING_PHASE2_E2E.md
+│   ├── MONEY_POOLING_PHASE3_E2E.md
+│   ├── IOS_SUBSCRIPTIONS_SETUP.md
+│   └── SIGN_IN_WITH_APPLE_SETUP.md
 └── utility/             — Reference docs for integrations and features
-    ├── FIREBASE_SETUP.md
-    ├── REVENUECAT_INTEGRATION_RUNBOOK.md
-    ├── TIER_ENTITLEMENT_ENV_MATRIX.md
-    ├── TIER_SWITCH_TESTING_GUIDE.md
-    ├── SETTLEMENT_GATEWAY_TESTING_POLICY.md
-    ├── PRO_FREE_IMPLEMENTATION_CHECKLIST.md
-    ├── 01_SETTLEMENT_PROVIDER_RECOMMENDATION_AND_RUNBOOK.md
-    ├── 02_DETAILED_CODE_CHANGES.md
     ├── DESIGN_DOCUMENT.md
     ├── MONEY_POOLING_DESIGN.md
+    ├── MONEY_POOLING_PHASE2_PLAN.md
+    ├── MONEY_POOLING_PHASE3_PROPOSAL.md
+    ├── TIER_ENTITLEMENT_ENV_MATRIX.md
+    ├── TIER_SWITCH_TESTING_GUIDE.md
+    ├── PRO_FREE_IMPLEMENTATION_CHECKLIST.md
+    ├── REVENUECAT_SETUP.md
+    ├── REVENUECAT_INTEGRATION_RUNBOOK.md
+    ├── FIREBASE_SETUP.md, FIREBASE_EMULATOR_SETUP.md, IOS_SETUP.md, ANDROID_SETUP.md, …
+    ├── SETTLEMENT_GATEWAY_TESTING_POLICY.md
+    ├── SETTLEMENT_PROVIDER_RECOMMENDATION_AND_RUNBOOK.md
+    ├── DETAILED_CODE_CHANGES.md
     └── local-entitlement-test.sh
 ```
+
+The deploy scripts live in `traxettle-rush/scripts/` (`api-deployment/`, `web-deployment/`), and the
+mobile build scripts in `traxettle-rush/apps/mobile/scripts/`.
 
 ## Quick Links
 
 ### Getting Started
 - **[Local Development](runbook/LOCAL_DEVELOPMENT.md)** — 6 run modes (emulator/real Firebase × web/mobile)
+- **[Features](app/Functional.md)** — every feature and its status, including money pooling (§16)
+- **[Regression Suite](runbook/REGRESSION_SUITE.md)** — run every automated test with one command; what CI runs
 - **[Money Pooling — Run & Test](runbook/MONEY_POOLING_TESTING.md)** — automated suites, quick local run, hand-testing checklist per use case
 - **[iOS Subscriptions (RevenueCat)](runbook/IOS_SUBSCRIPTIONS_SETUP.md)** — App Store Connect, RevenueCat, builds, sandbox testing and App Review checklist
 - **Doctor Tool UI** — guided, layman-friendly setup flow:
@@ -40,21 +57,26 @@ docs/
   - Then open the printed localhost URL in your browser
 
 ### Deploying
+- **[Money Pooling Release](deployment/RELEASE_MONEY_POOLING.md)** — merge, deploy the API and web, build both apps, store steps
 - **[Deployment Runbook](deployment/DEPLOYMENT_RUNBOOK.md)** — Full first-time deployment guide (Firebase, Cloud Run, mobile builds, stores)
 - **[Deployment Channels](deployment/DEPLOYMENT_CHANNELS.md)** — Per-channel build & deploy commands (Web, Android, iOS)
 - **[First Release Checklist](deployment/FIRST_RELEASE_CHECKLIST.md)** — Ordered checklist for initial release
+- **[App Review Notes](deployment/APP_REVIEW_RESPONSE.md)** — Review notes and replies for App Store submissions
 
 ### Reference
 - **[Firebase Setup](utility/FIREBASE_SETUP.md)** — Auth, Firestore, Storage, service accounts, security rules
+- **[RevenueCat Setup](utility/REVENUECAT_SETUP.md)** — products, entitlement, offering and descriptions
 - **[RevenueCat Integration](utility/REVENUECAT_INTEGRATION_RUNBOOK.md)** — Webhook setup, entitlement mapping, smoke tests
 - **[Tier Entitlement Matrix](utility/TIER_ENTITLEMENT_ENV_MATRIX.md)** — Free/Pro capabilities per environment
 - **[Tier Switch Testing](utility/TIER_SWITCH_TESTING_GUIDE.md)** — How to test tier switching locally and in staging
 - **[Settlement Gateway Policy](utility/SETTLEMENT_GATEWAY_TESTING_POLICY.md)** — Mock vs real payment safety controls
 - **[Pro/Free Checklist](utility/PRO_FREE_IMPLEMENTATION_CHECKLIST.md)** — Implementation status for tier-based features
-- **[Settlement Provider Guide](utility/01_SETTLEMENT_PROVIDER_RECOMMENDATION_AND_RUNBOOK.md)** — Razorpay (INR) + Stripe (intl) integration plan
-- **[Settlement Code Changes](utility/02_DETAILED_CODE_CHANGES.md)** — Detailed code-level changes for payment integration
+- **[Settlement Provider Guide](utility/SETTLEMENT_PROVIDER_RECOMMENDATION_AND_RUNBOOK.md)** — Razorpay (INR) + Stripe (intl) integration plan
+- **[Settlement Code Changes](utility/DETAILED_CODE_CHANGES.md)** — Detailed code-level changes for payment integration
 - **[Design Document](utility/DESIGN_DOCUMENT.md)** — Core application architecture and design decisions
 - **[Money Pooling Design](utility/MONEY_POOLING_DESIGN.md)** — Pool funding model, use cases, ledger maths, overdraft, API and UI (with as-built notes)
+- **[Money Pooling Phase 2 Plan](utility/MONEY_POOLING_PHASE2_PLAN.md)** — hand-overs, netting, group pools as Pro, free trial; store and console text (§11)
+- **[Money Pooling Phase 3](utility/MONEY_POOLING_PHASE3_PROPOSAL.md)** — spender lists, approvers, expenses in another currency (as built: §9)
 
 ## Current Auth Session Behavior
 

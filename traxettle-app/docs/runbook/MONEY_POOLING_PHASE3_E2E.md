@@ -157,7 +157,9 @@ profiles (or Chrome, Safari and Firefox): incognito windows share one session.
 - **Already automated:** Scenario A's main path, Scenario C's dollar spend and Scenario D's split
   (`e2e/tests/pool-phase3.spec.ts`), every Phase 3 rule in the API tests, and the toast fix in
   `FeedbackContext.test.tsx`. The browser tests run on web only and set up some data through the API, so
-  clicking through here, on web and mobile, still adds something.
+  clicking through here, on web and mobile, still adds something. Step by step (2026-11-26): 18 steps
+  are covered end to end on web, 35 partly (by API or unit tests, or e2e in a different setup) and 4 not
+  at all (C7, C on mobile, E7, E8). No Maestro flow covers Phase 3 yet. See REGRESSION_SUITE.md §7.
 
 ---
 
