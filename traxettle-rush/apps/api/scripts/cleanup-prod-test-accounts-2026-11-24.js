@@ -27,10 +27,18 @@
  *
  *   # read the plan, then run the same command with --apply
  *
- * Credentials, as the API reads them: a service-account key file (GOOGLE_APPLICATION_CREDENTIALS or
- * FIREBASE_PRIVATE_KEY_FILE) and/or FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY. The key file needn't
- * contain "project_id": the project is --project. With none of these, Application Default Credentials
- * (`gcloud auth application-default login`).
+ * Credentials (an Admin SDK service account, not the app's google-services.json), as the API reads
+ * them: a service-account key file (GOOGLE_APPLICATION_CREDENTIALS or FIREBASE_PRIVATE_KEY_FILE, JSON
+ * or a bare PEM key) and/or FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY. The key file needn't contain
+ * "project_id": the project is --project. With none of these, Application Default Credentials.
+ *
+ * The production API's own credentials are in Secret Manager, so no key file is needed:
+ *
+ *   CFG="$(gcloud secrets versions access latest --secret=traxettle-prod-api-config --project <gcp-project-id>)"
+ *   FIREBASE_PROJECT_ID="$(printf '%s' "$CFG" | jq -r .FIREBASE_PROJECT_ID)" \
+ *   FIREBASE_CLIENT_EMAIL="$(printf '%s' "$CFG" | jq -r .FIREBASE_CLIENT_EMAIL)" \
+ *   FIREBASE_PRIVATE_KEY="$(printf '%s' "$CFG" | jq -r .FIREBASE_PRIVATE_KEY)" \
+ *     node traxettle-rush/apps/api/scripts/cleanup-prod-test-accounts-2026-11-24.js --project <prod-project-id>
  *
  * With --apply it writes what it deleted to ~/traxettle-prod-cleanup-2026-11-24.result.json.
  * Testing it against the emulator: set FIRESTORE_EMULATOR_HOST and FIREBASE_AUTH_EMULATOR_HOST and
@@ -122,10 +130,26 @@ function credential() {
   const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_PRIVATE_KEY_FILE;
   let sa = {};
   if (keyFile) {
+    let text;
     try {
-      sa = JSON.parse(fs.readFileSync(path.resolve(keyFile), 'utf8'));
+      text = fs.readFileSync(path.resolve(keyFile), 'utf8');
     } catch (err) {
-      console.error(`Couldn't read the key file ${keyFile} as JSON: ${err.message}`);
+      console.error(`Couldn't read the key file ${keyFile}: ${err.message}`);
+      process.exit(2);
+    }
+    if (text.trim().startsWith('-----BEGIN')) {
+      sa = { private_key: text }; // a bare PEM private key, as deploy-prod.sh allows; the email comes from FIREBASE_CLIENT_EMAIL
+    } else {
+      try {
+        sa = JSON.parse(text);
+      } catch (err) {
+        console.error(`The key file ${keyFile} is neither JSON nor a PEM private key: ${err.message}`);
+        process.exit(2);
+      }
+    }
+    if (sa.project_info || sa.client) {
+      console.error(`${keyFile} is the app's Firebase config (google-services.json), not a service-account key. It can't sign in as an admin.`);
+      console.error('Leave out GOOGLE_APPLICATION_CREDENTIALS and use the production API\'s own credentials instead (see the script header), or a key from the Firebase console: Project settings → Service accounts → Generate new private key.');
       process.exit(2);
     }
   }
