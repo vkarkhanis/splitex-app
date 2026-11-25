@@ -11,6 +11,7 @@ import { EntitlementService } from '../services/entitlement.service';
 import { PoolError, PoolService } from '../services/pool.service';
 import { SettlementService } from '../services/settlement.service';
 import { poolCreateSchema } from '../validation/pool.schemas';
+import { groupPoolRefusal } from '../utils/pro-gates';
 
 const emailService = new EmailService();
 
@@ -220,6 +221,12 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         ...parsed.data,
         allowPeerExpenses: body.fundingModel === 'hybrid' || parsed.data.allowPeerExpenses,
       });
+      // "Several of us" pools are Pro (design doc §12). Checked on the built config, so overrides
+      // can't get round it. "Just me" budgets stay free.
+      if (pool.poolConfig.funderMode === 'contributors') {
+        const refusal = await groupPoolRefusal(uid);
+        if (refusal) return res.status(403).json(refusal);
+      }
     }
 
     const event = await eventService.createEvent(uid, body, pool);

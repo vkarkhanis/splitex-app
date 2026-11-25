@@ -40,6 +40,11 @@ interface AuthUser {
 
 interface AuthCapabilities {
   multiCurrencySettlement: boolean;
+  /**
+   * Create "Several of us" pools (design doc §12). Undefined until a server that reports it answers,
+   * so only an explicit `false` locks the option; the API decides otherwise.
+   */
+  contributorPools?: boolean;
 }
 
 interface AuthContextType {
@@ -115,6 +120,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activePro, setActivePro] = useState(ENV.DEFAULT_TIER === 'pro');
   const [capabilities, setCapabilities] = useState<AuthCapabilities>({
     multiCurrencySettlement: ENV.DEFAULT_TIER === 'pro',
+    ...(ENV.DEFAULT_TIER === 'pro' ? { contributorPools: true } : {}),
   });
   const [internalTester, setInternalTester] = useState(false);
   const [preferredCurrency, setPreferredCurrency] = useState('USD');
@@ -133,6 +139,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setActivePro((allowLocalTierOverride && ENV.DEFAULT_TIER === 'pro') || hasActivePro(data ?? {}));
     const serverCapabilities: AuthCapabilities = {
       multiCurrencySettlement: Boolean(data?.capabilities?.multiCurrencySettlement),
+      ...(typeof data?.capabilities?.contributorPools === 'boolean' ? { contributorPools: data.capabilities.contributorPools } : {}),
     };
     
     console.log('[AuthContext] Profile data:', {
@@ -145,7 +152,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     setCapabilities(
       allowLocalTierOverride
-        ? { multiCurrencySettlement: nextTier === 'pro' || serverCapabilities.multiCurrencySettlement }
+        ? {
+          multiCurrencySettlement: nextTier === 'pro' || serverCapabilities.multiCurrencySettlement,
+          ...(nextTier === 'pro' ? { contributorPools: true } : serverCapabilities.contributorPools !== undefined ? { contributorPools: serverCapabilities.contributorPools } : {}),
+        }
         : serverCapabilities,
     );
     setInternalTester(Boolean(data?.internalTester));

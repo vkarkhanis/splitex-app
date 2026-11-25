@@ -26,7 +26,8 @@ Run **the branch's own API on your Mac**. None of these options touch production
 | Mobile | `bash scripts/local-dev/03_real_mobile.sh staging` | Staging Firestore |
 | Fully offline | `sh scripts/local-dev/02_emulator_web.sh` | Firebase emulators on this Mac |
 
-- `03` and `04` both start the API on port 3001, so run only one at a time.
+- `03` and `04` both start the API on port 3001. They can run together (web plus the apps): whichever
+  starts second reports *EADDRINUSE* for its API, and everything uses the first one's.
 - **Don't open these test events in the TestFlight or App Store app.** Those apps use the deployed
   staging API. It runs older code that doesn't know about repayments or gifts.
 - After pulling the branch, rebuild the shared library, because the apps read its built `dist/`:
@@ -51,7 +52,9 @@ session, so two incognito windows can't act as two different people.
 
 ### Good to know
 
-- A **Budget** needs a receipt on every pool expense and every claim. Keep a small image ready.
+- A **Budget** needs a receipt on every pool expense and every claim, except a spend someone *asks for
+  before spending*: nothing is bought yet, so the receipt is optional and can be added to the expense
+  after paying. Keep a small image ready.
 - A free account can have at most 3 active or closed events. Each scenario ends with its event settled.
   Run them in order and finish each one before starting the next.
 - All amounts are in INR. Names in this plan appear as **You** on the screen of the person they refer to.
@@ -93,11 +96,12 @@ The **Balance** column shows the budget balance after each step, when it changes
 | # | Who | Do | Expect | Balance |
 |---|---|---|---|---|
 | B1 | Ravi | Add expense: Pool funds, **already paid**, "Decorations", ₹3,000, with a receipt. | Toast **Expense recorded**: *Waiting for approval. If it's not approved, you'll owe it back to the budget's holder.* | |
-| B2 | Ravi | Add expense: Pool funds, **asking first**, "Band advance", ₹4,000, with a receipt. | Toast **Asked for approval**: *Spend the budget's money only once it's approved.* | |
+| B2 | Ravi | Add expense: Pool funds, **asking first**, "Band advance", ₹4,000, **no receipt**. | The receipt is optional once *asking first* is chosen (it can be added after paying). Toast **Asked for approval**: *Spend the budget's money only once it's approved.* In Expenses it reads *Requested from the pool by Ravi*, not *Paid from the pool*, until it's approved. | |
 | B3 | Ravi | Add expense: Pool funds, **already paid**, "Cake", ₹1,500, with a receipt. | The same toast as B1. | |
 | B4 | Ravi | Add expense: **My money — claim it back**, "Taxi", ₹800, with a receipt. | Toast **Claim submitted**. | |
 | B5 | Anita | Open the **Budget** tab. | "Waiting for your approval" lists Decorations as *Pool spend · already paid*, Band advance as *Pool spend · asking first*, Cake as *Pool spend · already paid* and Taxi as *Reimbursement*. The totals show *awaiting approval ₹9,300*, and the balance hasn't moved. | ₹35,000 |
-| B6 | Anita | Approve Decorations, then Band advance. | *Deducted from the pool.* | ₹28,000 |
+| B6 | Anita | Approve **Decorations**. | *Deducted from the pool.* | ₹32,000 |
+| B6b | Anita | Approve **Band advance** too. | *Deducted from the pool.* Approving a spend someone asked for lets them spend, and counts it as spent now. In Ravi's Expenses, Band advance now reads *Paid from the pool by Ravi*. | ₹28,000 |
 | B7 | Anita | Approve Taxi. | Pool payments shows *Anita → Ravi · Reimbursement · To pay ₹800*. Anita taps **Mark as paid** and Ravi taps **Confirm received**, so the row shows **Done**. The event stays **Active**. | ₹27,200 |
 
 ### C. Rejecting spends
@@ -182,7 +186,8 @@ The **Balance** column shows the budget balance after each step, when it changes
 
 ## Scenario 2: Trip kitty ("Several of us") with a loan and a gift
 
-Production builds hide "Several of us". Local and staging builds show it.
+Production builds of 1.0.40 hide "Several of us"; local and staging builds show it. From the Phase 2
+release on, production shows it too, as a Pro feature for the person creating the pool.
 
 ### Setup
 

@@ -23,7 +23,7 @@ import { FundingStep } from '../../../components/pool/FundingStep';
 import { FxRatesAttribution } from '../../../components/FxRatesAttribution';
 import { buildFundingPayload, DEFAULT_FUNDING_CHOICE, validateFundingChoice } from '../../../components/pool/fundingChoice';
 import type { FundingChoice } from '../../../components/pool/fundingChoice';
-import { contributorPoolsAvailable } from '@traxettle/shared';
+import { contributorPoolsAvailable, proRequiredMessage } from '@traxettle/shared';
 
 // Production web builds set NEXT_PUBLIC_APP_ENV=production, which hides "Several of us" pools.
 const ALLOW_CONTRIBUTOR_POOLS = contributorPoolsAvailable(process.env.NEXT_PUBLIC_APP_ENV);
@@ -106,7 +106,7 @@ const RadioLabel = styled.label<{ $checked?: boolean }>`
   &:hover { border-color: ${(p) => p.theme.colors.primary}; }
 `;
 
-type ProfileCaps = { multiCurrencySettlement: boolean };
+type ProfileCaps = { multiCurrencySettlement: boolean; contributorPools?: boolean };
 type ProfileData = {
   tier: 'free' | 'pro';
   capabilities?: ProfileCaps;
@@ -136,6 +136,10 @@ export default function CreateEventPage() {
   // The server's capability already means paid-up Pro; tier alone can be 'pro' after a lapse.
   const canUseFx = Boolean(profile?.capabilities?.multiCurrencySettlement);
   const proBlocked = Boolean(needsFx && !canUseFx);
+  // "Several of us" pools need Pro (design doc §12). Only an explicit `false` locks it: an older
+  // server that doesn't report the capability leaves the decision to the API.
+  const groupPoolsLocked = profile?.capabilities?.contributorPools === false;
+  const groupPoolBlocked = groupPoolsLocked && funding.kind === 'pool' && funding.funder === 'contributors';
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -164,6 +168,10 @@ export default function CreateEventPage() {
     }
     if (needsFx && !canUseFx) {
       setError('Multi-currency settlement requires Pro.');
+      return;
+    }
+    if (groupPoolBlocked) {
+      setError(proRequiredMessage('contributor_pools'));
       return;
     }
     const fundingError = validateFundingChoice(funding);
@@ -212,9 +220,15 @@ export default function CreateEventPage() {
       pushToast({ type: 'success', title: 'Event Created', message: `"${form.name}" has been created.` });
       router.push(`/events/${res.data.id}`);
     } catch (err: any) {
-      if (String(err?.message || '').includes('FEATURE_REQUIRES_PRO') || String(err?.message || '').includes('requires Pro')) {
-        setError('Multi-currency settlement requires Pro.');
-        pushToast({ type: 'error', title: 'Pro Feature', message: 'Upgrade to Pro in the mobile app to use multi-currency settlement.' });
+      if (err?.code === 'FEATURE_REQUIRES_PRO' || String(err?.message || '').includes('FEATURE_REQUIRES_PRO') || String(err?.message || '').includes('requires Pro')) {
+        // Name the feature the API refused, not always multi-currency.
+        const groupPools = err?.feature === 'contributor_pools';
+        setError(proRequiredMessage(err?.feature));
+        pushToast({
+          type: 'error',
+          title: 'Pro Feature',
+          message: groupPools ? 'Upgrade to Pro in the mobile app to create group pools.' : 'Upgrade to Pro in the mobile app to use multi-currency settlement.',
+        });
         return;
       }
       setError(err.message || 'Failed to create event');
@@ -323,7 +337,9 @@ export default function CreateEventPage() {
             </Row>
 
             <FundingStep value={funding} onChange={setFunding} currency={form.currency} disabled={loading}
-              allowContributorPools={ALLOW_CONTRIBUTOR_POOLS} />
+              allowContributorPools={ALLOW_CONTRIBUTOR_POOLS}
+              contributorPoolsLocked={groupPoolsLocked}
+              onLearnPro={() => router.push('/pro')} />
 
             {/* Settlement Currency (optional — different from expense currency) */}
             <Row>
@@ -429,7 +445,7 @@ export default function CreateEventPage() {
               <Button
                 type="submit"
                 $variant="primary"
-                disabled={loading || !form.name.trim() || !form.startDate || proBlocked}
+                disabled={loading || !form.name.trim() || !form.startDate || proBlocked || groupPoolBlocked}
                 data-testid="create-event-submit"
               >
                 {loading ? 'Creating...' : 'Create Event'}

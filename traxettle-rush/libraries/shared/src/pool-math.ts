@@ -6,6 +6,8 @@
  */
 import type {
   ExpenseFundingSource,
+  PoolAdvanceKind,
+  PoolAdvanceStatus,
   PoolArrear,
   PoolConfig,
   PoolContributionKind,
@@ -16,7 +18,9 @@ import type {
   PoolEntityRef,
   PoolEntityShare,
   PoolFundingState,
+  PoolHoldings,
   PoolOverdraftState,
+  PoolPaidFrom,
   PoolRefusalCode,
   PoolShareBasis,
   PoolSurplusPolicy,
@@ -100,6 +104,8 @@ export function computeCycleTotals(input: {
   openingBalanceMinor: number;
   contributions: ContributionLike[];
   draws: DrawLike[];
+  /** Confirmed early repayments to lenders (§10.6). They lower the balance; they aren't spending. */
+  earlyRepaymentsMinor?: number;
 }): PoolCycleTotals {
   let expectedRegularMinor = 0;
   let confirmedRegularMinor = 0;
@@ -128,9 +134,10 @@ export function computeCycleTotals(input: {
     }
   }
 
+  const earlyRepaymentsMinor = Math.max(0, input.earlyRepaymentsMinor || 0);
   const balanceMinor =
     input.openingBalanceMinor + confirmedRegularMinor + confirmedTopUpMinor + overdraftCoverMinor
-    - poolSpendMinor - reimbursementsMinor;
+    - poolSpendMinor - reimbursementsMinor - earlyRepaymentsMinor;
 
   return {
     expectedRegularMinor,
@@ -140,6 +147,8 @@ export function computeCycleTotals(input: {
     poolSpendMinor,
     reimbursementsMinor,
     pendingDrawsMinor,
+    // Only present when there were early repayments, so existing pools report exactly as before.
+    ...(earlyRepaymentsMinor > 0 ? { earlyRepaymentsMinor } : {}),
     balanceMinor,
   };
 }
@@ -175,12 +184,106 @@ export function lentTopUps(
   return { totalMinor, byUser };
 }
 
+/** A hand-over (§9.3, §10.6), keyed by the entities on each side. */
+export interface AdvanceLike {
+  kind: PoolAdvanceKind;
+  status: PoolAdvanceStatus;
+  fromKey: string;
+  toKey: string;
+  amountMinor: number;
+}
+
+/** A pool-funded expense, with who paid it, for working out what spenders hold. */
+export interface HoldingDrawLike {
+  payerKey: string;
+  amountMinor: number;
+  status: PoolDrawStatus;
+  fundingSource: Exclude<ExpenseFundingSource, 'self'>;
+  paidFrom?: PoolPaidFrom;
+}
+
+/**
+ * Who holds the pool's remaining money (design doc §9.3). For everyone but the custodian:
+ *
+ *   held = openingHeld + confirmed advances in − confirmed returns out − approved spends paid from held money
+ *
+ * A rejected spend doesn't lower `held`, so the spender still owes it. Spending more than they
+ * hold takes `held` below zero: the pool owes them the difference, like a claim. Early repayments
+ * leave the pool from the custodian, so they don't change anyone's `held`.
+ * The custodian holds the rest: `withCustodian = balance − Σ held`.
+ */
+export function computeHoldings(input: {
+  custodianEntityKey: string;
+  balanceMinor: number;
+  openingHeld?: Record<string, number>;
+  advances: AdvanceLike[];
+  draws: HoldingDrawLike[];
+}): PoolHoldings {
+  const custodian = input.custodianEntityKey;
+  const held: Record<string, number> = {};
+  const add = (key: string, amount: number) => {
+    if (key === custodian || amount === 0) return;
+    held[key] = (held[key] || 0) + amount;
+  };
+  for (const [key, amount] of Object.entries(input.openingHeld || {})) add(key, amount);
+  let pendingOutMinor = 0;
+  for (const a of input.advances) {
+    if (a.kind === 'advance') {
+      if (a.status === 'confirmed') add(a.toKey, a.amountMinor);
+      else if (a.status === 'initiated') pendingOutMinor += a.amountMinor;
+    } else if (a.kind === 'return' && a.status === 'confirmed') {
+      add(a.fromKey, -a.amountMinor);
+    }
+  }
+  for (const d of input.draws) {
+    if (d.status === 'approved' && d.fundingSource === 'pool' && d.paidFrom === 'advance') add(d.payerKey, -d.amountMinor);
+  }
+  const heldBy: Record<string, number> = {};
+  let withSpendersMinor = 0;
+  for (const key of Object.keys(held).sort()) {
+    if (held[key] === 0) continue;
+    heldBy[key] = held[key];
+    withSpendersMinor += held[key];
+  }
+  return {
+    withCustodianMinor: input.balanceMinor - withSpendersMinor,
+    withSpendersMinor,
+    heldBy,
+    pendingOutMinor,
+  };
+}
+
+/**
+ * What each lender can still be paid back early (design doc §10.6, decision D5): their confirmed
+ * top-ups that aren't gifts, less early repayments already confirmed or waiting for confirmation.
+ */
+export function outstandingLoans(
+  contributions: Array<{ kind: PoolContributionKind; gift?: boolean; receivedMinor: number; fromUserId: string }>,
+  advances: Array<{ kind: PoolAdvanceKind; status: PoolAdvanceStatus; toUserId: string; amountMinor: number }>,
+  custodianUserId: string,
+): { totalMinor: number; byUser: Record<string, number> } {
+  const lent = lentTopUps(contributions, custodianUserId).byUser;
+  for (const a of advances) {
+    if (a.kind !== 'repayment' || (a.status !== 'confirmed' && a.status !== 'initiated')) continue;
+    if (lent[a.toUserId] !== undefined) lent[a.toUserId] -= a.amountMinor;
+  }
+  const byUser: Record<string, number> = {};
+  let totalMinor = 0;
+  for (const [userId, amount] of Object.entries(lent)) {
+    if (amount <= 0) continue;
+    byUser[userId] = amount;
+    totalMinor += amount;
+  }
+  return { totalMinor, byUser };
+}
+
 export function computeFundingState(
   config: Pick<PoolConfig, 'targetAmountMinor'>,
   openingBalanceMinor: number,
   totals: PoolCycleTotals,
 ): PoolFundingState {
-  const fundedMinor = openingBalanceMinor + totals.confirmedRegularMinor + totals.confirmedTopUpMinor;
+  // Money paid back early to lenders no longer funds the pool (§10.6).
+  const fundedMinor = openingBalanceMinor + totals.confirmedRegularMinor + totals.confirmedTopUpMinor - (totals.earlyRepaymentsMinor || 0);
   const targetMinor =
     typeof config.targetAmountMinor === 'number' && config.targetAmountMinor > 0
       ? config.targetAmountMinor
@@ -204,11 +307,13 @@ export function computeOverdraftState(
 ): PoolOverdraftState {
   const policy = config.overdraftPolicy;
   const baselineKind = config.overdraftBaseline ?? 'confirmed_funding';
-  const confirmedFunding = openingBalanceMinor + totals.confirmedRegularMinor + totals.confirmedTopUpMinor;
+  // Money paid back early to lenders no longer funds the pool, so the tolerance shrinks with it (§10.6).
+  const repaid = totals.earlyRepaymentsMinor || 0;
+  const confirmedFunding = openingBalanceMinor + totals.confirmedRegularMinor + totals.confirmedTopUpMinor - repaid;
 
   let baselineMinor: number;
   if (baselineKind === 'expected_funding') {
-    baselineMinor = openingBalanceMinor + totals.expectedRegularMinor + totals.confirmedTopUpMinor;
+    baselineMinor = openingBalanceMinor + totals.expectedRegularMinor + totals.confirmedTopUpMinor - repaid;
   } else if (baselineKind === 'target_amount' && typeof config.targetAmountMinor === 'number' && config.targetAmountMinor > 0) {
     baselineMinor = config.targetAmountMinor;
   } else {
@@ -270,6 +375,38 @@ export function nextOverdraftLatch(
   if (!currentlyLatched && state.balanceMinor <= state.floorMinor) return 'latch';
   if (currentlyLatched && state.balanceMinor > state.clearanceThresholdMinor) return 'release';
   return 'unchanged';
+}
+
+/**
+ * What paying a lender back early does to pool spending (design doc §10.6). It's allowed even when
+ * spending is paused, or would pause; the custodian is warned with how much they'd need to add.
+ * The repayment lowers both the balance and the overdraft baseline (decision D6).
+ */
+export function earlyRepaymentImpact(
+  config: Pick<
+    PoolConfig,
+    'overdraftPolicy' | 'overdraftTolerancePercent' | 'overdraftBaseline' | 'overdraftClearancePercent' | 'targetAmountMinor'
+  >,
+  openingBalanceMinor: number,
+  totals: PoolCycleTotals,
+  latchedAt: string | null | undefined,
+  amountMinor: number,
+): { alreadyPaused: boolean; pauses: boolean; addToResumeMinor: number } {
+  if (config.overdraftPolicy !== 'graduated') return { alreadyPaused: false, pauses: false, addToResumeMinor: 0 };
+  const before = computeOverdraftState(config, openingBalanceMinor, totals, latchedAt);
+  const after = computeOverdraftState(config, openingBalanceMinor, {
+    ...totals,
+    earlyRepaymentsMinor: (totals.earlyRepaymentsMinor || 0) + amountMinor,
+    balanceMinor: totals.balanceMinor - amountMinor,
+  }, before.latched ? (latchedAt || 'latched') : null);
+  const alreadyPaused = before.latched;
+  const pausedAfter = after.latched;
+  return {
+    alreadyPaused,
+    pauses: !alreadyPaused && pausedAfter,
+    // Same rule as a refused draw: the balance must rise above the clearance threshold to resume.
+    addToResumeMinor: pausedAfter ? Math.max(0, after.clearanceThresholdMinor - after.balanceMinor + 1) : 0,
+  };
 }
 
 export interface DrawDecision {
@@ -340,6 +477,13 @@ export interface ReconcileInput {
   forDissolution?: boolean;
   /** Cover not yet recorded as contributions (used to preview a close). */
   extraCover?: Array<{ entityKey: string; amountMinor: number }>;
+  /** Confirmed early repayments to lenders, by lender entity (§10.6). */
+  repayments?: Array<{ entityKey: string; amountMinor: number }>;
+  /**
+   * Pool money each spender still holds (entity key → minor, from computeHoldings; §9.3). It is part
+   * of the closing balance, so a settling close collects it from them rather than from the custodian.
+   */
+  held?: Record<string, number>;
 }
 
 export interface ReconcileResult {
@@ -348,6 +492,8 @@ export interface ReconcileResult {
   overdraftCoverMinor: number;
   /** Top-ups given as gifts: they pay for spending and are never paid back. */
   giftsMinor: number;
+  /** Top-ups already paid back early (§10.6). */
+  earlyRepaymentsMinor: number;
   poolSpendMinor: number;
   reimbursementsMinor: number;
   preCoverBalanceMinor: number;
@@ -360,9 +506,12 @@ export interface ReconcileResult {
   entityShares: PoolEntityShare[];
   /**
    * Settlement balances (entity key → minor; > 0 owed, < 0 owes) including the
-   * custodian paying out the cash they hold. Sums to zero. Empty when carrying.
+   * custodian paying out the cash they hold, and spenders handing back what they hold.
+   * Sums to zero. Empty when carrying.
    */
   settlementBalances: Record<string, number>;
+  /** Pool money each spender held at close (non-zero entries of `held`, custodian excluded). */
+  heldBy: Record<string, number>;
 }
 
 function basisFor(policy: PoolSurplusPolicy | PoolDeficitPolicy): PoolShareBasis {
@@ -385,13 +534,15 @@ function basisFor(policy: PoolSurplusPolicy | PoolDeficitPolicy): PoolShareBasis
  * the active policy; its net position is what it put in minus that share:
  *
  *   spendToShare = approved spend − gifts
- *   net = openingCredit + contributed − gifted + cover − fairShare
+ *   net = openingCredit + contributed − gifted − repaid + cover − fairShare
  *
  * Fair shares are weighted by AGREED commitment, not by what was actually paid,
  * so a member who paid nothing still bears their share and correctly ends up
  * owing. A top-up is a loan, paid back through `net` (in a sponsor pool, by the
  * custodian), unless it was given as a gift, which pays for spending instead.
- * Σ net always equals the closing balance.
+ * A top-up paid back early (`repaid`) has already left the pool. Σ net always equals the
+ * closing balance. When the cycle settles, whatever spenders still hold is collected from
+ * them instead of the custodian (§9.3).
  */
 export function reconcileCycle(input: ReconcileInput): ReconcileResult {
   const rosterKeys = input.roster.map((r) => `${r.entityType}:${r.entityId}`);
@@ -399,6 +550,7 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
   for (const c of input.contributions) keySet.add(c.entityKey);
   for (const k of Object.keys(input.openingCredits)) keySet.add(k);
   for (const c of input.extraCover || []) keySet.add(c.entityKey);
+  for (const r of input.repayments || []) keySet.add(r.entityKey);
   // Anyone who consumed shares spending, even without contributing (they then owe).
   for (const d of input.draws) for (const w of d.consumption || []) keySet.add(w.key);
   keySet.add(input.custodianEntityKey);
@@ -408,6 +560,7 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
   const contributed: Record<string, number> = {};
   const regular: Record<string, number> = {};
   const gifted: Record<string, number> = {};
+  const repaid: Record<string, number> = {};
   const cover: Record<string, number> = {};
   const commitment: Record<string, number> = {};
   const fullyWaived: Record<string, boolean> = {};
@@ -416,6 +569,7 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
     contributed[k] = 0;
     regular[k] = 0;
     gifted[k] = 0;
+    repaid[k] = 0;
     cover[k] = 0;
     commitment[k] = 0;
   }
@@ -437,6 +591,7 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
   }
   for (const [k, s] of Object.entries(regularSeen)) fullyWaived[k] = s.total > 0 && s.waived === s.total;
   for (const c of input.extraCover || []) cover[c.entityKey] += c.amountMinor;
+  for (const r of input.repayments || []) repaid[r.entityKey] += r.amountMinor;
 
   const approved = input.draws.filter((d) => d.status === 'approved');
   const poolSpendMinor = approved.filter((d) => d.fundingSource === 'pool').reduce((s, d) => s + d.amountMinor, 0);
@@ -449,7 +604,8 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
   const openingBalanceMinor = keys.reduce((s, k) => s + opening[k], 0);
   const confirmedContributionsMinor = keys.reduce((s, k) => s + contributed[k], 0);
   const overdraftCoverMinor = keys.reduce((s, k) => s + cover[k], 0);
-  const preCoverBalanceMinor = openingBalanceMinor + confirmedContributionsMinor - spend;
+  const earlyRepaymentsMinor = keys.reduce((s, k) => s + repaid[k], 0);
+  const preCoverBalanceMinor = openingBalanceMinor + confirmedContributionsMinor - earlyRepaymentsMinor - spend;
   const closingBalanceMinor = preCoverBalanceMinor + overdraftCoverMinor;
 
   const policy = preCoverBalanceMinor >= 0 ? input.surplusPolicy : input.deficitPolicy;
@@ -489,9 +645,12 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
     addShares(allocateMinor(spendToShare, weights.length > 0 ? weights : sharers.map((k) => ({ key: k, weight: 1 }))));
   }
 
+  const heldBy: Record<string, number> = {};
+  for (const [k, v] of Object.entries(input.held || {})) if (k !== input.custodianEntityKey && v !== 0) heldBy[k] = v;
+
   const entityShares: PoolEntityShare[] = keys.map((k) => {
     const ref = parseEntityKey(k);
-    const netMinor = opening[k] + contributed[k] - gifted[k] - (fairShare[k] || 0) + cover[k];
+    const netMinor = opening[k] + contributed[k] - gifted[k] - repaid[k] - (fairShare[k] || 0) + cover[k];
     return {
       entityId: ref.entityId,
       entityType: ref.entityType,
@@ -501,6 +660,8 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
       coverMinor: cover[k],
       commitmentMinor: commitment[k],
       fairShareMinor: fairShare[k] || 0,
+      ...(repaid[k] ? { repaidMinor: repaid[k] } : {}),
+      ...(heldBy[k] ? { heldMinor: heldBy[k] } : {}),
       netMinor,
     };
   });
@@ -516,9 +677,15 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
   const settlementBalances: Record<string, number> = {};
   if (disposition === 'settle') {
     for (const e of entityShares) settlementBalances[`${e.entityType}:${e.entityId}`] = e.netMinor;
-    // The custodian holds the remaining cash and pays it out.
+    // The custodian holds the remaining cash and pays it out...
     settlementBalances[input.custodianEntityKey] =
       (settlementBalances[input.custodianEntityKey] || 0) - closingBalanceMinor;
+    // ...except what spenders still hold: they hand that over instead (above zero), or are paid
+    // what they spent beyond it (below zero). Σ stays zero.
+    for (const [k, v] of Object.entries(heldBy)) {
+      settlementBalances[k] = (settlementBalances[k] || 0) - v;
+      settlementBalances[input.custodianEntityKey] += v;
+    }
     for (const k of Object.keys(settlementBalances)) if (settlementBalances[k] === 0) delete settlementBalances[k];
   }
 
@@ -527,6 +694,7 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
     confirmedContributionsMinor,
     overdraftCoverMinor,
     giftsMinor,
+    earlyRepaymentsMinor,
     poolSpendMinor,
     reimbursementsMinor,
     preCoverBalanceMinor,
@@ -537,18 +705,26 @@ export function reconcileCycle(input: ReconcileInput): ReconcileResult {
     disposition,
     entityShares,
     settlementBalances,
+    heldBy,
   };
 }
 
 /**
  * A member leaving a carry-forward pool must be paid out (or pay in) now — their
  * credit can't roll into a cycle they're not part of. Everyone else carries.
+ * Pool money a leaver still holds is handed back as part of their exit (or, if they
+ * spent beyond it, paid to them); everyone else's holdings carry forward (§9.3).
  */
 export function splitForMembershipChange(
   result: ReconcileResult,
   leavingKeys: string[],
   custodianEntityKey: string,
-): { carryCredits: Record<string, number>; carryOpeningBalanceMinor: number; exitBalances: Record<string, number> } {
+): {
+  carryCredits: Record<string, number>;
+  carryOpeningBalanceMinor: number;
+  exitBalances: Record<string, number>;
+  carryHeld: Record<string, number>;
+} {
   if (leavingKeys.includes(custodianEntityKey)) {
     throw new Error('The custodian cannot leave the pool. Assign a new custodian first.');
   }
@@ -568,5 +744,16 @@ export function splitForMembershipChange(
     }
   }
   if (exitTotal !== 0) exitBalances[custodianEntityKey] = (exitBalances[custodianEntityKey] || 0) - exitTotal;
-  return { carryCredits, carryOpeningBalanceMinor: result.closingBalanceMinor - exitTotal, exitBalances };
+  // Held money moves between holders inside the pool, so it doesn't change what carries forward.
+  const carryHeld: Record<string, number> = {};
+  for (const [key, held] of Object.entries(result.heldBy || {})) {
+    if (!leaving.has(key)) {
+      carryHeld[key] = held;
+      continue;
+    }
+    exitBalances[key] = (exitBalances[key] || 0) - held;
+    exitBalances[custodianEntityKey] = (exitBalances[custodianEntityKey] || 0) + held;
+  }
+  for (const key of Object.keys(exitBalances)) if (exitBalances[key] === 0) delete exitBalances[key];
+  return { carryCredits, carryOpeningBalanceMinor: result.closingBalanceMinor - exitTotal, exitBalances, carryHeld };
 }

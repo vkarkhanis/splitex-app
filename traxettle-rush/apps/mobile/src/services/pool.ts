@@ -1,16 +1,27 @@
 import type {
   CreatePoolConfigDto,
+  PoolAdvance,
+  PoolAdvanceKind,
   PoolConfig,
   PoolContribution,
   PoolCycle,
   PoolCycleSummary,
+  PoolFoldedItem,
   PoolLedger,
+  PoolSeparateLeg,
   ReconcileResult,
 } from '@traxettle/shared';
 import { api } from '../api';
 
 export type CoverEntry = { entityId: string; entityType: 'user' | 'group'; amountMinor: number };
-export type ClosePreview = ReconcileResult & { cycleId: string; pendingDraws: number; coverNeededMinor: number };
+/** What closing (or settling up) would do. `folded` / `separate`: settle-up only (design doc §11). */
+export type ClosePreview = ReconcileResult & {
+  cycleId: string;
+  pendingDraws: number;
+  coverNeededMinor: number;
+  folded?: PoolFoldedItem[];
+  separate?: PoolSeparateLeg[];
+};
 
 export const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
 
@@ -52,6 +63,16 @@ export const poolService = {
   /** Upload a base64 image/PDF as an expense receipt; returns its URL. */
   uploadReceipt: async (eventId: string, file: { base64: string; contentType: string; filename: string }) =>
     (await api.post<{ url: string }>('/api/uploads', { scope: 'expense_receipt', eventId, ...file })).data.url,
+  /** Money handed between the custodian and someone else (design doc §9.3, §10.6). */
+  recordAdvance: async (eventId: string, body: { kind: PoolAdvanceKind; userId?: string; amountMinor: number; note?: string; proofUrl?: string }) =>
+    (await api.post<PoolAdvance>(`/api/pools/event/${eventId}/advances`, body)).data,
+  confirmAdvance: async (id: string) => (await api.post<PoolAdvance>(`/api/pools/advances/${id}/confirm`, {})).data,
+  rejectAdvance: async (id: string, reason?: string) =>
+    (await api.post<PoolAdvance>(`/api/pools/advances/${id}/reject`, reason ? { reason } : {})).data,
+  cancelAdvance: async (id: string) => (await api.post<PoolAdvance>(`/api/pools/advances/${id}/cancel`, {})).data,
+  /** Proof for money handed over, uploaded before it's recorded; returns its URL. */
+  uploadAdvanceProof: async (eventId: string, file: { base64: string; contentType: string; filename: string }) =>
+    (await api.post<{ url: string }>('/api/uploads', { scope: 'pool_advance_proof', eventId, ...file })).data.url,
   /** Upload proof of payment for a pool contribution; returns its URL. */
   uploadContributionProof: async (contributionId: string, file: { base64: string; contentType: string; filename: string }) =>
     (await api.post<{ url: string }>('/api/uploads', { scope: 'pool_contribution_proof', contributionId, ...file })).data.url,

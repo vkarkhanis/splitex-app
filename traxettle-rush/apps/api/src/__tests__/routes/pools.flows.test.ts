@@ -32,7 +32,7 @@ jest.mock('../../config/firebase', () => {
   };
 });
 
-import { auth, buildApp, poolApi } from '../helpers/poolHarness';
+import { auth, buildApp, makePro, poolApi } from '../helpers/poolHarness';
 
 const { __store: store } = require('../../config/firebase');
 const app = buildApp();
@@ -44,7 +44,11 @@ const CAROL = 'mock-carol';
 const DEV = 'mock-dev';
 const OUTSIDER = 'mock-outsider';
 
-beforeEach(() => store.reset());
+// The creator of a "Several of us" pool needs Pro (design doc §12).
+beforeEach(() => {
+  store.reset();
+  makePro(store, ALICE);
+});
 
 async function kitty(members: string[], defaultContributionMinor = 1000000, extra: Record<string, any> = {}) {
   const eventId = await api.createPool(ALICE, { preset: 'trip_kitty', defaultContributionMinor, ...extra });
@@ -384,11 +388,26 @@ describe('sponsor budget (UC-2)', () => {
     expect((await api.spend(eventId, CAROL, 1000, { attachments: ['https://r/1.jpg'] })).status).toBe(201);
   });
 
-  it('requires a receipt on every pool draw', async () => {
+  it('requires a receipt on every pool draw already paid, including the custodian\'s', async () => {
     const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
-    const res = await api.spend(eventId, BOB, 1000);
+    const res = await api.spend(eventId, BOB, 1000, { alreadyIncurred: true });
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('POOL_RECEIPT_REQUIRED');
+    // The custodian isn't asked "already paid or asking first": their spends always count as paid.
+    expect((await api.spend(eventId, ALICE, 1000)).body.code).toBe('POOL_RECEIPT_REQUIRED');
+  });
+
+  it('needs no receipt from a spender asking before they spend; one can be added after paying', async () => {
+    const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
+    const asked = await api.spend(eventId, BOB, 4000, { title: 'Band advance' });
+    expect(asked.status).toBe(201);
+    expect(asked.body.data.poolDraw).toMatchObject({ status: 'pending', alreadyIncurred: false });
+    expect((await api.approveDraw(asked.body.data.id, ALICE)).status).toBe(200);
+
+    // Adding the receipt later is a plain edit: it stays approved.
+    const edited = await request(app).put(`/api/expenses/${asked.body.data.id}`).set(auth(BOB)).send({ attachments: ['https://r/band.jpg'] });
+    expect(edited.status).toBe(200);
+    expect(edited.body.data).toMatchObject({ attachments: ['https://r/band.jpg'], poolDraw: { status: 'approved' } });
   });
 
   it('holds spender draws for approval; only approved draws deduct', async () => {
@@ -514,8 +533,11 @@ describe('sponsor budget (UC-2)', () => {
       const { eventId, claimId } = await staleClaim('approved');
       expect((await api.dissolve(eventId, ALICE)).status).toBe(200);
       const legs = store.all('settlements').filter((s: any) => s.kind === 'pool_reimbursement');
-      expect(legs).toEqual([expect.objectContaining({ toUserId: BOB, amount: 4000, status: 'pending', expenseId: claimId })]);
-      expect((await api.event(eventId, ALICE)).status).toBe('payment');
+      // Created, then folded into the final settlement (§11), which pays Bob back.
+      expect(legs).toEqual([expect.objectContaining({ toUserId: BOB, amount: 4000, status: 'netted', expenseId: claimId })]);
+      const plan = store.all('settlements').filter((s: any) => !s.kind);
+      expect(plan.map((s: any) => [s.fromUserId, s.toUserId, s.amount])).toEqual([[ALICE, BOB, 4000]]);
+      expect((await api.event(eventId, ALICE)).status).toBe('review');
     });
   });
 
@@ -589,14 +611,19 @@ describe('sponsor budget (UC-2)', () => {
     expect(cycle.reconciliation).toMatchObject({ closingBalanceMinor: 5770000, shareBasis: 'custodian', disposition: 'settle' });
   });
 
-  it('waits for outstanding reimbursements before settling on dissolve', async () => {
+  it('pays an outstanding reimbursement through the final settlement on dissolve (§11)', async () => {
     const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
     const claim = (await api.claim(eventId, BOB, 1000)).body.data;
     const legId = (await api.approveDraw(claim.id, ALICE)).body.data.settlementId;
     await api.dissolve(eventId, ALICE);
+    expect(store.get('settlements', legId).status).toBe('netted');
+    expect((await api.event(eventId, ALICE)).status).toBe('review');
+    for (const uid of [ALICE, BOB, CAROL]) await api.approveReview(eventId, uid);
     expect((await api.event(eventId, ALICE)).status).toBe('payment');
-    await api.payLeg(legId, ALICE);
-    await api.confirmLeg(legId, BOB);
+    const planLeg = store.all('settlements').find((s: any) => !s.kind);
+    expect(planLeg).toMatchObject({ fromUserId: ALICE, toUserId: BOB, amount: 1000 });
+    await api.payLeg(planLeg.id, ALICE);
+    await api.confirmLeg(planLeg.id, BOB);
     expect((await api.event(eventId, ALICE)).status).toBe('settled');
   });
 
@@ -653,14 +680,19 @@ describe('sponsor budget (UC-2)', () => {
       expect((await repaymentLegs(eventId)).map((l) => l.amount)).toEqual([4000]);
     });
 
-    it('waits for the repayment before the event settles on dissolve', async () => {
+    it('collects the repayment through the final settlement on dissolve (§11)', async () => {
       const eventId = await wedding({ overrides: { authorizedSpenders: [BOB] } });
       const paid = (await api.spend(eventId, BOB, 5000, { ...receipt, alreadyIncurred: true })).body.data;
       const legId = (await api.rejectDraw(paid.id, ALICE)).body.data.poolDraw.settlementId;
       await api.dissolve(eventId, ALICE);
-      expect((await api.event(eventId, ALICE)).status).toBe('payment');
-      await api.payLeg(legId, BOB);
-      await api.confirmLeg(legId, ALICE);
+      expect(store.get('settlements', legId).status).toBe('netted');
+      // Only a repayment was open: the event now goes to Review, not straight to Payment.
+      expect((await api.event(eventId, ALICE)).status).toBe('review');
+      for (const uid of [ALICE, BOB, CAROL]) await api.approveReview(eventId, uid);
+      const planLeg = store.all('settlements').find((s: any) => !s.kind);
+      expect(planLeg).toMatchObject({ fromUserId: BOB, toUserId: ALICE, amount: 5000 });
+      await api.payLeg(planLeg.id, BOB);
+      await api.confirmLeg(planLeg.id, ALICE);
       expect((await api.event(eventId, ALICE)).status).toBe('settled');
     });
   });

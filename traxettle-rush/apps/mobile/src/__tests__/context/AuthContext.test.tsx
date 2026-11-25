@@ -272,6 +272,30 @@ describe('AuthContext', () => {
     expect(captured?.user?.userId).toBe('u-google');
   });
 
+  it('carries the group-pool capability from the profile, and leaves it unknown when an older server omits it (§12)', async () => {
+    const profile = (capabilities: Record<string, boolean>) => ({
+      data: { userId: 'u-cap', email: 'c@test.com', displayName: 'Cap', tier: 'free', capabilities },
+    });
+    (api.post as jest.Mock).mockResolvedValue({ data: { firebaseCustomToken: 'firebase-custom-token' } });
+    (getToken as jest.Mock).mockResolvedValue('custom-token');
+
+    (api.get as jest.Mock).mockResolvedValue(profile({ multiCurrencySettlement: false, contributorPools: false }));
+    await act(async () => {
+      renderer = create(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      );
+    });
+    await flush();
+    await act(async () => { await captured?.loginWithGoogle('id-token'); });
+    expect(captured?.capabilities.contributorPools).toBe(false);
+
+    (api.get as jest.Mock).mockResolvedValue(profile({ multiCurrencySettlement: false }));
+    await act(async () => { await captured?.refreshProfile(); });
+    expect(captured?.capabilities.contributorPools).toBeUndefined();
+  });
+
   it('apple login exchanges the identity token for a Firebase session and loads the profile', async () => {
     (api.post as jest.Mock).mockResolvedValueOnce({ data: { firebaseCustomToken: 'firebase-custom-token' } });
     (getToken as jest.Mock).mockResolvedValue('custom-token');

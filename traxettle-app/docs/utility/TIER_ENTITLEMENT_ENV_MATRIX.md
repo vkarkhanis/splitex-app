@@ -15,6 +15,11 @@
 |---|---|---|---|
 | Multi-currency settlement (FX event creation/update) | Denied | Allowed | Denied |
 | 3 active/closed event cap | Enforced | Bypassed | Enforced when no active Pro |
+| Group pools ("Several of us": Kitty, Fund, Treasury, Collection, and hybrids built on them), checked when creating an event (`POST /api/events`) or adding a pool to one (`POST /api/pools/event/:id/convert`) | Denied (`403 FEATURE_REQUIRES_PRO`, `feature: contributor_pools`) | Allowed | Denied for new pools; existing pools keep working |
+
+- **Billing retry** counts as free, the same as expired or revoked (`hasActivePro`: tier `pro` with status `active` or `grace_period`).
+- **Group pools:** only the creator needs Pro. Members join and take part free. Spending, cycle closes, settling up and dissolving are never checked, so a lapse can't trap money already in a pool. There's no exception for `mock-` test users.
+- **"Just me" budgets** and split-expenses events are free (the event cap still applies).
 
 ## Required Flags
 

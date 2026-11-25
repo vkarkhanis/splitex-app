@@ -7,6 +7,12 @@ import { FxRateService } from './fx-rate.service';
 import { PaymentService } from './payment.service';
 import { EventService } from './event.service';
 import { PoolService } from './pool.service';
+import { foldablePoolLegs, foldLegsIntoBalances, type FoldableLeg } from './pool-netting';
+
+/** A pool repayment or claim folded into the final plan (§11) can't be paid on its own. */
+function assertNotNetted(data: Record<string, any>): void {
+  if (data?.status === 'netted') throw new Error('This payment is included in the final settlement');
+}
 
 /** Sum two balance sets per entity (e.g. peer-to-peer debts + pool positions). */
 export function mergeBalances(a: Balance[], b: Balance[]): Balance[] {
@@ -427,11 +433,13 @@ export class SettlementService {
       throw new Error('Forbidden: Only admins can generate settlements');
     }
 
-    // Clear any existing plan for this event (pool reimbursement/exit legs are kept)
-    await this.clearStandardSettlements(eventId);
+    // Clear any existing plan for this event (pool reimbursement/exit legs are kept, folded ones restored)
+    await this.clearStandardSettlements(eventId, userId);
 
-    const balances = await this.calculateBalancesForPlan(eventId, eventData);
+    const now = new Date().toISOString();
+    const folded = await this.foldOpenPoolLegs(eventId, eventData, userId, now);
     const groups = await this.groupService.getEventGroups(eventId);
+    const balances = await this.calculateBalancesForPlan(eventId, eventData, folded, groups);
     const plan = this.calculateSettlementPlan(balances, eventId, eventData.currency, groups);
 
     // FX conversion: if settlementCurrency differs from event currency, convert amounts
@@ -454,8 +462,6 @@ export class SettlementService {
         settlement.fxRate = fxRate;
       }
     }
-
-    const now = new Date().toISOString();
 
     // Persist each settlement transaction
     for (const settlement of plan.settlements) {
@@ -676,8 +682,9 @@ export class SettlementService {
       throw new Error('Forbidden: Only admins or group representatives can regenerate settlements');
     }
 
-    // Snapshot old settlements for comparison
-    const oldSettlements = await this.getEventSettlements(eventId);
+    // Snapshot the old plan for comparison. Pool payments aren't part of the plan (folded ones are
+    // already inside its amounts), so they don't make anyone look "affected".
+    const oldSettlements = (await this.getEventSettlements(eventId)).filter((s) => !isPoolSideLeg(s));
     const oldSettlementMap = new Map<string, number>(); // entityId -> net amount
     for (const s of oldSettlements) {
       // Track net amounts per entity
@@ -686,11 +693,13 @@ export class SettlementService {
     }
     const oldEntityIds = new Set([...oldSettlementMap.keys()]);
 
-    // Clear the existing plan (pool reimbursement/exit legs are kept)
-    await this.clearStandardSettlements(eventId);
+    // Clear the existing plan (pool reimbursement/exit legs are kept, folded ones restored)
+    await this.clearStandardSettlements(eventId, userId);
 
-    // Recalculate
-    const balances = await this.calculateBalancesForPlan(eventId, eventData);
+    // Recalculate, folding the pool payments again
+    const now = new Date().toISOString();
+    const folded = await this.foldOpenPoolLegs(eventId, eventData, userId, now);
+    const balances = await this.calculateBalancesForPlan(eventId, eventData, folded, groups);
     const plan = this.calculateSettlementPlan(balances, eventId, eventData.currency, groups);
 
     // FX conversion
@@ -709,8 +718,6 @@ export class SettlementService {
         settlement.fxRate = rateInfo.rate;
       }
     }
-
-    const now = new Date().toISOString();
 
     // Persist new settlements
     for (const settlement of plan.settlements) {
@@ -840,6 +847,7 @@ export class SettlementService {
     if (data.fromUserId !== userId) {
       throw new Error('Forbidden: Only the payer can initiate payment');
     }
+    assertNotNetted(data);
     if (data.status !== 'pending' && data.status !== 'failed') {
       throw new Error(`Cannot initiate payment: transaction is already ${data.status}`);
     }
@@ -955,6 +963,7 @@ export class SettlementService {
     if (data.fromUserId !== userId) {
       throw new Error('Forbidden: Only the payer can retry payment');
     }
+    assertNotNetted(data);
     if (data.status === 'completed') {
       throw new Error('Cannot retry payment: transaction is already completed');
     }
@@ -1132,6 +1141,7 @@ export class SettlementService {
     if (!await this.canActAsPayee(data, userId)) {
       throw new Error('Forbidden: Only the payee can mark this as paid');
     }
+    assertNotNetted(data);
     if (data.status === 'completed') {
       throw new Error('Settlement is already completed');
     }
@@ -1202,6 +1212,7 @@ export class SettlementService {
       throw new Error('Forbidden: Only an event admin can close this payment');
     }
     if (data.status === 'completed') throw new Error('Settlement is already completed');
+    assertNotNetted(data);
 
     const parties = [...new Set([data.fromUserId, data.toUserId].filter(Boolean).map(String))];
     const participantSnaps = await Promise.all(
@@ -1267,7 +1278,7 @@ export class SettlementService {
         const snap = await db.collection(this.collection).where('eventId', '==', event.id).get();
         snap.docs.forEach((doc: any) => {
           const leg = doc.data() || {};
-          if (leg.status === 'completed') return;
+          if (leg.status === 'completed' || leg.status === 'netted') return;
           const amount = Number(leg.amount) || 0;
           if (leg.fromUserId === userId) owes += amount;
           if (leg.toUserId === userId) owed += amount;
@@ -1353,6 +1364,7 @@ export class SettlementService {
         ...(data.kind ? { kind: data.kind } : {}),
         ...(data.poolCycleId ? { poolCycleId: data.poolCycleId } : {}),
         ...(data.expenseId ? { expenseId: data.expenseId } : {}),
+        ...(data.nettedAt ? { nettedAt: data.nettedAt, nettedPlanAt: data.nettedPlanAt ?? null } : {}),
         ...(data.closedForDeletedUser ? { closedForDeletedUser: data.closedForDeletedUser } : {}),
         initiatedAt: data.initiatedAt,
         failedAt: data.failedAt,
@@ -1364,26 +1376,74 @@ export class SettlementService {
     return settlements;
   }
 
-  /** Delete the event's settlement plan, keeping pool reimbursement/exit legs. */
-  private async clearStandardSettlements(eventId: string): Promise<void> {
+  /**
+   * Delete the event's settlement plan, keeping pool reimbursement/exit legs. Pool payments folded
+   * into that plan go back to `pending` in the same batch, so a failure can't lose or double a debt;
+   * the caller folds them again into the new plan (§11.4).
+   */
+  private async clearStandardSettlements(eventId: string, actorId = 'system'): Promise<void> {
     const existingSnap = await db.collection(this.collection).where('eventId', '==', eventId).get();
     const stale = existingSnap.docs.filter((doc: any) => !isPoolSideLeg(doc.data?.() || {}));
-    if (stale.length > 0) {
-      const batch = db.batch();
-      stale.forEach((doc: any) => batch.delete(doc.ref));
-      await batch.commit();
-    }
+    const folded = existingSnap.docs.filter((doc: any) => (doc.data?.() || {}).status === 'netted');
+    if (stale.length === 0 && folded.length === 0) return;
+    const batch = db.batch();
+    stale.forEach((doc: any) => batch.delete(doc.ref));
+    folded.forEach((doc: any) => {
+      const data = doc.data?.() || {};
+      batch.set(doc.ref, {
+        status: 'pending',
+        nettedAt: null,
+        nettedPlanAt: null,
+        auditTrail: this.appendAuditTrail(data.auditTrail, this.buildAuditEntry({
+          action: 'unfolded', actorUserId: actorId, note: 'Settlement plan re-run', statusFrom: 'netted', statusTo: 'pending',
+        })),
+      }, { merge: true });
+    });
+    await batch.commit();
+  }
+
+  /**
+   * Fold the settled cycle's unpaid pool repayments and claims into the final plan (§11.4): mark
+   * them `netted` and return them, to add to the plan's balances. Re-read inside a transaction, so
+   * a leg someone marks paid at the same moment is either folded or being paid, never both.
+   * Only for a pool event whose cycle is being settled up.
+   */
+  private async foldOpenPoolLegs(eventId: string, eventData: Record<string, any>, actorId: string, now: string): Promise<FoldableLeg[]> {
+    if (!isPoolFundedEvent(eventData)) return [];
+    const cycleId = await this.poolService.reconcilingCycleId(eventId);
+    if (!cycleId) return [];
+    return db.runTransaction(async (tx: any) => {
+      const snap = await tx.get(db.collection(this.collection).where('eventId', '==', eventId));
+      const legs = foldablePoolLegs(snap.docs.map((doc: any) => ({ id: doc.id, ...(doc.data?.() || {}) })), cycleId);
+      for (const leg of legs) {
+        tx.set(db.collection(this.collection).doc(leg.id), {
+          status: 'netted',
+          nettedAt: now,
+          nettedPlanAt: now,
+          auditTrail: this.appendAuditTrail(leg.auditTrail, this.buildAuditEntry({
+            action: 'netted', actorUserId: actorId, note: 'Included in the final settlement', statusFrom: leg.status, statusTo: 'netted',
+          })),
+        }, { merge: true });
+      }
+      return legs;
+    });
   }
 
   /**
    * Balances to settle: peer-to-peer debts, plus — for pool-funded events
-   * being settled up — each entity's pool position. One plan covers both.
+   * being settled up — each entity's pool position and the pool payments
+   * folded in (§11). One plan covers all of it.
    */
-  private async calculateBalancesForPlan(eventId: string, eventData: Record<string, any>): Promise<Balance[]> {
+  private async calculateBalancesForPlan(
+    eventId: string,
+    eventData: Record<string, any>,
+    folded: FoldableLeg[] = [],
+    groups: Group[] = [],
+  ): Promise<Balance[]> {
     const peer = await this.calculateEntityBalances(eventId);
     if (!isPoolFundedEvent(eventData)) return peer;
     const pool = await this.poolService.computeSettlementBalances(eventId);
-    return mergeBalances(peer, pool);
+    return mergeBalances(mergeBalances(peer, pool), foldLegsIntoBalances(folded, groups));
   }
 
   private async hasOpenPoolSideLegs(eventId: string, eventData: Record<string, any>): Promise<boolean> {
@@ -1391,14 +1451,18 @@ export class SettlementService {
     const snap = await db.collection(this.collection).where('eventId', '==', eventId).get();
     return snap.docs.some((doc: any) => {
       const d = doc.data?.() || {};
-      return isPoolSideLeg(d) && d.status !== 'completed' && d.status !== 'terminated';
+      return isPoolSideLeg(d) && d.status !== 'completed' && d.status !== 'terminated' && d.status !== 'netted';
     });
   }
 
   private async finalizePoolIfAny(eventId: string, eventData: Record<string, any>): Promise<void> {
     if (!isPoolFundedEvent(eventData)) return;
     const legs = await this.getEventSettlements(eventId);
-    await this.poolService.finalizeOnSettled(eventId, legs.filter((l) => !isPoolSideLeg(l)).map((l) => l.id));
+    await this.poolService.finalizeOnSettled(
+      eventId,
+      legs.filter((l) => !isPoolSideLeg(l)).map((l) => l.id),
+      legs.filter((l) => l.status === 'netted').map((l) => l.id),
+    );
   }
 
   /**
@@ -1408,8 +1472,9 @@ export class SettlementService {
    */
   private async settleEventIfComplete(eventId: string, justCompletedId: string, now: string): Promise<boolean> {
     const allSettlements = await this.getEventSettlements(eventId);
+    // A pool payment folded into the plan (`netted`) is paid through the plan's own payments.
     const allComplete = allSettlements.every(s =>
-      s.id === justCompletedId ? true : s.status === 'completed'
+      s.id === justCompletedId ? true : s.status === 'completed' || s.status === 'netted'
     );
     if (!allComplete) return false;
 
@@ -1431,7 +1496,7 @@ export class SettlementService {
   async getPendingSettlementTotal(eventId: string): Promise<number> {
     const settlements = await this.getEventSettlements(eventId);
     return settlements
-      .filter(s => s.status !== 'completed')
+      .filter(s => s.status !== 'completed' && s.status !== 'netted')
       .reduce((sum, s) => sum + s.amount, 0);
   }
 }

@@ -28,10 +28,12 @@ The web and mobile apps read `@traxettle/shared` from its built `dist/`, so
 
 | Package | Command | What covers pooling |
 |---|---|---|
-| Shared | `cd libraries/shared && npm test` | `pool.test.ts`, `pool-math.test.ts`, `pool-ui.test.ts` — money helpers, presets, allocation, overdraft, reconciliation (incl. randomised invariant checks) |
-| API | `cd apps/api && npm test` | `routes/pools.flows.test.ts`, `routes/pools.recurring.test.ts`, `services/pool.service.test.ts`, `services/upload.service.test.ts`, plus the updated expense/auth/regression suites |
-| Web | `cd apps/web && npm test` | `__tests__/pool/*` (coverage thresholds include the pool components) |
-| Mobile | `cd apps/mobile && npm test` | `__tests__/services/pool.test.ts` |
+| Shared | `cd libraries/shared && npm test` | `pool.test.ts`, `pool-math.test.ts`, `pool-ui.test.ts` — money helpers, presets, allocation, overdraft, reconciliation (incl. randomised invariant checks), held money and early repayments, "Paid with" options, settle-up wording |
+| API | `cd apps/api && npm test` | `routes/pools.flows.test.ts`, `routes/pools.recurring.test.ts`, `services/pool.service.test.ts`, `services/upload.service.test.ts`, plus the updated expense/auth/regression suites. Phase 2: `routes/pools.advances.test.ts` (hand-overs, payment method), `routes/settlements.netting.test.ts` and `services/pool-netting.test.ts` (netting), `routes/pools.pro-gating.test.ts` (Pro check) |
+| Web | `cd apps/web && npm test` | `__tests__/pool/*` (coverage thresholds include the pool components), including `pool-phase2.test.tsx`; `__tests__/utils/proFeatures.test.ts` |
+| Mobile | `cd apps/mobile && npm test` | `__tests__/services/pool.test.ts`, `__tests__/screens/PoolScreen.test.tsx`, `__tests__/proFeatures.test.tsx`; free trial: `subscriptionTerms.test.ts`, `services/purchases.test.ts`, `context/PurchaseContext.test.tsx` |
+
+The API test helper `makePro(store, …uids)` (`__tests__/helpers/poolHarness.ts`) makes a pool's creator Pro. Any new test that creates a "Several of us" pool needs it.
 
 Typecheck everything:
 
@@ -39,9 +41,15 @@ Typecheck everything:
 (cd apps/api && npx tsc --noEmit) && (cd apps/web && npx tsc --noEmit) && (cd apps/mobile && npx tsc --noEmit)
 ```
 
-> Known, pre-existing mobile failures unrelated to pooling: `firebase.test.ts`
-> (expects a stale emulator project id) and `App.test.tsx` (Jest cannot parse
-> the suite). CI runs mobile tests as non-blocking until those are fixed.
+> The two mobile failures once listed here (`firebase.test.ts`, `App.test.tsx`) were fixed on
+> 2026-10-23; every mobile suite passes. `App.test.tsx` mocks each screen `App.tsx` imports, so a
+> new screen needs a `jest.mock('../screens/X')` line there.
+
+**End-to-end (Playwright),** from `e2e/`: `npm test` starts its own API (:3201) and web (:3200).
+It needs Playwright's Chromium (`npm run install:browsers`, about 150 MB). To use an installed Google
+Chrome instead, run with a config that spreads `playwright.config.ts` and sets `channel: 'chrome'` on
+the project. Pooling: `tests/pool-phase2.spec.ts` (the Phase 2 test plan's Scenarios 1, 3, 5 and 6, and
+Phase 1's Scenarios 3 and 4 with netting) and the Pro checks in `tests/tier-entitlements.spec.ts`.
 
 ---
 
@@ -54,11 +62,11 @@ with `APP_ENV=local`, accepts `Bearer mock-<id>` test tokens. **Data is lost
 when the API restarts.**
 
 ```bash
-# Terminal 1 — API on :3001
-cd apps/api && APP_ENV=local PORT=3001 npx ts-node src/index.ts
+# Terminal 1 — API on :3001 (the tier switch lets you make test users Pro)
+cd apps/api && APP_ENV=local INTERNAL_TIER_SWITCH_ENABLED=true PORT=3001 npx ts-node src/index.ts
 
-# Terminal 2 — Web on :3000
-cd apps/web && NEXT_PUBLIC_APP_ENV=local NEXT_PUBLIC_API_URL=http://localhost:3001 npx next dev --webpack -p 3000
+# Terminal 2 — Web on :3000 (the last variable adds Free/Pro buttons to Profile)
+cd apps/web && NEXT_PUBLIC_APP_ENV=local NEXT_PUBLIC_API_URL=http://localhost:3001 NEXT_PUBLIC_ALLOW_LOCAL_TIER_SWITCH=true npx next dev --webpack -p 3000
 ```
 
 Sign in as a test user from the browser console on http://localhost:3000
@@ -78,7 +86,19 @@ curl -X POST http://localhost:3001/api/events/<eventId>/participants \
   -d '{"userId":"mock-bob"}'
 ```
 
-Quick end-to-end API check against the running server:
+**"Several of us" pools need a Pro creator** (design doc §12). Make a test user Pro with
+**Profile → Local Tier Switch → Pro**, or from the terminal:
+
+```bash
+curl -X POST http://localhost:3001/api/internal/entitlements/switch \
+  -H 'Authorization: Bearer mock-alice' -H 'Content-Type: application/json' \
+  -d '{"tier":"pro"}'
+```
+
+Members join free. Both need `INTERNAL_TIER_SWITCH_ENABLED=true` on the API.
+
+Quick end-to-end API check against the running server (it switches its own user to Pro, so it
+needs `INTERNAL_TIER_SWITCH_ENABLED=true` too):
 
 ```bash
 node scripts/local-dev/pool-smoke.mjs          # expects ALL LIVE CHECKS PASSED
@@ -101,9 +121,13 @@ invite them by email. Receipts upload to the Storage emulator.
 
 Use INR and round numbers so the arithmetic is easy to check.
 
+**Pro:** UC-1, UC-3, UC-4, UC-5 and hybrid events built on them are "Several of us" pools, so the
+person creating them must be Pro (§3 above). "Just me" (UC-2) and split-expenses events are free.
+Members are never asked for Pro.
+
 ### UC-3 Trip kitty (start here)
 
-1. **Create event → Funding: Pool money → Several of us → Kitty**, "Each person puts in" = 10,000. You land on the **Kitty** tab.
+1. As a **Pro** user: **Create event → Funding: Pool money → Several of us → Kitty**, "Each person puts in" = 10,000. You land on the **Kitty** tab. (As a free user, "Several of us" shows **PRO** and creating is refused; see the Phase 2 section.)
 2. Expect: "Nothing in the pool yet" (neutral grey), your contribution "Not paid".
 3. Add a second person. They automatically get a 10,000 contribution.
 4. **Mark as paid** your own contribution → it is **confirmed immediately** (you're the custodian, the money is in your hands).
@@ -145,9 +169,10 @@ sponsor (**custodian**).
    Edit its amount instead → it goes back to *awaiting approval* and the repayment disappears; reject again →
    a new repayment for the new amount.
 6. The spender taps **Mark paid** on the repayment, the sponsor taps **Received** → *Repaid*.
-7. **Finish & report** while a repayment is unpaid → the preview lists it under **Paid separately**; the event waits in
-   *payment* until it's paid and confirmed (from the Settlements list, where it's labelled *paid on its own*). It isn't
-   netted against other payments; netting is planned for Phase 2 (design doc §11).
+7. **Finish & report** while a repayment is unpaid → since Phase 2 the preview lists it under **Included in the final
+   settlement**, and the spender's row shows the deduction. The event goes to **Review**, and the repayment shows as
+   *In final settlement* until the plan is paid. A repayment someone has **already started paying** stays under
+   **Paid separately**. (Phase 1 paid every repayment on its own; design doc §11.)
 
 **Money added by others (§10)**
 
@@ -163,7 +188,7 @@ sponsor (**custodian**).
 
 ### UC-1 Shared-living fund
 
-1. **Pool money → Several of us → Fund**, 15,000 per person per month. Invite flatmates — **no extra cycles** are created while nobody has paid.
+1. As a **Pro** user: **Pool money → Several of us → Fund**, 15,000 per person per month. Invite flatmates — **no extra cycles** are created while nobody has paid.
 2. Pay in, spend (rent, electricity with a PDF receipt), leave someone unpaid.
 3. **Close <Month>** → preview shows each person's carried credit/debt → confirm → a new month opens with the balance carried and fresh dues.
 4. Overspend before closing → the close preview asks **who covered the shortfall**.
@@ -171,9 +196,40 @@ sponsor (**custodian**).
 
 ### UC-4 Club treasury · UC-5 Target collection · UC-6 Hybrid
 
-- **Treasury**: set tiered amounts with **Set amounts** (e.g. 2,000 / 500 / 200); joiners don't close the cycle; surplus always carries.
+All three need a **Pro** creator (hybrid only when built on a "Several of us" pool).
+
+- **Treasury**: set tiered amounts with **Set amounts** (e.g. 2,000 / 500 / 200); joiners don't close the cycle; surplus always carries, and so do the tiers (the next month asks for the same amounts).
 - **Collection**: target 20,000 → pool spends are refused until the target is collected, then allowed only up to the balance.
 - **Hybrid** (Advanced → *Also allow regular split expenses*): the expense form offers a third option, *My money — split it* (the classic form). **Settle up** produces **one** plan covering pool refunds and peer debts.
+
+### Phase 2 (design doc §9.3, §10.6, §11 and §12)
+
+> Full end-to-end runs: [MONEY_POOLING_PHASE2_E2E.md](MONEY_POOLING_PHASE2_E2E.md). The steps below are the short version.
+
+**Handing money to spenders (§9.3).** Use a "Just me" budget of ₹80,000 with one spender.
+1. As the sponsor, **Give money** ₹20,000 to the spender. The Budget tab shows *"₹20,000 handed over, waiting to be
+   confirmed"*. As the spender, **Confirm** it: *"You're holding ₹20,000 of the budget's money."*
+2. As the spender, **Add expense → Pool funds** with **Paid with: Budget money I'm holding**, ₹15,000, already paid. The
+   sponsor approves it: *With you ₹60,000 · With spenders ₹5,000*.
+3. As the spender, **Return money** ₹2,000; the sponsor confirms. Or the sponsor taps **Record money returned**, which
+   is confirmed at once.
+4. **Finish & report** while a hand-over is still waiting → refused until it's confirmed or cancelled. Then the
+   preview shows the spender handing back what they still hold.
+5. With **"Spenders can pay with my card or UPI"** turned off in Spenders, the spender no longer sees the card option.
+
+**Paying back early (§10.6).** A spender adds ₹10,000 (a loan). The sponsor sees *"Ravi lent the budget money: ₹10,000
+still to pay back"* and taps **Pay back now**. If that would pause spending, the sheet warns first. The lender confirms.
+
+**Netting (§11).** Run Phase 1 step 7 above: one payment instead of two.
+
+**Pro (§12).**
+1. As a **free** user: on create event, "Several of us" is shown **locked** (greyed, dashed border, **PRO**,
+   *🔒 Pro feature*). Tapping it doesn't select it; it shows *"Group pools are a Pro feature…"* with an upgrade link.
+   "Just me" and split expenses still work.
+2. Switch the user to **Pro** → no badge, and creating works. Add a **free** member: they pay in, spend and settle up.
+3. Switch the creator back to **free** mid-cycle → the pool keeps working: close the cycle, settle up, dissolve.
+4. The Pro page and Help list **Group pools**, in every environment from the Phase 2 release on
+   (`CONTRIBUTOR_POOLS_IN_PRODUCTION` is on). Older production builds still hide them.
 
 ### Regression: split-expenses events are unchanged
 
@@ -184,7 +240,10 @@ be attached to ordinary expenses too.
 ### Mobile
 
 The event screen shows a pool card (tap → Pool screen). Create/edit expense
-shows **Paid with** and **Take photo / Choose photo** for receipts.
+shows **Paid with** and **Take photo / Choose photo** for receipts. The Pool screen has the Phase 2
+actions (**Give money**, **Money returned**, **Return money**, **Pay back now**) and the settle-up
+breakdown; create event shows **PRO** on "Several of us" for free users. The mobile app needs the
+Firebase emulators to sign in locally (Option B).
 
 ---
 

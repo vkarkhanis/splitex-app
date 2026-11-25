@@ -14,6 +14,7 @@ jest.mock('../../services/entitlement.service', () => ({
   EntitlementService: jest.fn().mockImplementation(() => ({
     getEntitlement: getEntitlementMock,
     computeCapabilities: computeCapabilitiesMock,
+    getDefaultEntitlement: () => ({ tier: 'free', entitlementStatus: 'active', entitlementExpiresAt: null, entitlementSource: 'system', internalTester: false }),
   })),
 }));
 
@@ -166,6 +167,8 @@ describe('GET /api/users/profile', () => {
     expect(res.body.data.preferences.currency).toBe('USD');
     expect(res.body.data.preferences.timezone).toBe('UTC');
     expect(res.body.data.preferences.notifications).toBe(true);
+    // A new user's capabilities come from the entitlement service, so none can be missing (e.g. contributorPools).
+    expect(computeCapabilitiesMock).toHaveBeenCalledWith(expect.objectContaining({ tier: 'free', entitlementStatus: 'active' }));
   });
 
   it('should return existing profile when doc exists with all string fields', async () => {

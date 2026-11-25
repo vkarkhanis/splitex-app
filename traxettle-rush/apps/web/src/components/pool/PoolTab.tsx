@@ -22,21 +22,41 @@ import {
   Select,
   useToast,
 } from '@traxettle/ui';
-import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, canApproveDraw, entityKey, fromMinor, isPoolSideLeg, lentTopUps, openPoolSideLegs, poolLegLabel, reimbursementStatus, repaymentStatus, toMinor } from '@traxettle/shared';
+import {
+  ADVANCE_KIND_LABEL,
+  REIMBURSEMENT_STATUS,
+  REPAYMENT_STATUS,
+  advanceStatusText,
+  canApproveDraw,
+  describeSettleUpRow,
+  earlyRepaymentImpact,
+  entityKey,
+  fromMinor,
+  isPoolSideLeg,
+  lentTopUps,
+  outstandingLoans,
+  partMonthNote,
+  poolLegLabel,
+  reimbursementStatus,
+  repaymentStatus,
+  settleUpFigures,
+  settleUpRows,
+  toMinor,
+} from '@traxettle/shared';
 import type {
   Event as TraxettleEvent,
   EventParticipant,
   Group,
+  PoolAdvance,
   PoolContribution,
   PoolDrawStatus,
   PoolLedger,
   PoolLedgerEntry,
-  ReconcileResult,
   Settlement,
 } from '@traxettle/shared';
 import { getResolvedApiBaseUrl } from '../../config/dev-options';
 import { poolApi, RECEIPT_ACCEPT, MAX_RECEIPT_BYTES } from '../../utils/pool-api';
-import type { CoverEntry } from '../../utils/pool-api';
+import type { ClosePreview, CoverEntry } from '../../utils/pool-api';
 import { PoolMeter } from './PoolMeter';
 import { PoolPayments } from './PoolPayments';
 import { CONTRIBUTION_STATUS, formatMinor, poolErrorText, poolNoun, toPoolError } from './poolFormat';
@@ -163,8 +183,11 @@ type ModalState =
   | { kind: 'none' }
   | { kind: 'markPaid'; contribution: PoolContribution }
   | { kind: 'confirm'; contribution: PoolContribution }
-  | { kind: 'reject'; target: 'contribution' | 'draw'; id: string; title: string; warning?: string }
+  | { kind: 'reject'; target: 'contribution' | 'draw' | 'advance'; id: string; title: string; warning?: string }
   | { kind: 'topUp' }
+  | { kind: 'giveMoney' }
+  | { kind: 'returnMoney'; byCustodian: boolean }
+  | { kind: 'payBack'; userId: string }
   | { kind: 'amounts' }
   | { kind: 'close' }
   | { kind: 'settle' };
@@ -229,6 +252,8 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
   }
 
   const { summary, contributions, entries, spenders, cycles } = ledger;
+  const advances: PoolAdvance[] = ledger.advances || [];
+  const holdings = summary.holdings;
   const cycle = summary.cycle;
   const viewingPast = Boolean(viewCycleId) && cycle.status === 'closed';
   const cycleOpen = cycle.status === 'open' && !viewingPast;
@@ -240,6 +265,34 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
   const sponsor = config.funderMode === 'sponsor';
   // Money others lent to a sponsor pool: the custodian pays it back at close (design doc §10).
   const lent = sponsor ? lentTopUps(contributions, config.custodianUserId) : { totalMinor: 0, byUser: {} as Record<string, number> };
+
+  // ── Money handed over (§9.3, §10.6) ──
+  const userKeyOf = (uid: string) => {
+    const group = groups.find((g) => (g.members || []).includes(uid));
+    return group ? entityKey('group', group.id) : entityKey('user', uid);
+  };
+  // A Fund's part-month after its members changed has no dues: say so (design doc §0).
+  const partMonth = partMonthNote({ cycle, cycles, contributions, viewerKey: currentUserId ? userKeyOf(currentUserId) : null, isManager });
+  /** The person who hands over for an entity key (a group's payer). */
+  const userForKey = (key: string) => {
+    const [type, ...rest] = key.split(':');
+    const id = rest.join(':');
+    if (type !== 'group') return id;
+    const group = groups.find((g) => g.id === id);
+    return group?.payerUserId || group?.representative || group?.members?.[0] || id;
+  };
+  const myHeld = currentUserId && holdings ? holdings.heldBy[userKeyOf(currentUserId)] || 0 : 0;
+  const handOverOpen = canAct && event.status === 'active' && Boolean(holdings);
+  const holders = holdings ? Object.entries(holdings.heldBy).filter(([, v]) => v > 0) : [];
+  const loans = outstandingLoans(contributions, advances, config.custodianUserId);
+  // Who can be handed money: anyone allowed to spend from the pool, except the custodian.
+  const adminIds = [event.createdBy, ...(event.admins || [])];
+  const spenderIds = participants.map((p) => p.userId).filter((uid) => uid !== config.custodianUserId && (!sponsor
+    || adminIds.includes(uid)
+    || (config.authorizedSpenders || []).includes(uid)
+    || groups.some((g) => (config.authorizedSpenderGroups || []).includes(g.id) && (g.members || []).includes(uid))));
+  const custodianName = nameOf('user', config.custodianUserId);
+  const showHoldings = Boolean(holdings) && (Object.keys(holdings!.heldBy).length > 0 || holdings!.pendingOutMinor > 0 || advances.length > 0);
 
   return (
     <Stack data-testid="pool-tab">
@@ -257,6 +310,15 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
             {canAct && (
               <Actions>
                 <Button $variant="outline" $size="sm" onClick={() => setModal({ kind: 'topUp' })} data-testid="pool-add-money">Add money</Button>
+                {isCustodian && handOverOpen && spenderIds.length > 0 && (
+                  <Button $variant="outline" $size="sm" onClick={() => setModal({ kind: 'giveMoney' })} data-testid="pool-give-money">Give money</Button>
+                )}
+                {isCustodian && handOverOpen && holders.length > 0 && (
+                  <Button $variant="outline" $size="sm" onClick={() => setModal({ kind: 'returnMoney', byCustodian: true })} data-testid="pool-record-returned">Record money returned</Button>
+                )}
+                {!isCustodian && handOverOpen && myHeld > 0 && (
+                  <Button $variant="outline" $size="sm" onClick={() => setModal({ kind: 'returnMoney', byCustodian: false })} data-testid="pool-return-money">Return money</Button>
+                )}
                 {isManager && !sponsor && (
                   <Button $variant="outline" $size="sm" onClick={() => setModal({ kind: 'amounts' })} data-testid="pool-set-amounts">Set amounts</Button>
                 )}
@@ -286,6 +348,28 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
             {summary.totals.reimbursementsMinor > 0 && <span>reimbursed {formatMinor(summary.totals.reimbursementsMinor, currency)}</span>}
             {summary.totals.pendingDrawsMinor > 0 && <span>awaiting approval {formatMinor(summary.totals.pendingDrawsMinor, currency)}</span>}
           </Totals>
+          {showHoldings && holdings && (
+            <ItemMeta data-testid="pool-holdings" style={{ marginTop: 8 }}>
+              {isCustodian
+                ? `With you ${formatMinor(holdings.withCustodianMinor, currency)} · With spenders ${formatMinor(holdings.withSpendersMinor, currency)}`
+                : myHeld > 0
+                  ? `You're holding ${formatMinor(myHeld, currency)} of the ${noun.toLowerCase()}'s money.`
+                  : myHeld < 0
+                    ? `The ${noun.toLowerCase()} owes you ${formatMinor(-myHeld, currency)} for spends beyond the money you held.`
+                    : `With ${custodianName} ${formatMinor(holdings.withCustodianMinor, currency)} · With spenders ${formatMinor(holdings.withSpendersMinor, currency)}`}
+              {isCustodian && holdings.pendingOutMinor > 0 ? ` · ${formatMinor(holdings.pendingOutMinor, currency)} handed over, waiting to be confirmed` : ''}
+            </ItemMeta>
+          )}
+          {isCustodian && handOverOpen && loans.totalMinor > 0 && (
+            <List data-testid="pool-loans">
+              {Object.entries(loans.byUser).map(([uid, owed]) => (
+                <Item key={uid}>
+                  <ItemMeta>{nameOf('user', uid)} lent the {noun.toLowerCase()} money: {formatMinor(owed, currency)} still to pay back.</ItemMeta>
+                  <Button $size="sm" $variant="outline" onClick={() => setModal({ kind: 'payBack', userId: uid })} data-testid={`pay-back-${uid}`}>Pay back now</Button>
+                </Item>
+              ))}
+            </List>
+          )}
           {lent.totalMinor > 0 && (
             <ItemMeta data-testid="pool-lent">
               {isCustodian
@@ -330,6 +414,7 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
                     <ItemTitle>
                       {e.title}
                       <Badge $variant="info">{e.fundingSource === 'pool_reimbursement' ? 'Reimbursement' : e.alreadyIncurred ? 'Pool spend · already paid' : 'Pool spend · asking first'}</Badge>
+                      {e.paidFrom && <Badge>{e.paidFrom === 'advance' ? 'Money they hold' : `${custodianName === 'You' ? 'Your' : `${custodianName}'s`} card or UPI`}</Badge>}
                       {e.flags?.map((f) => <Badge key={f} $variant="warning">{f === 'exceeds_spender_cap' ? 'Over spending limit' : 'Over limit'}</Badge>)}
                     </ItemTitle>
                     <ItemMeta>
@@ -345,9 +430,12 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
                     </Button>
                     <Button $size="sm" $variant="ghost" disabled={busy || !canAct} data-testid={`reject-draw-${e.id}`} onClick={() => setModal({
                       kind: 'reject', target: 'draw', id: e.id, title: e.title,
-                      // Rejecting money already spent from the pool means the spender owes it back (§9.2).
+                      // Rejecting money already spent from the pool means the spender owes it back (§9.2):
+                      // as a repayment, or (paid from money they hold) as part of what they hold (§9.3).
                       warning: e.fundingSource === 'pool' && e.alreadyIncurred && e.actorUserId !== config.custodianUserId
-                        ? `${nameOf('user', e.actorUserId)} says this was already paid with the ${noun.toLowerCase()}'s money. If you reject it, they owe ${formatMinor(-e.amountMinor, currency)} back to ${isCustodian ? 'you' : nameOf('user', config.custodianUserId)}.`
+                        ? e.paidFrom === 'advance'
+                          ? `${nameOf('user', e.actorUserId)} paid this with ${noun.toLowerCase()} money they hold. If you reject it, the ${formatMinor(-e.amountMinor, currency)} stays with them, to be returned or settled at the end.`
+                          : `${nameOf('user', e.actorUserId)} says this was already paid with the ${noun.toLowerCase()}'s money. If you reject it, they owe ${formatMinor(-e.amountMinor, currency)} back to ${isCustodian ? 'you' : custodianName}.`
                         : undefined,
                     })}>Reject</Button>
                   </Actions>
@@ -362,6 +450,56 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
         <PoolPayments legs={settlements.filter((s) => isPoolSideLeg(s))} currentUserId={currentUserId} nameOf={nameOf} onChanged={onChanged} />
       )}
 
+      {/* ── Money handed over (§9.3, §10.6) ──────────────────────── */}
+      {advances.length > 0 && (
+        <Card data-testid="pool-movements">
+          <CardHeader>
+            <CardTitle>Money handed over</CardTitle>
+            <CardSubtitle>Advances to spenders, money returned and loans paid back early</CardSubtitle>
+          </CardHeader>
+          <CardBody>
+            <List>
+              {[...advances].reverse().map((a) => {
+                const waiting = a.status === 'initiated' && handOverOpen;
+                return (
+                  <Item key={a.id} data-testid={`advance-${a.id}`}>
+                    <ItemMain>
+                      <ItemTitle>
+                        {ADVANCE_KIND_LABEL[a.kind]}
+                        <Badge $variant={a.status === 'confirmed' ? 'success' : a.status === 'initiated' ? 'info' : 'default'}>
+                          {advanceStatusText(a, currentUserId ?? '', (uid) => nameOf('user', uid))}
+                        </Badge>
+                      </ItemTitle>
+                      <ItemMeta>
+                        {nameOf('user', a.fromUserId)} → {nameOf('user', a.toUserId)} · {new Date(a.confirmedAt || a.createdAt).toLocaleDateString()}
+                        {a.note ? ` · ${a.note}` : ''}
+                        {a.status === 'rejected' && a.rejectionReason ? ` · ${a.rejectionReason}` : ''}
+                        {a.proofUrl && <> · <SmallLink href={resolveFileHref(a.proofUrl)} target="_blank" rel="noreferrer">proof</SmallLink></>}
+                      </ItemMeta>
+                    </ItemMain>
+                    <Actions>
+                      <Amount $tone={a.status === 'rejected' || a.status === 'cancelled' ? 'muted' : undefined}>{formatMinor(a.amountMinor, currency)}</Amount>
+                      {waiting && a.toUserId === currentUserId && (
+                        <>
+                          <Button $size="sm" $variant="primary" disabled={busy} data-testid={`advance-confirm-${a.id}`}
+                            onClick={() => run('Confirmed', () => poolApi.confirmAdvance(a.id), 'Recorded as received.')}>Confirm</Button>
+                          <Button $size="sm" $variant="ghost" disabled={busy} data-testid={`advance-reject-${a.id}`}
+                            onClick={() => setModal({ kind: 'reject', target: 'advance', id: a.id, title: `${ADVANCE_KIND_LABEL[a.kind]} of ${formatMinor(a.amountMinor, currency)}` })}>Not received</Button>
+                        </>
+                      )}
+                      {waiting && a.createdBy === currentUserId && a.toUserId !== currentUserId && (
+                        <Button $size="sm" $variant="ghost" disabled={busy} data-testid={`advance-cancel-${a.id}`}
+                          onClick={() => run('Cancelled', () => poolApi.cancelAdvance(a.id))}>Cancel</Button>
+                      )}
+                    </Actions>
+                  </Item>
+                );
+              })}
+            </List>
+          </CardBody>
+        </Card>
+      )}
+
       {/* ── Contributions / budget ───────────────────────────────── */}
       <Card data-testid="pool-contributions">
         <CardHeader>
@@ -373,8 +511,9 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
           )}
         </CardHeader>
         <CardBody>
+          {partMonth && <Banner $tone="info" data-testid="pool-part-month">{partMonth}</Banner>}
           {contributions.length === 0 ? (
-            <EmptyState title="No contributions yet" description={isManager ? 'Use “Set amounts” to decide what each person puts in.' : 'The custodian will set what each person puts in.'} />
+            partMonth ? null : <EmptyState title="No contributions yet" description={isManager ? 'Use “Set amounts” to decide what each person puts in.' : 'The custodian will set what each person puts in.'} />
           ) : (
             <List>
               {contributions.map((c) => {
@@ -432,11 +571,14 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
           <CardHeader><CardTitle>Spending by person</CardTitle></CardHeader>
           <CardBody>
             <Table>
-              <thead><tr><th>Spender</th><th>Awaiting approval</th><th>Spent</th></tr></thead>
+              <thead><tr><th>Spender</th>{spenders.some((s) => s.heldMinor) && <th>Holding</th>}<th>Awaiting approval</th><th>Spent</th></tr></thead>
               <tbody>
                 {spenders.map((s) => (
                   <tr key={`${s.spenderType}:${s.spenderId}`}>
                     <td>{nameOf(s.spenderType, s.spenderId)}</td>
+                    {spenders.some((x) => x.heldMinor) && (
+                      <td>{s.heldMinor ? (s.heldMinor > 0 ? formatMinor(s.heldMinor, currency) : `owed ${formatMinor(-s.heldMinor, currency)}`) : '—'}</td>
+                    )}
                     <td>{s.pendingMinor ? formatMinor(s.pendingMinor, currency) : '—'}</td>
                     <td>{formatMinor(s.spentMinor, currency)}{s.capMinor !== null ? ` / ${formatMinor(s.capMinor, currency)}` : ''}</td>
                   </tr>
@@ -455,7 +597,7 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
             <EmptyState title="Nothing yet" description="Contributions and pool expenses will appear here." />
           ) : (
             <List>
-              {entries.map((e) => <LedgerRow key={`${e.type}-${e.id}`} entry={e} currency={currency} nameOf={nameOf} />)}
+              {entries.map((e) => <LedgerRow key={`${e.type}-${e.id}`} entry={e} currency={currency} nameOf={nameOf} eventStatus={event.status} />)}
             </List>
           )}
         </CardBody>
@@ -507,10 +649,13 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
           onSubmit={(minor) => run('Confirmed', () => poolApi.confirm(modal.contribution.id, minor), 'Added to the pool.')} />
       )}
       {modal.kind === 'reject' && (
-        <ReasonModal title={modal.target === 'draw' ? `Reject “${modal.title}”?` : `Mark ${modal.title}'s payment as not received?`}
+        <ReasonModal
+          title={modal.target === 'draw' ? `Reject “${modal.title}”?` : modal.target === 'advance' ? `${modal.title}: not received?` : `Mark ${modal.title}'s payment as not received?`}
           warning={modal.warning}
           busy={busy} onClose={() => setModal({ kind: 'none' })}
-          onSubmit={(reason) => run('Updated', () => (modal.target === 'draw' ? poolApi.rejectDraw(modal.id, reason) : poolApi.reject(modal.id, reason)))} />
+          onSubmit={(reason) => run('Updated', () => (modal.target === 'draw'
+            ? poolApi.rejectDraw(modal.id, reason)
+            : modal.target === 'advance' ? poolApi.rejectAdvance(modal.id, reason) : poolApi.reject(modal.id, reason)))} />
       )}
       {modal.kind === 'topUp' && (
         <AmountModal title={`Add money to the ${noun.toLowerCase()}`} label="Amount" currency={currency} busy={busy} initialMinor={0}
@@ -528,6 +673,46 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
             if (!isCustodian && res.data) await poolApi.markPaid(res.data.id, { amountMinor: minor });
           }, isCustodian ? 'Added to the pool.' : 'Waiting for the custodian to confirm.')} />
       )}
+      {modal.kind === 'giveMoney' && holdings && (
+        <HandOverModal
+          title="Give money to a spender" eventId={event.id} currency={currency} busy={busy}
+          people={spenderIds.map((uid) => ({ id: uid, label: nameOf('user', uid) }))}
+          maxMinor={holdings.withCustodianMinor - holdings.pendingOutMinor}
+          blocked={summary.overdraft.latched || summary.totals.balanceMinor <= 0
+            ? `There's no ${noun.toLowerCase()} money to hand out: spending is paused or the ${noun.toLowerCase()} is empty.` : undefined}
+          hint={`They confirm once they have it. Moving money between spenders? Record a return from one and an advance to the other. The cash can go directly.`}
+          submitLabel="Give money"
+          onClose={() => setModal({ kind: 'none' })}
+          onSubmit={(body) => run('Money handed over', () => poolApi.recordAdvance(event.id, { kind: 'advance', ...body }), 'Waiting for them to confirm.')} />
+      )}
+      {modal.kind === 'returnMoney' && holdings && (
+        <HandOverModal
+          title={modal.byCustodian ? 'Record money returned to you' : `Return ${noun.toLowerCase()} money`} eventId={event.id} currency={currency} busy={busy}
+          people={modal.byCustodian ? holders.map(([key, held]) => ({ id: userForKey(key), label: `${nameOf(key.startsWith('group:') ? 'group' : 'user', key.split(':').slice(1).join(':'))} (holds ${formatMinor(held, currency)})`, maxMinor: held })) : undefined}
+          maxMinor={modal.byCustodian ? undefined : myHeld}
+          hint={modal.byCustodian ? 'Recorded straight away: you are the one receiving it.' : `${custodianName} confirms once it arrives.`}
+          submitLabel={modal.byCustodian ? 'Record' : 'Return money'}
+          onClose={() => setModal({ kind: 'none' })}
+          onSubmit={(body) => run('Money returned', () => poolApi.recordAdvance(event.id, { kind: 'return', ...body }),
+            modal.byCustodian ? 'Recorded.' : `Waiting for ${custodianName} to confirm.`)} />
+      )}
+      {modal.kind === 'payBack' && (
+        <HandOverModal
+          title={`Pay ${nameOf('user', modal.userId)} back now`} eventId={event.id} currency={currency} busy={busy}
+          fixedUserId={modal.userId}
+          maxMinor={loans.byUser[modal.userId] || 0}
+          initialMinor={loans.byUser[modal.userId] || 0}
+          warningFor={(amountMinor) => {
+            const impact = earlyRepaymentImpact(config, cycle.openingBalanceMinor, summary.totals, cycle.overdraftLatchedAt, amountMinor);
+            if (impact.alreadyPaused) return `Spending is paused. Paying ${nameOf('user', modal.userId)} ${formatMinor(amountMinor, currency)} now means you'll need to add ${formatMinor(impact.addToResumeMinor, currency)} before anyone can spend again.`;
+            if (impact.pauses) return `This pauses spending. You'll need to add ${formatMinor(impact.addToResumeMinor, currency)} before anyone can spend again.`;
+            return null;
+          }}
+          hint={`Pay them outside the app, then record it here. ${nameOf('user', modal.userId)} confirms they received it.`}
+          submitLabel="I've paid"
+          onClose={() => setModal({ kind: 'none' })}
+          onSubmit={(body) => run('Paid back', () => poolApi.recordAdvance(event.id, { kind: 'repayment', ...body, userId: modal.userId }), `Waiting for ${nameOf('user', modal.userId)} to confirm.`)} />
+      )}
       {modal.kind === 'amounts' && (
         <AmountsModal cycle={cycle} contributions={contributions} currency={currency} busy={busy} nameOf={nameOf}
           onClose={() => setModal({ kind: 'none' })}
@@ -537,7 +722,8 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
         <ReconcileModal eventId={event.id} mode={modal.kind} currency={currency} noun={noun} busy={busy} nameOf={nameOf}
           custodianKey={entityKey('user', config.custodianUserId)}
           rosterKeys={cycle.roster.map((r) => entityKey(r.entityType, r.entityId))}
-          separateLegs={openPoolSideLegs(settlements)}
+          keyOf={userKeyOf}
+          waitingHandOvers={advances.filter((a) => a.status === 'initiated').length}
           onClose={() => setModal({ kind: 'none' })}
           onSubmit={(cover) => run(modal.kind === 'close' ? 'Cycle closed' : 'Settling up',
             () => (modal.kind === 'close' ? poolApi.closeCycle(event.id, { cover }) : poolApi.dissolve(event.id, { cover })),
@@ -549,19 +735,28 @@ export function PoolTab({ event, currentUserId, participants, groups, settlement
 
 // ── Pieces ─────────────────────────────────────────────────────────────
 
-function LedgerRow({ entry: e, currency, nameOf }: { entry: PoolLedgerEntry; currency: string; nameOf: (t: 'user' | 'group', id: string) => string }) {
-  const who = e.entityType ? nameOf(e.entityType, e.entityId!) : nameOf('user', e.actorUserId);
+function LedgerRow({ entry: e, currency, nameOf, eventStatus }: {
+  entry: PoolLedgerEntry;
+  currency: string;
+  nameOf: (t: 'user' | 'group', id: string) => string;
+  /** Decides how a payment folded into the final settlement reads (§11). */
+  eventStatus?: string;
+}) {
+  const handOver = e.type === 'advance';
+  const who = handOver
+    ? `${nameOf('user', e.fromUserId || e.actorUserId)} → ${nameOf('user', e.toUserId || '')}`
+    : e.entityType ? nameOf(e.entityType, e.entityId!) : nameOf('user', e.actorUserId);
   let state: React.ReactNode = null;
   if (e.type === 'draw') {
     if (e.status === 'pending') state = <Badge $variant="info">Awaiting approval</Badge>;
     else if (e.status === 'rejected') {
-      const repay = repaymentStatus(e.status, e.settlementStatus);
+      const repay = repaymentStatus(e.status, e.settlementStatus, eventStatus);
       state = repay
         ? <><Badge $variant="error">Rejected</Badge><Badge $variant={REPAYMENT_STATUS[repay].tone}>{REPAYMENT_STATUS[repay].label}</Badge></>
         : <Badge $variant="error">Rejected</Badge>;
     }
     else if (e.fundingSource === 'pool_reimbursement') {
-      const payBack = reimbursementStatus({ status: e.status as PoolDrawStatus }, e.settlementStatus);
+      const payBack = reimbursementStatus({ status: e.status as PoolDrawStatus }, e.settlementStatus, eventStatus);
       if (payBack) state = <Badge $variant={REIMBURSEMENT_STATUS[payBack].tone}>{REIMBURSEMENT_STATUS[payBack].label}</Badge>;
     }
   } else if (e.status === 'initiated') {
@@ -578,10 +773,14 @@ function LedgerRow({ entry: e, currency, nameOf }: { entry: PoolLedgerEntry; cur
         </ItemTitle>
         <ItemMeta>
           {who} · {new Date(e.at).toLocaleDateString()}
+          {e.paidFrom === 'advance' ? ' · paid with money they hold' : e.paidFrom === 'sponsor_card' ? " · on the custodian's card or UPI" : ''}
           {e.receiptUrls.map((u, i) => <span key={u}> · <SmallLink href={resolveFileHref(u)} target="_blank" rel="noreferrer">{e.type === 'draw' ? 'receipt' : 'proof'}{e.receiptUrls.length > 1 ? ` ${i + 1}` : ''}</SmallLink></span>)}
         </ItemMeta>
       </ItemMain>
-      <Amount $tone={!e.counted ? 'muted' : e.amountMinor > 0 ? 'in' : 'out'}>{formatMinor(e.amountMinor, currency, { signed: true })}</Amount>
+      {/* Advances and returns move money between holders: shown plainly, not as money in or out. */}
+      {handOver && e.advanceKind !== 'repayment'
+        ? <Amount>{formatMinor(Math.abs(e.amountMinor), currency)}</Amount>
+        : <Amount $tone={!e.counted ? 'muted' : e.amountMinor > 0 ? 'in' : 'out'}>{formatMinor(e.amountMinor, currency, { signed: true })}</Amount>}
     </Item>
   );
 }
@@ -774,12 +973,14 @@ function AmountsModal(props: {
 function ReconcileModal(props: {
   eventId: string; mode: 'close' | 'settle'; currency: string; noun: string; busy: boolean;
   custodianKey: string; rosterKeys: string[];
-  /** Pool payments still open. They aren't netted into the final settlement (design doc §11). */
-  separateLegs: Settlement[];
+  /** A user's entity key (their group's, if they're in one), as the settlement plan uses. */
+  keyOf: (userId: string) => string;
+  /** Hand-overs still waiting for confirmation: closing waits for them (§9.3). */
+  waitingHandOvers: number;
   nameOf: (t: 'user' | 'group', id: string) => string;
   onClose: () => void; onSubmit: (cover?: CoverEntry[]) => void;
 }) {
-  type Preview = ReconcileResult & { pendingDraws: number; coverNeededMinor: number };
+  type Preview = ClosePreview;
   // Each result remembers which coverer it was computed for, so a change of
   // coverer shows "working it out" until the matching preview arrives.
   const [result, setResult] = useState<{ key: string; preview?: Preview; error?: string } | null>(null);
@@ -820,8 +1021,11 @@ function ReconcileModal(props: {
     return props.nameOf(type as 'user' | 'group', rest.join(':'));
   };
   const money = (v: number) => formatMinor(v, props.currency);
-  // Only the final settle-up lists them: closing a cycle moves no money now.
-  const separate = props.mode === 'settle' ? props.separateLegs : [];
+  // Settle-up only (§11): repayments and claims folded into the final payments, and pool payments
+  // that stay separate (already being paid, or from an earlier cycle). Closing a cycle moves no money now.
+  const folded = props.mode === 'settle' ? preview?.folded ?? [] : [];
+  const separate = props.mode === 'settle' ? preview?.separate ?? [] : [];
+  const rows = preview ? settleUpRows(preview.settlementBalances, folded, props.keyOf) : [];
 
   return (
     <Modal open onClose={props.onClose} dataTestId="pool-reconcile-modal">
@@ -834,12 +1038,20 @@ function ReconcileModal(props: {
         {preview && (
           <>
             {preview.pendingDraws > 0 && <Banner $tone="error">Approve or reject the {preview.pendingDraws} pending expense(s) first.</Banner>}
+            {props.waitingHandOvers > 0 && (
+              <Banner $tone="error" data-testid="reconcile-waiting-handovers">
+                {props.waitingHandOvers} hand-over{props.waitingHandOvers === 1 ? ' is' : 's are'} waiting for confirmation. Confirm, reject or cancel {props.waitingHandOvers === 1 ? 'it' : 'them'} first.
+              </Banner>
+            )}
             <Table>
               <tbody>
-                {preview.openingBalanceMinor !== 0 && <tr><td>Carried in</td><td>{money(preview.openingBalanceMinor)}</td></tr>}
-                <tr><td>Collected</td><td>{money(preview.confirmedContributionsMinor)}</td></tr>
-                <tr><td>Spent from the pool</td><td>{money(-(preview.poolSpendMinor + preview.reimbursementsMinor))}</td></tr>
-                <tr><td><strong>{preview.preCoverBalanceMinor >= 0 ? 'Left over' : 'Short by'}</strong></td><td><strong>{money(Math.abs(preview.preCoverBalanceMinor))}</strong></td></tr>
+                {settleUpFigures(preview).map((f) => (
+                  <tr key={f.key} data-testid={`reconcile-figure-${f.key}`}>
+                    {f.key === 'result'
+                      ? <><td><strong>{f.label}</strong></td><td><strong>{money(f.amountMinor)}</strong></td></>
+                      : <><td>{f.label}</td><td>{money(f.amountMinor)}</td></>}
+                  </tr>
+                ))}
               </tbody>
             </Table>
 
@@ -865,10 +1077,19 @@ function ReconcileModal(props: {
                       <td>{s.netMinor > 0 ? `in credit ${money(s.netMinor)}` : `owes ${money(-s.netMinor)}`}</td>
                     </tr>
                   ))
-                  : Object.entries(preview.settlementBalances).map(([k, v]) => (
-                    <tr key={k}><td>{keyName(k)}</td><td>{v > 0 ? `gets back ${money(v)}` : `pays ${money(-v)}`}</td></tr>
-                  ))}
-                {preview.disposition === 'settle' && Object.keys(preview.settlementBalances).length === 0 && (
+                  : rows.map((row) => {
+                    const words = describeSettleUpRow(row, props.currency, props.noun);
+                    return (
+                      <tr key={row.key} data-testid={`reconcile-row-${row.key}`}>
+                        <td>
+                          {keyName(row.key)}
+                          {words.detail && <ItemMeta>{words.detail}</ItemMeta>}
+                        </td>
+                        <td>{words.headline}</td>
+                      </tr>
+                    );
+                  })}
+                {preview.disposition === 'settle' && rows.length === 0 && (
                   <tr><td colSpan={2}>
                     {separate.length > 0 ? `Nothing to pay out of the ${props.noun.toLowerCase()}` : 'Nobody owes anybody anything'}
                     {preview.shareBasis === 'custodian' && preview.closingBalanceMinor > 0 ? ` — ${money(preview.closingBalanceMinor)} stays with the sponsor` : ''}.
@@ -876,23 +1097,39 @@ function ReconcileModal(props: {
                 )}
               </tbody>
             </Table>
+            {folded.length > 0 && (
+              <>
+                <div style={{ marginTop: 12, fontSize: 13, fontWeight: 600 }}>Included in the final settlement</div>
+                <Table data-testid="reconcile-folded">
+                  <tbody>
+                    {folded.map((f) => (
+                      <tr key={f.settlementId || f.expenseId || `${f.fromUserId}-${f.toUserId}-${f.amountMinor}`}>
+                        <td>{props.nameOf('user', f.fromUserId)} → {props.nameOf('user', f.toUserId)} · {poolLegLabel({ kind: f.kind })}{f.title ? ` · ${f.title}` : ''}</td>
+                        <td>{money(f.amountMinor)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+                <ItemMeta>These are included in the payments above instead of being paid on their own.</ItemMeta>
+              </>
+            )}
             {separate.length > 0 && (
               <>
                 <div style={{ marginTop: 12, fontSize: 13, fontWeight: 600 }}>Paid separately</div>
                 <Table data-testid="reconcile-separate">
                   <tbody>
                     {separate.map((leg) => (
-                      <tr key={leg.id}>
+                      <tr key={leg.settlementId}>
                         <td>
-                          {props.nameOf('user', leg.fromUserId)} → {props.nameOf('user', leg.toUserId)} · {poolLegLabel(leg)}
+                          {props.nameOf('user', leg.fromUserId)} → {props.nameOf('user', leg.toUserId)} · {poolLegLabel({ kind: leg.kind as Settlement['kind'] })}
                           {leg.status === 'initiated' ? ' · sent, awaiting confirmation' : ''}
                         </td>
-                        <td>{money(toMinor(leg.amount, props.currency))}</td>
+                        <td>{money(leg.amountMinor)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </Table>
-                <ItemMeta>These stay as they are and are paid on their own. They aren&apos;t combined with the amounts above.</ItemMeta>
+                <ItemMeta>These are already being paid, or belong to an earlier cycle, so they&apos;re paid on their own.</ItemMeta>
               </>
             )}
             <ItemMeta style={{ marginTop: 8 }}>
@@ -906,9 +1143,105 @@ function ReconcileModal(props: {
       <ModalFooter>
         <Button $variant="outline" onClick={props.onClose}>Cancel</Button>
         <Button $variant="primary" data-testid="reconcile-submit"
-          disabled={props.busy || !preview || preview.pendingDraws > 0}
+          disabled={props.busy || !preview || preview.pendingDraws > 0 || props.waitingHandOvers > 0}
           onClick={() => props.onSubmit(coverFor())}>
           {props.mode === 'close' ? 'Close cycle' : 'Settle up'}
+        </Button>
+      </ModalFooter>
+    </Modal>
+  );
+}
+
+/**
+ * Record money handed over (§9.3, §10.6): an advance, a return, or paying a lender back early.
+ * Proof is optional (decision D4: one file, as on contributions).
+ */
+function HandOverModal(props: {
+  title: string; eventId: string; currency: string; busy: boolean; submitLabel: string;
+  /** Choose who; omitted when the other person is fixed or is the custodian. */
+  people?: Array<{ id: string; label: string; maxMinor?: number }>;
+  fixedUserId?: string;
+  maxMinor?: number;
+  initialMinor?: number;
+  /** Why it can't be recorded right now, e.g. spending is paused. */
+  blocked?: string;
+  hint?: string;
+  /** A warning for the amount entered, e.g. that it pauses spending. */
+  warningFor?: (amountMinor: number) => string | null;
+  onClose: () => void;
+  onSubmit: (body: { userId?: string; amountMinor: number; note?: string; proofUrl?: string }) => void;
+}) {
+  const { push: pushToast } = useToast();
+  const [userId, setUserId] = useState(props.fixedUserId || props.people?.[0]?.id || '');
+  const [text, setText] = useState(props.initialMinor && props.initialMinor > 0 ? String(fromMinor(props.initialMinor, props.currency)) : '');
+  const [note, setNote] = useState('');
+  const [proofUrl, setProofUrl] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const minor = parseMajor(text, props.currency);
+  const person = props.people?.find((p) => p.id === userId);
+  const max = person?.maxMinor ?? props.maxMinor;
+  const tooMuch = minor !== null && max !== undefined && minor > max;
+  const warning = minor !== null && props.warningFor ? props.warningFor(minor) : null;
+
+  const onFile = async (file?: File) => {
+    if (!file) return;
+    if (file.size > MAX_RECEIPT_BYTES) {
+      pushToast({ type: 'error', title: 'File too large', message: 'Proof must be under 5MB.' });
+      return;
+    }
+    setUploading(true);
+    try {
+      setProofUrl(await poolApi.uploadAdvanceProof(props.eventId, file));
+    } catch (err) {
+      pushToast({ type: 'error', title: 'Upload failed', message: toPoolError(err, 'Could not upload the proof').message });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={props.onClose} dataTestId="pool-handover-modal">
+      <ModalHeader><ModalTitle>{props.title}</ModalTitle></ModalHeader>
+      <ModalBody>
+        {props.blocked && <Banner $tone="error" data-testid="handover-blocked">{props.blocked}</Banner>}
+        {props.people && (
+          <Field>
+            <Label htmlFor="handover-who">Who</Label>
+            <Select id="handover-who" value={userId} onChange={(e) => setUserId(e.target.value)} data-testid="handover-who">
+              {props.people.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+            </Select>
+          </Field>
+        )}
+        <Field>
+          <Label htmlFor="handover-amount">Amount</Label>
+          <Input id="handover-amount" type="number" min="0" step="any" inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} autoFocus data-testid="handover-amount" />
+          {max !== undefined && <ItemMeta>Up to {formatMinor(Math.max(0, max), props.currency)}</ItemMeta>}
+        </Field>
+        <Field>
+          <Label htmlFor="handover-note">Note (optional)</Label>
+          <Input id="handover-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="e.g. cash for decorations" data-testid="handover-note" />
+        </Field>
+        <Field>
+          <Label htmlFor="handover-proof">Proof (optional)</Label>
+          <Input id="handover-proof" type="file" accept={RECEIPT_ACCEPT} onChange={(e) => void onFile(e.target.files?.[0])} disabled={uploading} />
+          {uploading && <ItemMeta>Uploading…</ItemMeta>}
+          {proofUrl && !uploading && <ItemMeta>Proof attached ✓</ItemMeta>}
+        </Field>
+        {tooMuch && <Banner $tone="error" data-testid="handover-too-much">That&apos;s more than {formatMinor(Math.max(0, max!), props.currency)}.</Banner>}
+        {warning && <Banner $tone="warning" data-testid="handover-warning">{warning}</Banner>}
+        {props.hint && <ItemMeta style={{ marginTop: 8 }}>{props.hint}</ItemMeta>}
+      </ModalBody>
+      <ModalFooter>
+        <Button $variant="outline" onClick={props.onClose}>Cancel</Button>
+        <Button $variant="primary" data-testid="handover-submit"
+          disabled={props.busy || uploading || minor === null || tooMuch || Boolean(props.blocked) || (Boolean(props.people) && !userId)}
+          onClick={() => minor !== null && props.onSubmit({
+            ...(props.people || props.fixedUserId ? { userId } : {}),
+            amountMinor: minor,
+            note: note.trim() || undefined,
+            proofUrl: proofUrl || undefined,
+          })}>
+          {props.submitLabel}
         </Button>
       </ModalFooter>
     </Modal>

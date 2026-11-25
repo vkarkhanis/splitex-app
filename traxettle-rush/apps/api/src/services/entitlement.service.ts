@@ -20,6 +20,8 @@ const DEFAULT_ENTITLEMENT: UserEntitlement = {
 
 const PRO_FEATURE_CODES = {
   multiCurrencySettlement: 'multi_currency_settlement',
+  /** "Several of us" pools (design doc §12). */
+  contributorPools: 'contributor_pools',
 } as const;
 
 export class EntitlementService {
@@ -52,6 +54,8 @@ export class EntitlementService {
   computeCapabilities(entitlement: UserEntitlement): UserCapabilities {
     return {
       multiCurrencySettlement: hasActivePro(entitlement),
+      // Creating "Several of us" pools (design doc §12). Only the creator needs it; members join free.
+      contributorPools: hasActivePro(entitlement),
     };
   }
 

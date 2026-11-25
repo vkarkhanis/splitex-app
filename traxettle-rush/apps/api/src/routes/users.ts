@@ -150,7 +150,8 @@ router.get('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
       entitlementStatus: 'active',
       entitlementExpiresAt: null,
       entitlementSource: 'system',
-      capabilities: { multiCurrencySettlement: false },
+      // From the entitlement service, so a new capability (e.g. contributorPools) is never missing here.
+      capabilities: entitlementService.computeCapabilities(entitlementService.getDefaultEntitlement()),
       preferences: defaultPreferences
     };
 

@@ -26,6 +26,8 @@ import { spacing, radii, fontSizes } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, THEME_NAMES } from '../context/ThemeContext';
 import { usePurchase } from '../context/PurchaseContext';
+import { proSummaryLine } from '../utils/proFeatures';
+import { useContributorPoolsAvailable } from '../hooks/useContributorPoolsAvailable';
 import { useFeedback } from '../context/FeedbackContext';
 import {
   api,
@@ -83,6 +85,7 @@ export default function ProfileScreen({ navigation }: any) {
   const { theme, themeName, setThemeName } = useTheme();
   const c = theme.colors;
   const { isPro, priceString } = usePurchase();
+  const groupPoolsReleased = useContributorPoolsAvailable();
   const { pushToast } = useFeedback();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -812,7 +815,7 @@ export default function ProfileScreen({ navigation }: any) {
           <View style={{ flex: 1 }}>
             <Text style={[styles.proTitle, { color: c.primary }]}>Upgrade to Pro</Text>
             <Text style={[styles.proDesc, { color: c.textSecondary }]}>
-              Unlimited events, multi-currency &amp; more · {priceString}/year
+              {proSummaryLine(groupPoolsReleased)} · {priceString}/year
             </Text>
           </View>
           <Text style={[styles.proArrow, { color: c.primary }]}>›</Text>

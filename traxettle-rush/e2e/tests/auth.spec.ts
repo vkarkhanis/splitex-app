@@ -6,7 +6,7 @@ test.describe('Authentication Pages', () => {
     await page.goto('/auth/login');
     await expect(page.getByText('Welcome Back')).toBeVisible();
     await expect(page.getByLabel('Email Address')).toBeVisible();
-    await expect(page.getByLabel('Password')).toBeVisible();
+    await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /Google/i })).toBeVisible();
     await expect(page.getByText('Phone')).toHaveCount(0);
   });
@@ -31,7 +31,7 @@ test.describe('Authentication Pages', () => {
     await expect(page.getByLabel('Full Name')).toBeVisible();
     await expect(page.getByLabel('Email Address')).toBeVisible();
     await expect(page.getByLabel('Phone Number')).toBeVisible();
-    await expect(page.getByLabel('Password')).toBeVisible();
+    await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
   });
 
   test('register submit is disabled when required fields are empty', async ({ page }) => {

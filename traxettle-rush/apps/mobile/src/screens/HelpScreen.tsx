@@ -8,6 +8,8 @@ import {
 } from 'react-native';
 import { spacing, radii, fontSizes } from '../theme';
 import { useTheme } from '../context/ThemeContext';
+import { poolingHelpCard } from '../utils/proFeatures';
+import { useContributorPoolsAvailable } from '../hooks/useContributorPoolsAvailable';
 
 interface FeatureCard {
   icon: string;
@@ -88,6 +90,9 @@ const TIPS = [
 
 export default function HelpScreen() {
   const { theme } = useTheme();
+  // Pooling sits after groups; it mentions "Several of us" as Pro only once released (§12).
+  const pooling = poolingHelpCard(useContributorPoolsAvailable());
+  const features: FeatureCard[] = [FEATURES[0], pooling, ...FEATURES.slice(1)];
   const c = theme.colors;
 
   return (
@@ -103,7 +108,7 @@ export default function HelpScreen() {
 
       {/* Features */}
       <Text style={[styles.sectionTitle, { color: c.text }]}>Features</Text>
-      {FEATURES.map((f, i) => (
+      {features.map((f, i) => (
         <View key={i} style={[styles.featureCard, { backgroundColor: c.surface, shadowColor: c.black }]}>
           <View style={styles.featureHeader}>
             <Text style={styles.featureIcon}>{f.icon}</Text>

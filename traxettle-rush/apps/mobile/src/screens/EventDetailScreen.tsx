@@ -39,10 +39,12 @@ import { useFeedback } from '../context/FeedbackContext';
 import {
   REIMBURSEMENT_STATUS,
   REPAYMENT_STATUS,
+  POOL_LEGS_NETTED_NOTE,
   POOL_LEGS_PAID_SEPARATELY_NOTE,
   isPoolFundedEvent,
   isPoolFundedExpense,
   isPoolSideLeg,
+  poolExpenseByline,
   poolLegLabel,
   poolNoun,
   poolPaymentActions,
@@ -699,7 +701,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
   const renderPayBackBadge = (exp: Expense) => {
     // A rejected spend already paid with the pool's money is owed back (§9.2).
     if (exp.fundingSource === 'pool') {
-      const repay = repaymentStatus(exp.poolDraw?.status, legStatusById.get(exp.poolDraw?.settlementId ?? ''));
+      const repay = repaymentStatus(exp.poolDraw?.status, legStatusById.get(exp.poolDraw?.settlementId ?? ''), event?.status);
       if (!repay) return null;
       const { label, tone } = REPAYMENT_STATUS[repay];
       const background = { success: colors.successBg, warning: colors.warningBg, info: colors.infoBg }[tone];
@@ -710,7 +712,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
       );
     }
     if (exp.fundingSource !== 'pool_reimbursement') return null;
-    const payBack = reimbursementStatus(exp.poolDraw, legStatusById.get(exp.poolDraw?.settlementId ?? ''));
+    const payBack = reimbursementStatus(exp.poolDraw, legStatusById.get(exp.poolDraw?.settlementId ?? ''), event?.status);
     if (!payBack) return null;
     const { label, tone } = REIMBURSEMENT_STATUS[payBack];
     const background = { success: colors.successBg, warning: colors.warningBg, info: colors.infoBg }[tone];
@@ -729,8 +731,12 @@ export default function EventDetailScreen({ route, navigation }: any) {
     return <View style={[styles.center, { backgroundColor: colors.background }]}><Text style={{ color: colors.text }}>Event not found</Text></View>;
   }
 
-  const completedCount = settlements.filter(s => s.status === 'completed').length;
-  const settlementPct = settlements.length > 0 ? Math.round((completedCount / settlements.length) * 100) : 0;
+  // Pool payments folded into the final plan (`netted`, §11) are paid through it: left out of the counts,
+  // and listed after the plan's own payments (their label says "included in the payments above").
+  const plannedSettlements = settlements.filter(s => s.status !== 'netted');
+  const completedCount = plannedSettlements.filter(s => s.status === 'completed').length;
+  const settlementPct = plannedSettlements.length > 0 ? Math.round((completedCount / plannedSettlements.length) * 100) : 100;
+  const settlementsInOrder = [...settlements].sort((a, b) => Number(a.status === 'netted') - Number(b.status === 'netted'));
 
   return (
     <>
@@ -881,13 +887,18 @@ export default function EventDetailScreen({ route, navigation }: any) {
                 ))}
 
                 {/* Settlement transactions preview */}
-                {settlements.some(isPoolSideLeg) && (
+                {settlements.some(s => s.status === 'netted') && (
+                  <Text style={[styles.fxAmount, { color: colors.muted, marginBottom: spacing.xs }]} testID="settlement-review-netted-note">
+                    {POOL_LEGS_NETTED_NOTE}
+                  </Text>
+                )}
+                {settlements.some(s => isPoolSideLeg(s) && s.status !== 'netted') && (
                   <Text style={[styles.fxAmount, { color: colors.muted, marginBottom: spacing.xs }]} testID="settlement-review-pool-note">
                     {POOL_LEGS_PAID_SEPARATELY_NOTE}
                   </Text>
                 )}
-                {settlements.filter(s => s.amount > 0.01).map(s => (
-                  <View key={s.id} style={[styles.settlementCard, { backgroundColor: colors.surface, borderLeftColor: colors.primary }]}>
+                {settlementsInOrder.filter(s => s.amount > 0.01).map(s => (
+                  <View key={s.id} style={[styles.settlementCard, { backgroundColor: colors.surface, borderLeftColor: colors.primary }, s.status === 'netted' && { opacity: 0.6 }]}>
                     <View style={styles.settlementRow}>
                       <View style={[styles.dot, { backgroundColor: colors.warning }]} />
                       <Text style={[styles.settlementText, { color: colors.text }]} numberOfLines={1}>
@@ -897,7 +908,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                     </View>
                     {poolLegLabel(s) && (
                       <Text style={[styles.fxAmount, { color: colors.muted }]}>
-                        {poolLegLabel(s)} · {s.status === 'completed' ? 'already paid' : 'paid on its own'}
+                        {poolLegLabel(s)} · {s.status === 'netted' ? 'included in the payments above' : s.status === 'completed' ? 'already paid' : 'paid on its own'}
                       </Text>
                     )}
                     {s.settlementAmount && s.settlementCurrency && s.settlementCurrency !== s.currency && (
@@ -943,18 +954,40 @@ export default function EventDetailScreen({ route, navigation }: any) {
             <View style={styles.section}>
               <View style={styles.sectionHeaderRow}>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>Settlements</Text>
-                <Text style={[styles.progressText, { color: colors.muted }]}>{completedCount}/{settlements.length}</Text>
+                <Text style={[styles.progressText, { color: colors.muted }]}>{completedCount}/{plannedSettlements.length}</Text>
               </View>
               <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
                 <View style={[styles.progressFill, { width: `${settlementPct}%`, backgroundColor: colors.success }]} />
               </View>
-              {settlements.some(isPoolSideLeg) && (
+              {settlements.some(s => s.status === 'netted') && (
+                <Text style={[styles.fxAmount, { color: colors.muted, marginBottom: spacing.xs }]} testID="settlement-netted-note">
+                  {POOL_LEGS_NETTED_NOTE}
+                </Text>
+              )}
+              {settlements.some(s => isPoolSideLeg(s) && s.status !== 'netted') && (
                 <Text style={[styles.fxAmount, { color: colors.muted, marginBottom: spacing.xs }]} testID="settlement-pool-note">
                   {POOL_LEGS_PAID_SEPARATELY_NOTE}
                 </Text>
               )}
-              {settlements.map(s => {
+              {settlementsInOrder.map(s => {
                 const settlementStatus = s.status as string;
+                // Folded into the plan (§11): shown for the record, paid through the payments above.
+                if (settlementStatus === 'netted') {
+                  return (
+                    <View key={s.id} style={[styles.settlementCard, { backgroundColor: colors.surface, borderLeftColor: colors.border, opacity: 0.6 }]} testID={`event-detail-settlement-card-${s.id}`}>
+                      <View style={styles.settlementRow}>
+                        <View style={[styles.dot, { backgroundColor: colors.muted }]} />
+                        <Text style={[styles.settlementText, { color: colors.text }]} numberOfLines={1}>
+                          {getEntityName(s.fromEntityId, s.fromEntityType)} → {getEntityName(s.toEntityId, s.toEntityType)}
+                        </Text>
+                        <Text style={[styles.settlementAmount, { color: colors.text }]}>{currSym}{s.amount.toFixed(2)}</Text>
+                      </View>
+                      <Text style={[styles.fxAmount, { color: colors.muted }]} testID={`settlement-netted-${s.id}`}>
+                        {poolLegLabel(s) || 'Pool payment'} · included in the payments above
+                      </Text>
+                    </View>
+                  );
+                }
                 const isPayer = currentUserId === s.fromUserId;
                 const isPayee = currentUserId === s.toUserId;
                 const hasFx =
@@ -1142,7 +1175,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                       </View>
                       <Text style={[styles.listCardSub, { color: colors.muted }]}>
                         {formatExpenseDate(exp.date, exp.createdAt as any)} · {isPoolFundedExpense(exp)
-                          ? `${exp.fundingSource === 'pool' ? 'Paid from the pool' : 'Claimed from the pool'} by ${getUserName(exp.paidBy)}`
+                          ? `${poolExpenseByline(exp)} by ${getUserName(exp.paidBy)}`
                           : `Paid by ${getUserName(exp.paidBy)} · ${exp.paidOnBehalfOf && Array.isArray(exp.paidOnBehalfOf) && exp.paidOnBehalfOf.length > 0 ? 'On Behalf' : exp.splitType.charAt(0).toUpperCase() + exp.splitType.slice(1)}`}
                         {exp.attachments?.length ? ` · ${exp.attachments.length} receipt(s)` : ''}
                       </Text>
@@ -1587,12 +1620,12 @@ export default function EventDetailScreen({ route, navigation }: any) {
               <View style={styles.expDetailMetaRow}>
                 <Text style={[styles.expDetailLabel, { color: colors.muted }]}>Total</Text>
                 <Text style={[styles.expDetailValue, { color: colors.text }]}>
-                  {currSym}{settlements.filter(s => s.amount > 0.01).reduce((sum, s) => sum + s.amount, 0).toFixed(2)}
+                  {currSym}{plannedSettlements.filter(s => s.amount > 0.01).reduce((sum, s) => sum + s.amount, 0).toFixed(2)}
                 </Text>
               </View>
               <View style={styles.expDetailMetaRow}>
                 <Text style={[styles.expDetailLabel, { color: colors.muted }]}>Transactions</Text>
-                <Text style={[styles.expDetailValue, { color: colors.text }]}>{settlements.filter(s => s.amount > 0.01).length}</Text>
+                <Text style={[styles.expDetailValue, { color: colors.text }]}>{plannedSettlements.filter(s => s.amount > 0.01).length}</Text>
               </View>
             </View>
 
@@ -1620,7 +1653,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
             {settlements.filter(s => s.amount > 0.01).length === 0 ? (
               <Text style={[styles.emptyText, { color: colors.muted }]}>No settlements — everyone is even.</Text>
             ) : (
-              settlements.filter(s => s.amount > 0.01).map(s => {
+              settlementsInOrder.filter(s => s.amount > 0.01).map(s => {
                 const displayAmt = s.settlementAmount && s.settlementCurrency && s.settlementCurrency !== s.currency
                   ? `${CURRENCY_SYMBOLS[s.settlementCurrency] || s.settlementCurrency}${s.settlementAmount.toFixed(2)}`
                   : `${currSym}${s.amount.toFixed(2)}`;
@@ -1631,7 +1664,9 @@ export default function EventDetailScreen({ route, navigation }: any) {
                         <Text style={[styles.expDetailSplitName, { color: colors.text }]}>
                           {getEntityName(s.fromEntityId, s.fromEntityType)} → {getEntityName(s.toEntityId, s.toEntityType)}
                         </Text>
-                        <Text style={[{ fontSize: fontSizes.xs, color: colors.muted }]}>{s.status}</Text>
+                        <Text style={[{ fontSize: fontSizes.xs, color: colors.muted }]}>
+                          {s.status === 'netted' ? `${poolLegLabel(s) || 'Pool payment'} · included in the payments above` : s.status}
+                        </Text>
                       </View>
                       <Text style={[styles.expDetailSplitAmount, { color: colors.text }]}>{displayAmt}</Text>
                     </View>

@@ -23,11 +23,19 @@ const uploadSchema = z.discriminatedUnion('scope', [
     contentType: z.string().optional(),
     filename: z.string().max(200).optional(),
   }),
+  // Proof for money handed over (§9.3, §10.6). Uploaded before the record exists, like a receipt.
+  z.object({
+    scope: z.literal('pool_advance_proof'),
+    eventId: z.string().min(1),
+    base64: z.string().min(1),
+    contentType: z.string().optional(),
+    filename: z.string().max(200).optional(),
+  }),
 ]);
 
 /**
- * Upload a receipt (for an expense, before or after it exists) or a proof of
- * payment for a pool contribution. Returns a URL to store on the record.
+ * Upload a receipt (for an expense, before or after it exists), a proof of payment for
+ * a pool contribution, or a proof for money handed over. Returns a URL to store on the record.
  */
 router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
   const parsed = uploadSchema.safeParse(req.body);
@@ -40,6 +48,11 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
     if (body.scope === 'expense_receipt') {
       await requireEventAccess(body.eventId, uid);
       const stored = await storeUpload(`events/${body.eventId}/receipts`, uid, body, { noun: 'receipt', allowPdf: true });
+      return res.status(201).json({ success: true, data: stored } as ApiResponse);
+    }
+    if (body.scope === 'pool_advance_proof') {
+      await requireEventAccess(body.eventId, uid);
+      const stored = await storeUpload(`pools/${body.eventId}/advances`, uid, body, { noun: 'proof', allowPdf: true });
       return res.status(201).json({ success: true, data: stored } as ApiResponse);
     }
 

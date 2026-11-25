@@ -15,8 +15,8 @@ import {
 import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../api';
-import type { EventFundingModel, EventParticipant, ExpenseFundingSource, Group, OnBehalfOfEntry, PoolConfig, PoolCycleSummary } from '@traxettle/shared';
-import { canRecordAnyway, isReceiptRequired, poolErrorText, poolNoun, resolveFundingModel, toMinor, toPoolError } from '@traxettle/shared';
+import type { EventFundingModel, EventParticipant, Group, OnBehalfOfEntry, PaidWithChoice, PoolConfig, PoolCycleSummary, PoolLedger } from '@traxettle/shared';
+import { canRecordAnyway, entityKey, isReceiptRequired, paidWithOptions, paidWithPayload, poolErrorText, poolNoun, resolveFundingModel, toMinor, toPoolError } from '@traxettle/shared';
 import { PaidWithSelector, ReceiptPicker } from '../components/pool/PoolViews';
 import { poolService } from '../services/pool';
 import DateField from '../components/DateField';
@@ -82,10 +82,12 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
   // Pool funding: how it was paid, receipts, and the live pool state.
   const [fundingModel, setFundingModel] = useState<EventFundingModel>('peer_to_peer');
   const [poolConfig, setPoolConfig] = useState<PoolConfig | null>(null);
-  const [paidWith, setPaidWith] = useState<ExpenseFundingSource>('self');
+  const [paidWith, setPaidWith] = useState<PaidWithChoice>('self');
   // Pool spend by anyone but the custodian: already paid with the pool's money, or asking first (§9.2).
   const [spendTiming, setSpendTiming] = useState<'paid' | 'asking' | null>(null);
   const [poolSummary, setPoolSummary] = useState<PoolCycleSummary | null>(null);
+  const [poolLedger, setPoolLedger] = useState<PoolLedger | null>(null);
+  const [participants, setParticipants] = useState<EventParticipant[]>([]);
   const [receipts, setReceipts] = useState<string[]>([]);
 
   const fetchData = useCallback(async () => {
@@ -101,9 +103,11 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
         setPoolConfig(eRes.data.poolConfig);
         setPaidWith('pool');
         if (eRes.data.currency) setExpCurrency(eRes.data.currency);
-        poolService.summary(eventId).then(setPoolSummary).catch(() => undefined);
+        // The ledger brings the summary and the hand-overs: "money I'm holding" needs both (§9.3).
+        poolService.ledger(eventId).then((l) => { setPoolLedger(l); setPoolSummary(l?.summary || null); }).catch(() => undefined);
       }
       const gData = gRes.data || [];
+      setParticipants(pRes.data || []);
       setGroups(gData);
       setEntities(buildEntities(pRes.data || [], gData));
       try {
@@ -145,8 +149,37 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
   }, [onBehalfOf, payerEntityId]);
 
   const isCustodian = Boolean(poolConfig && currentUserId && poolConfig.custodianUserId === currentUserId);
-  // Anyone but the custodian says whether a pool spend is already paid or a request (§9.2).
-  const needsSpendTiming = paidWith === 'pool' && Boolean(poolConfig) && Boolean(currentUserId) && !isCustodian;
+  // Anyone but the custodian says whether a pool spend is already paid or a request (§9.2), whichever
+  // way they paid with pool money (§9.3, decision D1).
+  const paidWithPoolMoney = paidWith === 'pool' || paidWith === 'pool_held' || paidWith === 'pool_card';
+  const needsSpendTiming = paidWithPoolMoney && Boolean(poolConfig) && Boolean(currentUserId) && !isCustodian;
+  // Nothing is bought yet when asking first, so the receipt is optional (added after paying).
+  const askingFirst = needsSpendTiming && spendTiming === 'asking';
+  const fundingSourceOf = paidWithPayload(paidWith).fundingSource;
+  // What this person holds of the pool's money (§9.3).
+  const myKey = currentUserId ? (() => {
+    const group = groups.find((g) => (g.members || []).includes(currentUserId));
+    return group ? entityKey('group', group.id) : entityKey('user', currentUserId);
+  })() : '';
+  const heldMinor = poolSummary?.holdings?.heldBy[myKey] || 0;
+  const hasAdvances = Boolean(currentUserId) && (
+    (poolLedger?.advances || []).some((a) => a.kind === 'advance' && a.status === 'confirmed' && a.toUserId === currentUserId)
+    || Boolean(poolSummary?.cycle.openingHeld?.[myKey]));
+  const custodianName = poolConfig
+    ? (() => { const p = participants.find((x) => x.userId === poolConfig.custodianUserId); return p?.displayName || p?.email || undefined; })()
+    : undefined;
+  const allowCardSpends = poolConfig?.allowSponsorCardSpends !== false;
+  const preferredSource = poolConfig?.funderMode === 'sponsor' && !isCustodian ? 'pool_reimbursement' as const : undefined;
+
+  // The custodian's "Pool funds" isn't offered to anyone else: start them on their first option.
+  useEffect(() => {
+    if (!poolConfig || !currentUserId || isCustodian || paidWith !== 'pool') return;
+    const first = paidWithOptions({
+      model: fundingModel, isCustodian: false, currency: expCurrency, noun: poolNoun(poolConfig),
+      allowCardSpends, heldMinor, hasAdvances, custodianName, preferred: preferredSource,
+    })[0];
+    if (first) setPaidWith(first.value);
+  }, [poolConfig, currentUserId, isCustodian, paidWith, fundingModel, expCurrency, allowCardSpends, heldMinor, hasAdvances, custodianName, preferredSource]);
   const selectedEntities = useMemo(() => entities.filter(e => e.selected), [entities]);
   const ratioKey = useMemo(
     () => entities.filter(e => e.selected).map(s => `${s.entityId}:${s.ratio}`).join(','),
@@ -218,7 +251,7 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
         description: description.trim() || undefined,
         amount: amt,
         currency: expCurrency,
-        fundingSource: paidWith,
+        ...paidWithPayload(paidWith),
         attachments: receipts,
         ...(alreadyIncurred ? { alreadyIncurred: true } : {}),
       });
@@ -228,7 +261,9 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
       } else if (pending && !alreadyIncurred) {
         Alert.alert('Asked for approval', `Spend the ${poolNoun(poolConfig).toLowerCase()}'s money only once it's approved.`);
       } else if (pending) {
-        Alert.alert('Recorded', `Waiting for approval. If it's not approved, you'll owe it back to the ${poolNoun(poolConfig).toLowerCase()}'s holder.`);
+        Alert.alert('Recorded', paidWith === 'pool_held'
+          ? `Waiting for approval. If it's not approved, the money stays with you, to return or settle at the end.`
+          : `Waiting for approval. If it's not approved, you'll owe it back to the ${poolNoun(poolConfig).toLowerCase()}'s holder.`);
       } else {
         Alert.alert('Recorded', `"${title}" was paid from the ${poolNoun(poolConfig).toLowerCase()}.`);
       }
@@ -256,12 +291,13 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
     }
 
     if (paidWith !== 'self') {
-      if (isReceiptRequired(poolConfig, paidWith, toMinor(amt, expCurrency)) && receipts.length === 0) {
-        Alert.alert('Receipt needed', 'Attach a receipt to record this.');
-        return;
-      }
+      // Asked first: whether a receipt is needed depends on the answer.
       if (needsSpendTiming && !spendTiming) {
         Alert.alert('One more thing', `Have you already paid with the ${poolNoun(poolConfig).toLowerCase()}'s money, or are you asking before you spend?`);
+        return;
+      }
+      if (isReceiptRequired(poolConfig, fundingSourceOf, toMinor(amt, expCurrency), { askingFirst }) && receipts.length === 0) {
+        Alert.alert('Receipt needed', 'Attach a receipt to record this.');
         return;
       }
       await submitPoolDraw(amt, needsSpendTiming && spendTiming === 'paid');
@@ -343,7 +379,8 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
       {fundingModel !== 'peer_to_peer' && (
         <PaidWithSelector model={fundingModel} value={paidWith} onChange={setPaidWith} summary={poolSummary}
           currency={expCurrency} noun={poolNoun(poolConfig)}
-          preferred={poolConfig?.funderMode === 'sponsor' && !isCustodian ? 'pool_reimbursement' : undefined}
+          preferred={preferredSource}
+          isCustodian={isCustodian} allowCardSpends={allowCardSpends} heldMinor={heldMinor} hasAdvances={hasAdvances} custodianName={custodianName}
           amountMinor={(() => { const n = parseFloat(amount); return Number.isFinite(n) && n > 0 ? toMinor(n, expCurrency) : 0; })()} />
       )}
 
@@ -383,7 +420,7 @@ export default function CreateExpenseScreen({ route, navigation }: any) {
       <DateField testID="create-expense-date-input" value={date} onChange={setDate} />
 
       <ReceiptPicker eventId={eventId} value={receipts} onChange={setReceipts}
-        required={isReceiptRequired(poolConfig, paidWith, (() => { const n = parseFloat(amount); return Number.isFinite(n) && n > 0 ? toMinor(n, expCurrency) : 0; })())} />
+        required={isReceiptRequired(poolConfig, fundingSourceOf, (() => { const n = parseFloat(amount); return Number.isFinite(n) && n > 0 ? toMinor(n, expCurrency) : 0; })(), { askingFirst })} />
 
       {paidWith === 'pool_reimbursement' && parseFloat(amount) > 0 && (
         <Text testID="claim-note" style={{ color: c.textSecondary, marginBottom: spacing.md }}>

@@ -92,6 +92,13 @@ describe('SettlementService.closeForDeletedUser', () => {
     await expect(service.closeForDeletedUser('bob-paid-alice', 'carol', 'forgiven' as any)).rejects.toThrow("'paid' or 'written_off'");
   });
 
+  it('refuses a pool payment folded into the final settlement (§11)', async () => {
+    seed();
+    store.seed('settlements', 'alice-owes-bob', { ...store.get('settlements', 'alice-owes-bob'), kind: 'pool_repayment', status: 'netted' });
+    await expect(service.closeForDeletedUser('alice-owes-bob', 'carol', 'written_off')).rejects.toThrow('This payment is included in the final settlement');
+    expect(store.get('settlements', 'alice-owes-bob').status).toBe('netted');
+  });
+
   it('works end to end after AccountDeletionService anonymises the account', async () => {
     seed({ aliceDeleted: false });
     store.seed('users', 'alice', { email: 'alice@example.com' });

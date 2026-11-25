@@ -28,6 +28,15 @@ export function buildApp() {
 
 export const auth = (uid: string) => ({ Authorization: `Bearer ${uid}` });
 
+/**
+ * Give users an active Pro subscription in the memory store. "Several of us" pools need a Pro
+ * creator (design doc §12); test users are free unless made Pro (decision D9: no exception for
+ * mock users). Call after `store.reset()`.
+ */
+export function makePro(store: { seed(collection: string, id: string, data: Record<string, any>): void }, ...uids: string[]) {
+  for (const uid of uids) store.seed('users', uid, { tier: 'pro', entitlementStatus: 'active', entitlementSource: 'manual_override' });
+}
+
 export function poolApi(app: express.Express) {
   const api = {
     async createEvent(uid: string, extra: Record<string, any> = {}) {

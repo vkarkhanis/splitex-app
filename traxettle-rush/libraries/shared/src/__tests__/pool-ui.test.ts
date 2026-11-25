@@ -1,4 +1,16 @@
 import {
+  describeSettleUpRow,
+  settleUpFigures,
+  settleUpRows,
+  ADVANCE_KIND_LABEL,
+  advanceStatusText,
+  GROUP_POOLS_PRO_FEATURE,
+  paidWithChoiceFor,
+  paidWithOptions,
+  paidWithPayload,
+  POOL_LEGS_NETTED_NOTE,
+  proRequiredMessage,
+  REPAYMENT_STATUS,
   buildFundingPayload,
   canRecordAnyway,
   choosePool,
@@ -14,7 +26,9 @@ import {
   needsTarget,
   openPoolSideLegs,
   POOL_LEGS_PAID_SEPARATELY_NOTE,
+  partMonthNote,
   poolErrorText,
+  poolExpenseByline,
   poolLegLabel,
   poolNoun,
   poolPaymentActions,
@@ -133,6 +147,45 @@ describe('pool formatting', () => {
     expect(isReceiptRequired(null, 'pool', 1)).toBe(false);
   });
 
+  it('needs no receipt from someone asking before they spend: nothing is bought yet', () => {
+    const cfg = { claimReceiptRequired: true, receiptRequiredAboveMinor: 0 };
+    expect(isReceiptRequired(cfg, 'pool', 400000, { askingFirst: true })).toBe(false);
+    expect(isReceiptRequired(cfg, 'pool', 400000, { askingFirst: false })).toBe(true);
+    // A claim is always for money already spent.
+    expect(isReceiptRequired(cfg, 'pool_reimbursement', 80000, { askingFirst: true })).toBe(true);
+  });
+
+  it("explains a Fund's part-month after the members changed: no dues until next month", () => {
+    const anita = { entityType: 'user' as const, entityId: 'anita' };
+    const ravi = { entityType: 'user' as const, entityId: 'ravi' };
+    const cycles = [
+      { sequence: 1, closeReason: 'membership_change' as const, roster: [anita] },
+      { sequence: 2, closeReason: null, roster: [anita, ravi] },
+    ];
+    const open = { sequence: 2, status: 'open' as const };
+    expect(partMonthNote({ cycle: open, cycles, contributions: [], viewerKey: 'user:ravi' }))
+      .toBe('You joined mid-month: your dues start next month.');
+    expect(partMonthNote({ cycle: open, cycles, contributions: [{ kind: 'top_up' }], viewerKey: 'user:anita', isManager: true }))
+      .toBe('The members changed mid-month, so the month was squared up. There are no dues for the rest of it: they start again next month. To ask for dues now, use “Set amounts”.');
+    // Dues were set after all, the month ended normally, or it's closed: nothing to say.
+    expect(partMonthNote({ cycle: open, cycles, contributions: [{ kind: 'regular' }], viewerKey: 'user:ravi' })).toBeNull();
+    expect(partMonthNote({ cycle: open, cycles: [{ ...cycles[0], closeReason: 'scheduled' }, cycles[1]], contributions: [], viewerKey: 'user:ravi' })).toBeNull();
+    expect(partMonthNote({ cycle: { sequence: 2, status: 'closed' }, cycles, contributions: [], viewerKey: 'user:ravi' })).toBeNull();
+    expect(partMonthNote({ cycle: { sequence: 1, status: 'open' }, cycles, contributions: [], viewerKey: 'user:ravi' })).toBeNull();
+  });
+
+  it('describes a pool expense in the expense list, by whether it has been paid', () => {
+    expect(poolExpenseByline({ fundingSource: 'pool_reimbursement', poolDraw: { status: 'pending', alreadyIncurred: true } })).toBe('Claimed from the pool');
+    expect(poolExpenseByline({ fundingSource: 'pool', poolDraw: { status: 'pending', alreadyIncurred: true } })).toBe('Paid from the pool');
+    expect(poolExpenseByline({ fundingSource: 'pool', poolDraw: { status: 'approved', alreadyIncurred: true } })).toBe('Paid from the pool');
+    // Asked first: not paid until it's approved.
+    expect(poolExpenseByline({ fundingSource: 'pool', poolDraw: { status: 'pending', alreadyIncurred: false } })).toBe('Requested from the pool');
+    expect(poolExpenseByline({ fundingSource: 'pool', poolDraw: { status: 'rejected', alreadyIncurred: false } })).toBe('Requested from the pool');
+    expect(poolExpenseByline({ fundingSource: 'pool', poolDraw: { status: 'approved', alreadyIncurred: false } })).toBe('Paid from the pool');
+    // Older expenses without the flag read as paid.
+    expect(poolExpenseByline({ fundingSource: 'pool' })).toBe('Paid from the pool');
+  });
+
   it('normalises thrown errors', () => {
     expect(toPoolError({ message: 'Nope', code: 'POOL_UNDERFUNDED', data: { shortfall: 5 } })).toEqual({ message: 'Nope', code: 'POOL_UNDERFUNDED', data: { shortfall: 5 } });
     expect(toPoolError('boom', 'fallback')).toEqual({ message: 'fallback' });
@@ -218,10 +271,10 @@ describe('reimbursement status of a claim', () => {
   });
 });
 
-describe('"Several of us" pools in the first release', () => {
-  it('are held back from production', () => {
-    expect(CONTRIBUTOR_POOLS_IN_PRODUCTION).toBe(false);
-    expect(contributorPoolsAvailable('production')).toBe(false);
+describe('"Several of us" pools, released with Phase 2', () => {
+  it('are offered in production (the API still requires Pro to create one)', () => {
+    expect(CONTRIBUTOR_POOLS_IN_PRODUCTION).toBe(true);
+    expect(contributorPoolsAvailable('production')).toBe(true);
   });
 
   it('stay available everywhere before production, for testing', () => {
@@ -230,10 +283,10 @@ describe('"Several of us" pools in the first release', () => {
     }
   });
 
-  it('count a missing or unknown environment as production', () => {
-    expect(contributorPoolsAvailable(undefined)).toBe(false);
-    expect(contributorPoolsAvailable('')).toBe(false);
-    expect(contributorPoolsAvailable('prod')).toBe(false);
+  it('count a missing or unknown environment as production, where they are now released', () => {
+    expect(contributorPoolsAvailable(undefined)).toBe(true);
+    expect(contributorPoolsAvailable('')).toBe(true);
+    expect(contributorPoolsAvailable('prod')).toBe(true);
   });
 
   it('start "Pool money" on "Just me" when that is the only funder offered', () => {
@@ -305,3 +358,213 @@ describe('repaymentStatus (§9.2)', () => {
     expect(repaymentStatus('pending', 'pending')).toBeNull();
   });
 });
+
+// ── Phase 2 (§9.3, §10.6, §11, §12) ───────────────────────────────────────
+
+describe('pool payments folded into the final settlement (§11)', () => {
+  it('a netted claim reads "In final settlement" until the event is settled', () => {
+    expect(reimbursementStatus({ status: 'approved' }, 'netted', 'review')).toBe('in_settlement');
+    expect(reimbursementStatus({ status: 'approved' }, 'netted', 'payment')).toBe('in_settlement');
+    expect(reimbursementStatus({ status: 'approved' }, 'netted', 'settled')).toBe('reimbursed');
+    expect(reimbursementStatus({ status: 'approved' }, 'netted')).toBe('in_settlement');
+    expect(REIMBURSEMENT_STATUS.in_settlement.label).toBe('In final settlement');
+  });
+
+  it('a netted repayment reads "In final settlement" until the event is settled', () => {
+    expect(repaymentStatus('rejected', 'netted', 'review')).toBe('in_settlement');
+    expect(repaymentStatus('rejected', 'netted', 'closed')).toBe('repaid');
+    expect(REPAYMENT_STATUS.in_settlement.label).toBe('In final settlement');
+  });
+
+  it('netted rows are not open pool payments', () => {
+    const legs = [
+      { id: 'a', kind: 'pool_repayment' as const, status: 'netted' },
+      { id: 'b', kind: 'pool_reimbursement' as const, status: 'pending' },
+    ];
+    expect(openPoolSideLegs(legs).map((l) => l.id)).toEqual(['b']);
+    expect(POOL_LEGS_NETTED_NOTE).toBe("Repayments and unpaid claims are included in these payments. They aren't paid on their own.");
+  });
+});
+
+describe('hand-overs (§9.3, §10.6)', () => {
+  const nameOf = (id: string) => ({ ravi: 'Ravi', anita: 'Anita' }[id] || id);
+
+  it('labels each kind', () => {
+    expect(ADVANCE_KIND_LABEL).toEqual({ advance: 'Advance', return: 'Returned', repayment: 'Paid back early' });
+  });
+
+  it('describes the status from the viewer\'s side', () => {
+    expect(advanceStatusText({ status: 'initiated', toUserId: 'ravi' }, 'anita', nameOf)).toBe('Waiting for Ravi to confirm');
+    expect(advanceStatusText({ status: 'initiated', toUserId: 'ravi' }, 'ravi', nameOf)).toBe('Waiting for you to confirm');
+    expect(advanceStatusText({ status: 'confirmed', toUserId: 'ravi' }, 'anita', nameOf)).toBe('Confirmed');
+    expect(advanceStatusText({ status: 'rejected', toUserId: 'ravi' }, 'anita', nameOf)).toBe('Not received');
+    expect(advanceStatusText({ status: 'cancelled', toUserId: 'ravi' }, 'anita', nameOf)).toBe('Cancelled');
+  });
+});
+
+describe('"Paid with" options (§9.3, D1)', () => {
+  const base = { model: 'pool' as const, currency: 'INR', noun: 'Budget', allowCardSpends: true, custodianName: 'Anita' };
+  const values = (opts: ReturnType<typeof paidWithOptions>) => opts.map((o) => o.value);
+
+  it('the custodian pays from the pool directly', () => {
+    expect(values(paidWithOptions({ ...base, isCustodian: true }))).toEqual(['pool', 'pool_reimbursement']);
+  });
+
+  it("a spender who hasn't been handed money picks the custodian's card or their own money", () => {
+    const opts = paidWithOptions({ ...base, isCustodian: false });
+    expect(values(opts)).toEqual(['pool_card', 'pool_reimbursement']);
+    expect(opts[0].title).toBe("Anita's card or UPI");
+    expect(opts[0]).toMatchObject({ fundingSource: 'pool', paidFrom: 'sponsor_card' });
+  });
+
+  it('a spender holding money also sees what they have left', () => {
+    const opts = paidWithOptions({ ...base, isCustodian: false, heldMinor: 500000, hasAdvances: true });
+    expect(values(opts)).toEqual(['pool_held', 'pool_card', 'pool_reimbursement']);
+    expect(opts[0]).toMatchObject({ title: "Budget money I'm holding", text: `${formatMinor(500000, 'INR')} left.`, paidFrom: 'advance' });
+  });
+
+  it('keeps the held option once it is all spent, saying the rest is paid back to them', () => {
+    const opts = paidWithOptions({ ...base, isCustodian: false, heldMinor: 0, hasAdvances: true });
+    expect(opts[0].value).toBe('pool_held');
+    expect(opts[0].text).toMatch(/paid back to you/);
+  });
+
+  it('hides the card option when the budget turns it off', () => {
+    expect(values(paidWithOptions({ ...base, allowCardSpends: false, isCustodian: false }))).toEqual(['pool_reimbursement']);
+    expect(values(paidWithOptions({ ...base, allowCardSpends: false, isCustodian: false, heldMinor: 100, hasAdvances: true }))).toEqual(['pool_held', 'pool_reimbursement']);
+  });
+
+  it('hybrid events add the regular split; a preferred option is listed first and marked', () => {
+    const opts = paidWithOptions({ ...base, model: 'hybrid', isCustodian: false, preferred: 'pool_reimbursement' });
+    expect(values(opts)).toEqual(['pool_reimbursement', 'pool_card', 'self']);
+    expect(opts.filter((o) => o.suggested).map((o) => o.value)).toEqual(['pool_reimbursement']);
+  });
+
+  it('names the custodian generically when no name is known', () => {
+    expect(paidWithOptions({ ...base, custodianName: undefined, isCustodian: false })[0].title).toBe("The custodian's card or UPI");
+  });
+
+  it('maps a choice to what the API expects, and back for the edit form', () => {
+    expect(paidWithPayload('pool_held')).toEqual({ fundingSource: 'pool', paidFrom: 'advance' });
+    expect(paidWithPayload('pool_card')).toEqual({ fundingSource: 'pool', paidFrom: 'sponsor_card' });
+    expect(paidWithPayload('pool')).toEqual({ fundingSource: 'pool' });
+    expect(paidWithPayload('pool_reimbursement')).toEqual({ fundingSource: 'pool_reimbursement' });
+    expect(paidWithChoiceFor({ fundingSource: 'pool', poolDraw: { paidFrom: 'advance' } }, false)).toBe('pool_held');
+    expect(paidWithChoiceFor({ fundingSource: 'pool', poolDraw: { paidFrom: 'sponsor_card' } }, false)).toBe('pool_card');
+    // Saved before Phase 2 (no method): the custodian's own spend, or a spend on their card.
+    expect(paidWithChoiceFor({ fundingSource: 'pool', poolDraw: {} }, true)).toBe('pool');
+    expect(paidWithChoiceFor({ fundingSource: 'pool' }, false)).toBe('pool_card');
+    expect(paidWithChoiceFor({ fundingSource: 'pool_reimbursement' }, false)).toBe('pool_reimbursement');
+    expect(paidWithChoiceFor({}, false)).toBe('self');
+  });
+});
+
+describe('"Several of us" as Pro (§12)', () => {
+  it('explains a refusal by its feature code', () => {
+    expect(proRequiredMessage('contributor_pools')).toBe('Group pools ("Several of us") are a Pro feature.');
+    expect(proRequiredMessage('multi_currency_settlement')).toBe('Multi-currency settlement requires Pro.');
+    expect(proRequiredMessage(undefined)).toBe('Multi-currency settlement requires Pro.');
+  });
+
+  it('has the entry for the Pro lists', () => {
+    expect(GROUP_POOLS_PRO_FEATURE.title).toBe('Group pools');
+    expect(GROUP_POOLS_PRO_FEATURE.desc).toMatch(/trip kitty, shared fund, club treasury or collection/);
+  });
+});
+
+describe('settle-up preview rows (§11.4 step 5)', () => {
+  const keyOf = (uid: string) => (uid === 'meera' ? 'group:fam' : `user:${uid}`);
+  const snacks = { settlementId: 's1', expenseId: 'e1', kind: 'pool_repayment' as const, fromUserId: 'ravi', toUserId: 'anita', amountMinor: 60000, title: 'Snacks' };
+
+  it('Scenario 1: Ravi gets back ₹10,000 from the budget, less ₹600 for Snacks = ₹9,400', () => {
+    const rows = settleUpRows({ 'user:ravi': 1000000, 'user:anita': -1000000 }, [snacks], keyOf);
+    expect(rows.map((r) => [r.key, r.poolMinor, r.totalMinor])).toEqual([['user:ravi', 1000000, 940000], ['user:anita', -1000000, -940000]]);
+    const ravi = describeSettleUpRow(rows[0], 'INR', 'Budget');
+    expect(ravi.headline).toBe(`gets back ${formatMinor(940000, 'INR')}`);
+    expect(ravi.detail).toBe(`${formatMinor(1000000, 'INR')} from the budget, less ${formatMinor(60000, 'INR')} for Snacks (repayment)`);
+    // For the one paying, the repayment owed to them lowers what they pay: "less", not "plus".
+    expect(describeSettleUpRow(rows[1], 'INR', 'Budget').detail).toBe(`${formatMinor(1000000, 'INR')} to the budget, less ${formatMinor(60000, 'INR')} for Snacks (repayment)`);
+  });
+
+  it('"plus" and "less" follow the direction of the row\'s first figure (Scenario 6.14, Kitty 3.7)', () => {
+    const taxi = { settlementId: 't1', expenseId: 'e3', kind: 'pool_reimbursement' as const, fromUserId: 'anita', toUserId: 'ravi', amountMinor: 80000, title: 'Taxi' };
+    const cake = { settlementId: 'c1', expenseId: 'e4', kind: 'pool_repayment' as const, fromUserId: 'ravi', toUserId: 'anita', amountMinor: 30000, title: 'Cake' };
+    const rows = settleUpRows({ 'user:ravi': 200000, 'user:anita': -200000 }, [taxi, cake], keyOf);
+    expect(describeSettleUpRow(rows[0], 'INR', 'Budget')).toEqual({
+      headline: `gets back ${formatMinor(250000, 'INR')}`,
+      detail: `${formatMinor(200000, 'INR')} from the budget, plus ${formatMinor(80000, 'INR')} for Taxi (claim), less ${formatMinor(30000, 'INR')} for Cake (repayment)`,
+    });
+    expect(describeSettleUpRow(rows[1], 'INR', 'Budget')).toEqual({
+      headline: `pays ${formatMinor(250000, 'INR')}`,
+      detail: `${formatMinor(200000, 'INR')} to the budget, plus ${formatMinor(80000, 'INR')} for Taxi (claim), less ${formatMinor(30000, 'INR')} for Cake (repayment)`,
+    });
+
+    const dj = { settlementId: 'd1', expenseId: 'e5', kind: 'pool_repayment' as const, fromUserId: 'ravi', toUserId: 'anita', amountMinor: 150000, title: 'DJ' };
+    const kitty = settleUpRows({ 'user:ravi': 140000, 'user:priya': 140000, 'user:anita': -280000 }, [dj], keyOf);
+    const anita = kitty.find((r) => r.key === 'user:anita')!;
+    expect(describeSettleUpRow(anita, 'INR', 'Kitty')).toEqual({
+      headline: `pays ${formatMinor(130000, 'INR')}`,
+      detail: `${formatMinor(280000, 'INR')} to the kitty, less ${formatMinor(150000, 'INR')} for DJ (repayment)`,
+    });
+
+    // Only folded payments: the first sets the direction.
+    const lunch = { settlementId: 'l1', expenseId: 'e6', kind: 'pool_repayment' as const, fromUserId: 'ravi', toUserId: 'anita', amountMinor: 50000, title: 'Lunch' };
+    const both = settleUpRows({}, [lunch, taxi], keyOf);
+    expect(describeSettleUpRow(both.find((r) => r.key === 'user:ravi')!, 'INR', 'Budget').detail)
+      .toBe(`Owes ${formatMinor(50000, 'INR')} for Lunch (repayment), less ${formatMinor(80000, 'INR')} for Taxi (claim)`);
+  });
+
+  it('works with only folded payments, and maps group members to their group', () => {
+    const claim = { settlementId: null, expenseId: 'e2', kind: 'pool_reimbursement' as const, fromUserId: 'anita', toUserId: 'meera', amountMinor: 80000, title: '' };
+    const rows = settleUpRows({}, [claim], keyOf);
+    expect(rows.map((r) => r.key)).toEqual(['group:fam', 'user:anita']);
+    expect(describeSettleUpRow(rows[0], 'INR', 'Kitty')).toEqual({ headline: `gets back ${formatMinor(80000, 'INR')}`, detail: `Owed ${formatMinor(80000, 'INR')} for a claim (claim)` });
+    expect(describeSettleUpRow(rows[1], 'INR', 'Kitty').detail).toBe(`Owes ${formatMinor(80000, 'INR')} for a claim (claim)`);
+  });
+
+  it('keeps a row that nets to zero when something was folded in, and drops plain zeros', () => {
+    const rows = settleUpRows({ 'user:ravi': 60000, 'user:anita': -60000, 'user:priya': 0 }, [snacks], keyOf);
+    expect(rows.map((r) => [r.key, r.totalMinor])).toEqual([['user:ravi', 0], ['user:anita', 0]]);
+    expect(describeSettleUpRow(rows[0], 'INR', 'Budget').headline).toBe('is square');
+  });
+
+  it('a row without folded payments has no detail', () => {
+    const rows = settleUpRows({ 'user:ravi': 500, 'user:anita': -500 }, [], keyOf);
+    expect(describeSettleUpRow(rows[0], 'INR', 'Kitty')).toEqual({ headline: `gets back ${formatMinor(500, 'INR')}`, detail: null });
+  });
+});
+
+describe('settleUpFigures', () => {
+  const base = { openingBalanceMinor: 0, confirmedContributionsMinor: 6000000, poolSpendMinor: 1500000, reimbursementsMinor: 0, preCoverBalanceMinor: 4500000 };
+  const signedTotal = (f: ReturnType<typeof settleUpFigures>) =>
+    f.filter((x) => x.key !== 'result').reduce((sum, x) => sum + x.amountMinor, 0);
+
+  it('lists collected, spent and left over when nothing was carried in or paid back early', () => {
+    expect(settleUpFigures(base)).toEqual([
+      { key: 'collected', label: 'Collected', amountMinor: 6000000 },
+      { key: 'spent', label: 'Spent from the pool', amountMinor: -1500000 },
+      { key: 'result', label: 'Left over', amountMinor: 4500000 },
+    ]);
+  });
+
+  it('shows money paid back early, so the figures add up (Phase 2 test plan, Scenario 3)', () => {
+    const f = settleUpFigures({ openingBalanceMinor: 0, confirmedContributionsMinor: 2050000, earlyRepaymentsMinor: 400000, poolSpendMinor: 1600000, reimbursementsMinor: 0, preCoverBalanceMinor: 50000 });
+    expect(f.map((x) => [x.label, x.amountMinor])).toEqual([
+      ['Collected', 2050000], ['Paid back early', -400000], ['Spent from the pool', -1600000], ['Left over', 50000],
+    ]);
+    expect(signedTotal(f)).toBe(50000);
+  });
+
+  it('shows what was carried in, counts claims paid as spending, and says when the pool is short', () => {
+    const f = settleUpFigures({ openingBalanceMinor: 700000, confirmedContributionsMinor: 1000000, poolSpendMinor: 1500000, reimbursementsMinor: 400000, preCoverBalanceMinor: -200000 });
+    expect(f.map((x) => [x.key, x.amountMinor])).toEqual([['carried_in', 700000], ['collected', 1000000], ['spent', -1900000], ['result', 200000]]);
+    expect(f.at(-1)!.label).toBe('Short by');
+    expect(signedTotal(f)).toBe(-200000);
+  });
+
+  it('treats a missing or zero early repayment (older servers) as none', () => {
+    expect(settleUpFigures({ ...base, earlyRepaymentsMinor: 0 }).map((x) => x.key)).toEqual(['collected', 'spent', 'result']);
+    expect(settleUpFigures({ ...base, earlyRepaymentsMinor: undefined }).map((x) => x.key)).toEqual(['collected', 'spent', 'result']);
+  });
+});
+

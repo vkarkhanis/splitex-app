@@ -35,6 +35,8 @@ const STATUS: Record<string, { label: string; tone: 'default' | 'success' | 'war
   initiated: { label: 'Paid — awaiting confirmation', tone: 'info' },
   failed: { label: 'Retry needed', tone: 'error' },
   completed: { label: 'Done', tone: 'success' },
+  // Folded into the event's final settlement (design doc §11): paid through the plan's own payments.
+  netted: { label: 'In final settlement', tone: 'info' },
 };
 
 interface Props {
@@ -56,7 +58,8 @@ export function PoolPayments({ legs, currentUserId, nameOf, onChanged }: Props) 
   const [busy, setBusy] = useState(false);
 
   if (legs.length === 0) return null;
-  const sorted = [...legs].sort((a, b) => Number(a.status === 'completed') - Number(b.status === 'completed'));
+  const done = (status: string) => status === 'completed' || status === 'netted';
+  const sorted = [...legs].sort((a, b) => Number(done(a.status)) - Number(done(b.status)));
 
   const act = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(true);
