@@ -75,6 +75,7 @@ Single suites while you work:
 - **Job `unit`:** type checks and every unit suite. Mobile is blocking.
 - **Job `e2e`:** installs Chromium and runs every Playwright test. On failure, it keeps the HTML report and traces as the `playwright-report` artifact for 14 days.
 - **Maestro isn't in CI:** it needs simulators. Run it locally before releasing a mobile build.
+- **Both jobs run on `ubuntu-24.04`, not `ubuntu-latest`.** `ubuntu-latest` moved to Ubuntu 26.04, where Playwright 1.58 refuses to install Chromium (*Playwright does not support chromium on ubuntu26.04-x64*). When you upgrade Playwright to a version that supports 26.04, move both jobs together.
 
 > Until 2026-11-24 the workflow lived in `traxettle-rush/.github/`, where GitHub doesn't look, so CI had never run. It's now at the root.
 

@@ -21,7 +21,9 @@ defaults:
 jobs:
   unit:
     name: Type checks and unit tests
-    runs-on: ubuntu-latest
+    # A fixed image, not ubuntu-latest: that moved to Ubuntu 26.04, which Playwright 1.58 doesn't
+    # support. Move both jobs on together when Playwright is upgraded.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -62,7 +64,8 @@ jobs:
 
   e2e:
     name: Browser tests (Playwright)
-    runs-on: ubuntu-latest
+    # Playwright installs Chromium and its system libraries only on the Ubuntu versions it knows.
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
