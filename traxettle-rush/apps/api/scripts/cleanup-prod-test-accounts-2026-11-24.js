@@ -321,7 +321,25 @@ async function plan(accounts) {
     add('invitations', d);
   }
 
-  return { accounts, events, related: [...related.values()], skipped };
+  // A last check, by name: events and groups the test runs named (ending in a run id) that aren't
+  // linked to these accounts. Reported only, never deleted.
+  const handled = new Set([...events.map((e) => e.ref.path), ...related.keys()]); // related is keyed by path
+  skipped.forEach((x) => handled.add(`${x.kind === 'group' ? 'groups' : x.kind === 'event' ? 'events' : 'invitations'}/${x.id}`));
+  const unlinked = [];
+  const NAME_PREFIXES = {
+    events: ['Maestro Event ', 'Maestro Same ', 'Maestro FX ', 'Group Event ', 'Goa Kitty ', 'Probe Event '],
+    groups: ['Family '],
+  };
+  for (const [collection, prefixes] of Object.entries(NAME_PREFIXES)) {
+    for (const prefix of prefixes) {
+      const snap = await db.collection(collection).where('name', '>=', prefix).where('name', '<', `${prefix}\uf8ff`).get();
+      snap.docs
+        .filter((d) => endsWithRunId(d.get('name')) && !handled.has(d.ref.path))
+        .forEach((d) => unlinked.push({ collection, id: d.id, name: d.get('name') }));
+    }
+  }
+
+  return { accounts, events, related: [...related.values()], skipped, unlinked };
 }
 
 // ── 3. Report, and delete with --apply ──────────────────────────────────────────────────
@@ -339,6 +357,8 @@ function report(p) {
   console.log('\nOther records to delete:', Object.keys(counts).length ? counts : 'none');
   console.log(`\nKept (not test-only, look at these yourself): ${p.skipped.length ? '' : 'none'}`);
   p.skipped.forEach((s) => console.log(`  ${s.kind} ${s.id}${s.name ? ` "${s.name}"` : ''}: ${s.why}`));
+  console.log(`\nNamed like test data but not linked to these accounts (not deleted): ${p.unlinked.length ? '' : 'none'}`);
+  p.unlinked.forEach((u) => console.log(`  ${u.collection}/${u.id} "${u.name}"`));
 }
 
 async function execute(p) {
