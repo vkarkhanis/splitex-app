@@ -1,8 +1,22 @@
-import { buildMobileDeepLink, detectMobileOS } from '../../utils/mobile-subscribe';
+import { buildMobileDeepLink, detectMobileOS, getMobileSubscribeLinks } from '../../utils/mobile-subscribe';
 
 describe('mobile-subscribe utils', () => {
   beforeEach(() => {
     delete process.env.NEXT_PUBLIC_MOBILE_DEEPLINK_SCHEME;
+    delete process.env.NEXT_PUBLIC_APP_STORE_URL;
+    delete process.env.NEXT_PUBLIC_PLAY_STORE_URL;
+  });
+
+  it('links to the published store listings, not a search', () => {
+    expect(getMobileSubscribeLinks()).toMatchObject({
+      appStoreUrl: 'https://apps.apple.com/app/traxettle/id6823113088',
+      playStoreUrl: 'https://play.google.com/store/apps/details?id=com.traxettle.app',
+    });
+  });
+
+  it('lets a build override the store links', () => {
+    process.env.NEXT_PUBLIC_APP_STORE_URL = 'https://apps.apple.com/in/app/traxettle/id6823113088';
+    expect(getMobileSubscribeLinks().appStoreUrl).toBe('https://apps.apple.com/in/app/traxettle/id6823113088');
   });
 
   it('detectMobileOS identifies android', () => {
