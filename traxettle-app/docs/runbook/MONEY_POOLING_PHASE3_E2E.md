@@ -225,9 +225,10 @@ Invite Ravi; both pay in. Balance ₹20,000.
 |---|---|---|---|
 | D1 | Anita (Pro) | Create a split-expenses event "Dinner club" in **INR**, settlement currency **USD**, rate **1 INR = 0.0125 USD**. Invite Ravi and Priya. | |
 | D2 | Ravi | **Add expense**: "Dinner", **30**, currency **USD**, split equally among all three. | Preview *≈ ₹2,400.00 at 1 USD = 80 INR*. Saved: **₹2,400.00** with **$30.00** under it. |
-| D3 | Anyone | Open **Balances**. | Ravi is owed ₹1,600 (₹800 from each of the other two), not 30 or 20 dollars counted as rupees. |
+| D3 | Ravi, then Anita | Look at the summary cards at the top of the event. (There's no separate Balances screen. Who owes whom appears only after **Settle Now**, in D6.) | As Ravi: **Total Expense ₹2,400.00** and **Your Shared ₹800.00**. As Anita: **Your Shared ₹800.00**. No card shows 30, 20 or 10 counted as rupees. |
 | D4 | Ravi | Edit Dinner: switch to **custom** split: Anita $10, Ravi $10, Priya $10. Save. | Each share is ₹800.00 and they add up to ₹2,400.00. Reopening the edit form shows the shares in **dollars** again. |
 | D5 | Priya (free) | Create her own split event in INR and add an expense. | The currency picker is **locked** to INR. Before Phase 3, web allowed another currency here and added it up as rupees. |
+| D6 | Anita | Back in "Dinner club", tap **Settle Now** and confirm. | **Settlement Review** lists **Anita → Ravi ₹800.00** and **Priya → Ravi ₹800.00**, each with **≈ $10.00** under it (the USD settlement currency). |
 
 ---
 
@@ -316,7 +317,7 @@ Use an app built from the **Phase 2** branch, the build that will be in the stor
 | ☐ | Edits keep the rate; a new currency gets a new one; back to INR clears it | C3–C5, C7 |
 | ☐ | Another currency needs the organiser's Pro | C6, D5 |
 | ☐ | Thresholds use the converted amount | C8 |
-| ☐ | Split expenses convert, splits add up, balances are in the event currency | D2–D4 |
+| ☐ | Split expenses convert, splits add up, balances are in the event currency | D2–D4, D6 |
 | ☐ | Mobile: permissions card, approvals, currency chips and preview | A, C on mobile |
 | ☐ | Older builds behave | O1–O2 |
 | ☐ | App: taps work while a toast shows | E1–E2 |
