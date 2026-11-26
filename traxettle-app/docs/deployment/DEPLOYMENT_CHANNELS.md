@@ -145,7 +145,11 @@ There is **one iOS build for every environment**. Release builds choose the API 
 The `EXPO_PUBLIC_API_URL` baked into a build only affects development builds. Deploy the API the testers will use (staging and/or production) before they test new features.
 
 ### Prerequisites (one-time)
-- macOS with Xcode and CocoaPods (`gem install cocoapods`)
+- macOS with Xcode and CocoaPods (`gem install cocoapods`). Expo SDK 58 needs Xcode 26.4 or later.
+  **From April 2027 App Store Connect only accepts builds made with Xcode 27 (iOS 27 SDK).** Xcode 27
+  runs on macOS 26.6 or later and can sit next to Xcode 26; the build uses the one `xcode-select`
+  (or `DEVELOPER_DIR`) points at, and `build-ios.sh` prints which. Before uploading with a new Xcode,
+  check App Store Connect's release notes that it accepts that version.
 - Apple Developer account enrolled, and its Apple ID added in Xcode → Settings → Accounts
 - App ID `com.traxettle.app` registered (developer.apple.com → Identifiers) and the app created in App Store Connect
 - Your 10-character Apple Team ID (developer.apple.com → Membership, or `tools/doctor-tool/scripts/doctor-apple-team.sh`)

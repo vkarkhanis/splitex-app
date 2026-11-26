@@ -6,7 +6,8 @@ Complete setup for iOS development, building, and deployment of Traxettle on App
 
 iOS development requires:
 - macOS (required)
-- Xcode 15+
+- Xcode 26.4 or later (Expo SDK 58). From April 2027 App Store uploads must be built with Xcode 27
+  (iOS 27 SDK), which runs on macOS 26.6 or later. The app supports iOS 16.4 and later.
 - Apple Developer account
 - iOS Simulator or physical device
 - Firebase configuration
@@ -16,16 +17,20 @@ iOS development requires:
 
 ### 1. Install Xcode
 
-#### From Mac App Store (Recommended)
-1. Open App Store
-2. Search for "Xcode"
-3. Install Xcode 15.0 or later
-4. Wait for installation (can take 30+ minutes)
+#### From Apple Developer Portal (recommended for release Macs)
+1. Go to [developer.apple.com/download/all](https://developer.apple.com/download/all/)
+2. Download the Xcode `.xip` you need, expand it, and move it to Applications under a versioned
+   name (for example `Xcode_26.5.app`, `Xcode_27.2.app`). Several versions can sit side by side.
+3. Select one with `sudo xcode-select -s /Applications/Xcode_27.2.app/Contents/Developer`, or per
+   terminal with `export DEVELOPER_DIR=/Applications/Xcode_27.2.app/Contents/Developer`.
+   `scripts/build-ios.sh` prints the Xcode and iOS SDK it builds with.
 
-#### From Apple Developer Portal
-1. Go to [Apple Developer](https://developer.apple.com/xcode/)
-2. Download Xcode
-3. Install and move to Applications folder
+#### From Mac App Store
+The App Store installs `/Applications/Xcode.app` and **updates it by itself**, so the Xcode that
+builds can change under you. Fine for a development Mac; on a release Mac prefer a versioned copy.
+
+> Don't accept Xcode's suggestion to update the project format. CocoaPods can't read the newer
+> formats (`objectVersion` 110, `.xcproj`); Expo generates `objectVersion = 54`.
 
 ### 2. Configure Xcode
 
@@ -35,7 +40,7 @@ iOS development requires:
    - Click "+" → Apple ID
    - Sign in with your Apple Developer account
 4. **Locations** tab:
-   - Select **Command Line Tools** → Xcode 15.0
+   - Select **Command Line Tools** → the Xcode you build with (see above)
 5. **Components** tab:
    - Install iOS Simulator
    - Install required platforms

@@ -104,7 +104,7 @@ Conventions:
 ## 6. Mobile (Maestro)
 
 **One-time setup on a Mac:**
-1. Maestro CLI: `curl -Ls "https://get.maestro.mobile.dev" | bash`. It installs to `~/.maestro/bin/maestro`.
+1. Maestro CLI: `curl -Ls "https://get.maestro.mobile.dev" | bash`. It installs to `~/.maestro/bin/maestro`. Xcode 27 needs Maestro 2.12 or later (Xcode 27 has no Simulator.app); run the same command to update.
 2. JDK 21 for the Firebase emulators: `brew install openjdk@21`. The scripts find it in `/opt/homebrew/opt/openjdk@21`; you don't need to change your `PATH`.
 3. The Firebase CLI is fetched with `npx` when needed. Or install it with `npm i -g firebase-tools`.
 
@@ -121,7 +121,7 @@ bash apps/mobile/maestro/scripts/build-test-app.sh android
 It's a **Debug** build:
 - **It loads its JavaScript from Metro,** which the runner starts with the local test settings: local API, Firebase emulators, free tier, mock payments. So code changes need no rebuild.
 - **Its built-in defaults point at the local API** (`localhost:3001`, or `10.0.2.2:3001` on Android).
-- **iOS** builds for the `iPhone 17 Pro` simulator. Pass another name as the second argument.
+- **iOS** builds for the `iPhone 17 Pro` simulator. Pass another name as the second argument. Before building, the script runs React Native's "replace version" steps (Hermes, the prebuilt React Native core and its dependencies) with the scripts and versions the `ios/Pods` project lists, because Xcode's own run of them can fail to download inside its sandbox.
 - **Android** needs an emulator already running.
 - **Without the real Firebase configs,** the iOS build uses the repo's example config. Google Sign-In isn't tested.
 
@@ -190,7 +190,11 @@ These were added afterwards.
 
 ### Where each area stands
 
-Last full check on 2026-11-24: all 7 Maestro flows passed on both platforms (Debug app, local API and Firebase emulators): the iOS simulator (iPhone 17 Pro, iOS 26.5) in about 19 minutes, and the Android emulator (Pixel 10 Pro XL, Android 17) in about 29 minutes.
+Last full check on 2026-11-26, on the Expo SDK 58 upgrade (`chore/expo-58`): all 9 Maestro flows passed on both platforms (Debug app, local API and Firebase emulators).
+- **iOS simulator** (iPhone 17 Pro, iOS 26.5, Xcode 26.5): 8 of 9 flows passed in about 40 minutes. The ninth (`pools/phase3-permissions`) failed once, because iOS's "Save Password?" prompt appeared after the sign-in subflow's 4-second wait while the Mac was busy. It passed when rerun alone.
+- **Android emulator** (Pixel 8 Pro profile, Android 17): all 9 passed in about 52 minutes.
+
+The previous check (2026-11-24, Expo SDK 54) had 7 flows passing on both platforms.
 
 | Area | Unit/API | Web (Playwright) | Mobile (Maestro) |
 |---|---|---|---|
