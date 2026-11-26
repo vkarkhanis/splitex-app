@@ -21,7 +21,7 @@
 #   - google-services.json in apps/mobile/ (gitignored)
 #   - android/app/traxettle-release-key.keystore (gitignored)
 #   - android/gradle.properties.local with signing credentials (gitignored)
-#   - Node.js, Java 17+, Android SDK
+#   - Node.js, Java 17+ (Gradle 9 and AGP 9; falls back to Homebrew's openjdk@21), Android SDK
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -42,6 +42,13 @@ info()  { echo -e "${CYAN}ℹ ${NC}$1"; }
 ok()    { echo -e "${GREEN}✅${NC} $1"; }
 warn()  { echo -e "${YELLOW}⚠️ ${NC}$1"; }
 fail()  { echo -e "${RED}❌${NC} $1"; exit 1; }
+
+# Gradle 9 and the Android Gradle Plugin 9 (Expo SDK 58) need JDK 17+. Without JAVA_HOME, use
+# Homebrew's keg-only openjdk@21 if it's there, as maestro/scripts/build-test-app.sh does.
+if [[ -z "${JAVA_HOME:-}" && -x /opt/homebrew/opt/openjdk@21/bin/java ]]; then
+  export JAVA_HOME=/opt/homebrew/opt/openjdk@21
+  export PATH="$JAVA_HOME/bin:$PATH"
+fi
 
 # ── Validate profile ────────────────────────────────────────────────────────
 if [ -z "$PROFILE" ]; then

@@ -182,6 +182,9 @@ require_cmd bash
 if [ "$PROFILE" = "testflight" ] || [ "$PROFILE" = "xcode" ]; then
   require_cmd xcodebuild
   require_cmd npx
+  # The SDK decides App Store eligibility (iOS 27 SDK required from April 2027), and several Xcodes
+  # can be installed side by side, so say which one builds. DEVELOPER_DIR overrides xcode-select.
+  info "Xcode: $(xcodebuild -version | head -1) at $(xcode-select -p), iOS SDK $(xcrun --sdk iphoneos --show-sdk-version)"
   [[ "${APPLE_TEAM_ID:-}" =~ ^[A-Z0-9]{10}$ ]] \
     || fail "Set APPLE_TEAM_ID to your 10-character Apple Team ID (help: tools/doctor-tool/scripts/doctor-apple-team.sh)"
   IOS_BUNDLE_ID="$(node -p "require('$MOBILE_DIR/app.json').expo.ios.bundleIdentifier")"
@@ -319,9 +322,14 @@ EOF
   local signing="Manual: profile \"${IOS_PROVISIONING_PROFILE:-}\" with \"${IOS_SIGNING_IDENTITY:-}\""
   [ -n "${IOS_PROVISIONING_PROFILE:-}" ] \
     || signing="Automatic: pick team $APPLE_TEAM_ID under Signing & Capabilities if Xcode asks"
+  # Open the workspace in the selected Xcode (xcode-select or DEVELOPER_DIR), not whichever one Finder
+  # prefers: with several installed, Finder may pick a newer Xcode and archive with its SDK.
+  local xcode_app
+  xcode_app="$(xcode-select -p)"
+  xcode_app="${xcode_app%/Contents/Developer}"
   ok "Ready to archive version $release_version (build $release_build) in Xcode."
   echo ""
-  echo "  In Xcode (opening $release_project.xcworkspace):"
+  echo "  In $(basename "$xcode_app" .app) (opening $release_project.xcworkspace):"
   echo "    1. Destination (top bar): Any iOS Device (arm64)."
   echo "    2. Product → Archive. Signing — $signing."
   echo "    3. Organizer → Distribute App → App Store Connect → Upload."
@@ -330,7 +338,8 @@ EOF
   echo "    bash scripts/build-ios.sh xcode-done --not-uploaded   # didn't upload: restores files only"
   echo ""
   warn "Until then .env and src/config/buildEnv.ts hold this build's values (RevenueCat key): don't commit them."
-  open "$IOS_DIR/$release_project.xcworkspace" || warn "Open $IOS_DIR/$release_project.xcworkspace in Xcode yourself."
+  open -a "$xcode_app" "$IOS_DIR/$release_project.xcworkspace" \
+    || warn "Open $IOS_DIR/$release_project.xcworkspace in $xcode_app yourself."
 }
 
 # Prebuild → archive (Release) → upload to App Store Connect, all on this Mac.

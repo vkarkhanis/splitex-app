@@ -40,23 +40,42 @@ if [[ "$PLATFORM" == "ios" ]]; then
   # Xcode runs Node through ios/.xcode.env, which can pin a path that Homebrew has since upgraded
   # away. .xcode.env.local (git-ignored, read after it) points at the Node on PATH now.
   echo "export NODE_BINARY=$(command -v node)" > ios/.xcode.env.local
-  # Xcode swaps Hermes and React Native's prebuilt dependencies to match the configuration by
-  # downloading them, which can fail inside its script sandbox. Do it here first, with retries.
+  # Xcode swaps Hermes, React Native's prebuilt core and its dependencies to match the configuration
+  # by downloading them, which can fail inside its script sandbox. Do it here first, with retries.
+  # The scripts and versions come from the Pods project's own build phases ("[CP-User] ... replace
+  # ... version"), so they follow React Native: since 0.88 Hermes has its own version number.
   RN_DIR="$(node -p "require('path').dirname(require.resolve('react-native/package.json'))")"
-  RN_VERSION="$(node -p "require('react-native/package.json').version")"
   if [[ -d ios/Pods ]]; then
-    for script in sdks/hermes-engine/utils/replace_hermes_version.js third-party-podspecs/replace_dependencies_version.js; do
+    REPLACE_STEPS="$(node -e '
+      const s = require("fs").readFileSync("ios/Pods/Pods.xcodeproj/project.pbxproj", "utf8");
+      const re = /\$REACT_NATIVE_PATH\/([\w\/.-]+\.js)\\" -c \\"\$CONFIG\\" -r \\"([^\\"]+)\\"/g;
+      console.log([...new Set([...s.matchAll(re)].map((m) => m[1] + " " + m[2]))].join("\n"));
+    ')"
+    [[ -n "$REPLACE_STEPS" ]] || echo "[test-app] no replace-version build phases found in ios/Pods; Xcode will do them"
+    while read -r script version; do
+      [[ -n "$script" ]] || continue
+      if [[ ! -f "$RN_DIR/$script" ]]; then
+        echo "[test-app] skipping $script: not in this React Native version"
+        continue
+      fi
       for attempt in 1 2 3; do
         # Run them from ios/Pods, as Xcode does: they unpack into the current folder.
-        if (cd ios/Pods && node "$RN_DIR/$script" -c Debug -r "$RN_VERSION" -p "$PWD"); then break; fi
+        if (cd ios/Pods && node "$RN_DIR/$script" -c Debug -r "$version" -p "$PWD"); then break; fi
         echo "[test-app] $script failed (attempt $attempt); retrying"
         sleep 5
       done
-    done
+    done <<< "$REPLACE_STEPS"
   fi
   SIM="${2:-iPhone 17 Pro}"
   xcrun simctl boot "$SIM" >/dev/null 2>&1 || true
-  open -a Simulator >/dev/null 2>&1 || true
+  # Show the simulator with the selected Xcode's app (xcode-select or DEVELOPER_DIR): Simulator.app,
+  # or DeviceHub.app from Xcode 27, which has no Simulator.app.
+  DEV_DIR="$(xcode-select -p)"
+  if [[ -d "$DEV_DIR/Applications/Simulator.app" ]]; then
+    open "$DEV_DIR/Applications/Simulator.app" >/dev/null 2>&1 || true
+  elif [[ -d "${DEV_DIR%/Developer}/Applications/DeviceHub.app" ]]; then
+    open "${DEV_DIR%/Developer}/Applications/DeviceHub.app" >/dev/null 2>&1 || true
+  fi
   echo "[test-app] building Debug for the '$SIM' simulator (first build takes a while)"
   npx expo run:ios --configuration Debug --device "$SIM" --no-bundler
 else
@@ -72,5 +91,9 @@ else
   fi
   echo "[test-app] building Debug for the running emulator (first build takes a while)"
   npx expo run:android --variant debug --no-bundler
+  # Android 17 asks before an app reaches the local network ("nearby devices"). React Native 0.88's
+  # Debug library declares ACCESS_LOCAL_NETWORK so the app can reach Metro and the local API; grant
+  # it here so the prompt doesn't cover the app. Older Android versions don't have the permission.
+  "$ADB" shell pm grant com.traxettle.app android.permission.ACCESS_LOCAL_NETWORK >/dev/null 2>&1 || true
 fi
 echo "[test-app] installed com.traxettle.app (Debug). Run the flows with: rush test:regression:mobile"
