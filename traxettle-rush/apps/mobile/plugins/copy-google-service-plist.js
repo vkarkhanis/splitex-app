@@ -4,9 +4,15 @@
  * During `expo prebuild` this plugin:
  *   1. Copies GoogleService-Info.plist from project root → ios/<project>/
  *   2. Adds GoogleService-Info.plist to Xcode project (Copy Bundle Resources)
- *   3. Reads REVERSED_CLIENT_ID from the plist and registers it as a URL scheme
- *   4. Adds `import GoogleSignIn` to AppDelegate.swift
- *   5. Patches AppDelegate.swift to call GIDSignIn.sharedInstance.handle(url)
+ *   3. Reads REVERSED_CLIENT_ID from the plist and registers it as a URL scheme, and sets
+ *      GIDClientID / GIDServerClientID in Info.plist
+ *
+ * It no longer patches AppDelegate.swift. The sign-in redirect URL reaches
+ * GIDSignIn.sharedInstance.handle(url) through the library's own Expo AppDelegate subscriber
+ * (`GoogleSignInAppDelegate`, registered in @react-native-google-signin/google-signin's
+ * expo-module.config.json). Since Expo SDK 58 the app uses the UIScene life cycle, and
+ * ExpoAppSceneDelegate forwards scene URLs to those subscribers. The SDK 58 AppDelegate has no
+ * application(_:open:options:) method to patch anyway.
  *
  * This ensures all iOS Google Sign-In requirements survive `expo prebuild --clean`.
  *
@@ -26,7 +32,7 @@ function plistValue(xml, key) {
   return m ? m[1] : null;
 }
 
-// ── Step 1 & 2: copy plist + register URL scheme ────────────────────────────
+// ── Steps 1 and 3: copy plist + register URL scheme and client IDs ──────────
 function withGooglePlistCopyAndUrlScheme(config) {
   // First, use withInfoPlist to inject the URL scheme (safe, non-dangerous mod)
   config = withInfoPlist(config, (cfg) => {
@@ -120,62 +126,7 @@ function withGooglePlistCopyAndUrlScheme(config) {
   return config;
 }
 
-// ── Step 3 & 4: patch AppDelegate.swift + bridging header ───────────────────
-function withGoogleSignInAppDelegate(config) {
-  return withDangerousMod(config, [
-    'ios',
-    async (cfg) => {
-      const projectRoot = cfg.modRequest.projectRoot;
-      const iosProjectName = cfg.modRequest.projectName || 'Traxettle';
-      const iosDir = path.join(projectRoot, 'ios', iosProjectName);
-
-      // ── Add 'import GoogleSignIn' to AppDelegate.swift ──
-      const appDelegate = path.join(iosDir, 'AppDelegate.swift');
-      if (fs.existsSync(appDelegate)) {
-        let content = fs.readFileSync(appDelegate, 'utf8');
-
-        const swiftImport = 'import GoogleSignIn';
-        if (!content.includes(swiftImport)) {
-          // Insert after the last existing import line
-          const lastImportIdx = content.lastIndexOf('\nimport ');
-          if (lastImportIdx !== -1) {
-            const endOfLine = content.indexOf('\n', lastImportIdx + 1);
-            content = content.slice(0, endOfLine) + '\n' + swiftImport + content.slice(endOfLine);
-          } else {
-            content = swiftImport + '\n' + content;
-          }
-          fs.writeFileSync(appDelegate, content);
-          console.log(`${TAG} Added 'import GoogleSignIn' to AppDelegate.swift`);
-        }
-
-        // ── Inject GIDSignIn.handle(url) into openURL handler ──
-        const gidHandle = 'GIDSignIn.sharedInstance.handle(url)';
-
-        if (!content.includes(gidHandle)) {
-          // Find the open url method and inject GIDSignIn.handle before the return
-          const openUrlPattern = /(open url: URL,[\s\S]*?\) -> Bool \{[\s\S]*?)(return )(.*)/;
-          const match = content.match(openUrlPattern);
-          if (match) {
-            const returnExpr = match[3];
-            const newReturn = `return ${gidHandle} || ${returnExpr}`;
-            content = content.replace(
-              match[0],
-              match[1] + newReturn
-            );
-            fs.writeFileSync(appDelegate, content);
-            console.log(`${TAG} Patched AppDelegate.swift with GIDSignIn.handle(url)`);
-          } else {
-            console.warn(`${TAG} Could not find openURL method in AppDelegate.swift — manual patch needed`);
-          }
-        }
-      }
-
-      return cfg;
-    },
-  ]);
-}
-
-// ── Step 5: add plist to Xcode project (Copy Bundle Resources) ──────────────
+// ── Step 2: add plist to Xcode project (Copy Bundle Resources) ──────────────
 // Uses withXcodeProject to inject the plist into the Xcode project in-memory.
 // Expo-generated projects lack a "Resources" PBXGroup, which causes the xcode
 // library's addResourceFile → correctForResourcesPath → pbxGroupByName('Resources')
@@ -215,7 +166,6 @@ function withGooglePlistXcodeProject(config) {
 function withGoogleServicePlist(config) {
   config = withGooglePlistCopyAndUrlScheme(config);
   config = withGooglePlistXcodeProject(config);
-  config = withGoogleSignInAppDelegate(config);
   return config;
 }
 
