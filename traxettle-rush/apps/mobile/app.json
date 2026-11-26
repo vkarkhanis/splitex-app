@@ -7,11 +7,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "backgroundColor": "#6366f1",
-      "image": "./assets/splash.png",
-      "resizeMode": "cover"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -70,7 +65,21 @@
     "plugins": [
       "./plugins/copy-google-service-plist",
       "./plugins/ios-release-signing",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#6366f1",
+          "image": "./assets/splash.png",
+          "resizeMode": "cover",
+          "android": {
+            "image": "./assets/icon.png",
+            "imageWidth": 160,
+            "resizeMode": "contain",
+            "backgroundColor": "#ffffff"
+          }
+        }
+      ]
     ],
     "owner": "vkarkhanis",
     "extra": {

@@ -14,6 +14,7 @@ import {
   findNodeHandle,
   UIManager,
 } from 'react-native';
+import type { HostInstance } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useAuth } from '../context/AuthContext';
@@ -43,9 +44,9 @@ export default function DashboardScreen({ navigation, route }: any) {
   const [walkthroughVisible, setWalkthroughVisible] = useState(false);
   const [walkthroughStep, setWalkthroughStep] = useState(0);
   const [walkthroughRect, setWalkthroughRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
-  const createButtonRef = useRef<View | null>(null);
-  const avatarRef = useRef<View | null>(null);
-  const eventsRef = useRef<View | null>(null);
+  const createButtonRef = useRef<HostInstance | null>(null);
+  const avatarRef = useRef<HostInstance | null>(null);
+  const eventsRef = useRef<HostInstance | null>(null);
 
   const MAX_DASHBOARD_EVENTS = 5;
   const walkthroughSteps: Array<{ title: string; body: string; target: WalkthroughTargetKey; label?: string }> = [
@@ -476,7 +477,7 @@ export default function DashboardScreen({ navigation, route }: any) {
               >
                 <Text style={[styles.showMoreText, { color: c.primary }]}>Show More</Text>
               </TouchableOpacity>
-            ) : null
+            ) : undefined
           }
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.primary} />

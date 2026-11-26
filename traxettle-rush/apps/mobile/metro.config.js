@@ -19,7 +19,7 @@ config.resolver.nodeModulesPaths = [
 // 3. Ensure symlinks are followed (critical for pnpm)
 config.resolver.unstable_enableSymlinks = true;
 
-// 4. Disable package exports which can cause issues in pnpm monorepos
-config.resolver.unstable_enablePackageExports = false;
+// Package exports stay on (Expo's default). React Native 0.88 publishes some modules only through
+// `exports` (e.g. `react-native/react-private-interface`), and Firebase 12 supports it.
 
 module.exports = config;

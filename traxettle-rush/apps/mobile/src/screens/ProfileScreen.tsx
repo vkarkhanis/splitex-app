@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { GoogleSignin, isCancelledResponse } from '@react-native-google-signin/google-signin';
 import {
   EmailAuthProvider,
   GoogleAuthProvider,
@@ -368,7 +368,8 @@ export default function ProfileScreen({ navigation }: any) {
   const handleReplayWalkthrough = async () => {
     try {
       await resetWalkthroughCompletion();
-      navigation.navigate('Dashboard', { startWalkthrough: true });
+      // Back to the Dashboard below this screen. Since React Navigation 7, navigate() would push a second one.
+      navigation.popTo('Dashboard', { startWalkthrough: true });
     } catch {
       Alert.alert('Error', 'Failed to start the walkthrough. Please try again.');
     }
@@ -446,6 +447,8 @@ export default function ProfileScreen({ navigation }: any) {
           }
           await GoogleSignin.signOut().catch(() => {});
           const result: any = await GoogleSignin.signIn();
+          // Closing the account picker cancels the password change quietly.
+          if (isCancelledResponse(result)) return;
           const googleIdToken = result?.data?.idToken || result?.idToken;
           if (!googleIdToken) {
             throw new Error('Google re-authentication failed. Please try again.');

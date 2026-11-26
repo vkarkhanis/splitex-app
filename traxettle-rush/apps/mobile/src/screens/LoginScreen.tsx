@@ -17,7 +17,7 @@ import { useFeedback } from '../context/FeedbackContext';
 import { spacing, radii, fontSizes } from '../theme';
 import { api, isStagingModeEnabled } from '../api';
 import { ENV } from '../config/env';
-import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import { GoogleSignin, isCancelledResponse, statusCodes } from '@react-native-google-signin/google-signin';
 import { toUserFriendlyError } from '../utils/errorMessages';
 import PasswordInput from '../components/PasswordInput';
 import { switchEnvironmentAndRebootstrap } from '../services/environment-switch';
@@ -76,6 +76,8 @@ export default function LoginScreen({ navigation }: any) {
       await GoogleSignin.signOut().catch(() => {});
       console.log('[GoogleSignIn] Calling signIn()... webClientId=', ENV.GOOGLE_WEB_CLIENT_ID);
       const result: any = await GoogleSignin.signIn();
+      // Since google-signin 13, closing the account picker resolves { type: 'cancelled' } instead of throwing.
+      if (isCancelledResponse(result)) return;
       console.log('[GoogleSignIn] signIn() resolved:', JSON.stringify(result, null, 2));
       const idToken = result?.data?.idToken || result?.idToken;
       if (!idToken) {

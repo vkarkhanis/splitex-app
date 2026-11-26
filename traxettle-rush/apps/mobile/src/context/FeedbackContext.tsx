@@ -218,7 +218,12 @@ export function useFeedback() {
 
 const styles = StyleSheet.create({
   toastOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    // StyleSheet.absoluteFillObject was removed in React Native 0.85.
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     zIndex: 9999,
     elevation: 9999, // Android draws by elevation: keep the layer above the screens
   },
