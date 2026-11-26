@@ -242,21 +242,66 @@ After both builds have uploaded, from the repository root:
 
 ## 8. Store listings and submission
 
-The new text is written separately, when you ask for the release description. What changes:
+The texts below are within each store's limits (counted 2026-11-26). Don't mention the free trial in the
+App Store text until the trial offer exists (step 9).
 
-**App Store Connect** (the new version 1.1.0):
-- **What's New**, the **Description** (Pool money, and the Pro list), and the **Traxettle Pro subscription's
-  localized description**. The new description sends the subscription to review with the version: put the
-  version, then the subscription, into one draft with **Add for Review**.
+### Google Play Console
+
+**Release notes** (the release's *What's new*, 475 of 500 characters):
+
+```text
+• Pool money with your group: a trip kitty, shared fund, club treasury or collection (Pro; people you invite join free)
+• Choose who can spend from a pool, and name approvers
+• Enter a cost in the currency you paid in; it's converted for you (Pro)
+• Hand cash to spenders and see who holds what
+• Settling up combines refunds, repayments and claims into fewer payments
+• Expense dates, and a filter to hide private expenses
+• Fixes, including taps that paused after a message
+```
+
+**Main store listing → Full description:** paste `traxettle-rush/play-store-assets/full-description.txt`
+(3,545 of 4,000 characters). The short description stays as it is.
+
+### App Store Connect (version 1.1.0)
+
+**What's New** (891 of 4,000 characters):
+
+```text
+• Pool money with your group: a trip kitty, a shared fund, a club treasury or a collection. Group pools come with Traxettle Pro; people you invite join free.
+• Choose who can spend from a pool, and name approvers who check spends and claims.
+• Enter a cost in the currency you paid in, such as dollars on a rupee trip. Traxettle converts it to the event's currency and shows both amounts (needs the organiser's Pro).
+• Hand cash to the people who spend, and see who holds what.
+• Pay back money someone lent the pool before it closes.
+• Settling up now combines refunds, repayments and unpaid claims into one set of payments.
+• Every expense has a date, and the expense list can hide private expenses.
+• Fixes: taps no longer pause for a few seconds after a message appears; whoever pays "on behalf of" others now sees that expense; an event can be renamed while its settlement is in review.
+```
+
+**Description:** the Play text without its last Pro line (*Free trial for new subscribers, where offered*),
+3,497 of 4,000 characters. Add that line once the trial offer exists.
+
+**Promotional Text** (optional; 148 of 170 characters, and it can change without a new build):
+
+```text
+New: pool money with your group, choose who can spend and approve, and enter costs in the currency you paid in. Group pools come with Traxettle Pro.
+```
+
+**Traxettle Pro → Pro Yearly → App Store Localization → Description** (48 of 55 characters):
+
+```text
+Unlimited events, multi-currency and group pools
+```
+
+A changed subscription description sends the subscription to review with the version: put the version,
+then the subscription, into one draft with **Add for Review**.
+
+**Also:**
 - **Promo image:** `app-store-assets/pro-yearly-promo-1024-group-pools.png` (local only, not in git).
-- **Review notes:** [APP_REVIEW_RESPONSE.md](APP_REVIEW_RESPONSE.md) §3.
+- **Review notes:** [APP_REVIEW_RESPONSE.md](APP_REVIEW_RESPONSE.md) §3 (3,289 of 4,000 characters). Fill in the second demo account.
 - **Age rating:** answer the new questions (due January 2027), as the next submission requires.
 - **Screenshots:** the current ones don't show the Upgrade screen, so they can stay.
 
-**Google Play Console:** the release notes, and **Main store listing → Full description** from
-`traxettle-rush/play-store-assets/full-description.txt`.
-
-**RevenueCat:** the product descriptions in [REVENUECAT_SETUP.md](../utility/REVENUECAT_SETUP.md).
+**RevenueCat:** the product descriptions in [REVENUECAT_SETUP.md](../utility/REVENUECAT_SETUP.md), if set.
 
 ---
 

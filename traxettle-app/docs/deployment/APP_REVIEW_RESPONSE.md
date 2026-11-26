@@ -1,6 +1,6 @@
 # App Review — Guideline 2.1 (Information Needed) response
 
-Prepared 2026-10-23 from the code on `feature/money-pooling`. Copy the two texts below into App Store Connect;
+Prepared 2026-10-23 from the code on `feature/money-pooling`; §3 updated 2026-11-26 for version 1.1.0 (money pooling Phases 1–3). Copy the two texts below into App Store Connect;
 fill in the `<…>` placeholders. **Never commit real demo passwords to this public repo.**
 
 ## 0. Before you resubmit (these decide whether the next review passes)
@@ -87,7 +87,7 @@ Not applicable. Traxettle is a record-keeping tool. It does not hold, transfer o
 Thank you!
 ```
 
-## 3. App Review Information → Notes — 2957 of 4,000 characters
+## 3. App Review Information → Notes — 3289 of 4,000 characters
 
 ```text
 DEMO ACCOUNTS (production server, sample data pre-loaded)
@@ -97,12 +97,15 @@ Second account, for the other side of shared events: <SECOND EMAIL> / <SECOND PA
 WHAT TRAXETTLE DOES
 A shared-expense tracker for groups (trips, flatmates, families, events, teams). Members record who paid for what, split it (equal, ratio or exact amounts) and Traxettle proposes the fewest payments to settle up. People pay each other outside the app and record it; the receiver confirms. Traxettle never holds, sends or processes money. "Pool money" records money a group collects first and spends from: "Just me" (one person funds a budget others spend from) or "Several of us" (everyone chips in: a trip kitty, shared fund, club treasury or collection), with approvals, receipts and a ledger (again only as a record).
 
+NEW IN THIS VERSION
+"Several of us" pools for Pro subscribers, where the creator can choose who may spend and name approvers; expenses entered in another currency, converted to the event's currency (needs the organiser's Pro); a date on every expense; and fixes. Traxettle still only records payments.
+
 WHERE TO LOOK
 1. "Goa Trip (sample)": expenses with splits and receipts, and settlement payments. As the payer tap "I've Paid"; as the receiver (second account) tap "Confirm" or "Mark as Paid".
 2. "+ Create Event": name, dates, currency, then "Split expenses" or "Pool money". On the free plan, "Several of us" shows a PRO badge and an upgrade link; "Just me" is free. The free plan allows 3 events; the demo account has 2.
 3. In an event: "+ Add Expense" (attach a receipt with the camera or photo library), "+ Invite", "Settle Now".
 4. "Family Holiday Budget (sample)": tap the pool card for the balance, spending by person and a claim waiting for approval.
-5. Traxettle Pro (yearly auto-renewable subscription via In-App Purchase): Profile → "Upgrade to Pro". It unlocks unlimited events, multi-currency settlement and group pools ("Several of us"; only the creator needs Pro). After a Sandbox purchase, "+ Create Event" → "Pool money" → "Several of us" creates a Kitty. Price, renewal terms, Restore Purchase, Terms of Use (Apple standard EULA) and Privacy Policy are on that screen. Please buy with a Sandbox account.
+5. Traxettle Pro (yearly auto-renewable subscription via In-App Purchase): Profile → "Upgrade to Pro". It unlocks unlimited events, multi-currency settlement, expenses in another currency and group pools ("Several of us"; only the creator needs Pro). After a Sandbox purchase, "+ Create Event" → "Pool money" → "Several of us" creates a Kitty. Price, renewal terms, Restore Purchase, Terms of Use (Apple standard EULA) and Privacy Policy are on that screen. Please buy with a Sandbox account.
 6. Profile → "Delete Account": removes the sign-in and personal data. Shared events stay for the other members, with the user shown as "Deleted user". For a Sign in with Apple account, the app asks Apple for confirmation and revokes the Apple ID authorization. To try it, please register a new account (or use Sign in with Apple) rather than deleting the demo accounts, which we keep for later reviews.
 
 PERMISSIONS
