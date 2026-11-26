@@ -28,6 +28,11 @@ const CONFIG_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 export class RuntimeConfigManager {
   private cachedConfig: RuntimeConfig | null = null;
   private cacheExpiry: number = 0;
+  // A stored config is used at once, then refreshed from the API in the background, so a changed
+  // setting (e.g. a new RevenueCat key) reaches devices without a reinstall.
+  private refreshInFlight: Promise<RuntimeConfig> | null = null;
+  // Bumped by clearCache (environment switch), so a refresh started before it is discarded.
+  private generation = 0;
 
   private isFirebaseClientConfigComplete(config: RuntimeConfig | null): config is RuntimeConfig {
     if (!config) return false;
@@ -86,7 +91,8 @@ export class RuntimeConfigManager {
         ) {
           this.cachedConfig = storedConfig;
           this.cacheExpiry = now + CONFIG_CACHE_DURATION;
-          console.log('[RuntimeConfig] Using stored config');
+          console.log('[RuntimeConfig] Using stored config (refreshing in the background)');
+          this.refreshInBackground();
           return storedConfig;
         }
 
@@ -121,6 +127,51 @@ export class RuntimeConfigManager {
       
       throw new Error('Failed to load runtime configuration');
     }
+  }
+
+  /**
+   * Like getConfig, but waits for a background refresh that's under way, so the result is what
+   * the API serves now (falling back to the stored config if the API can't be reached). For
+   * settings that must be current, such as the RevenueCat key.
+   */
+  async getLatestConfig(): Promise<RuntimeConfig> {
+    const config = await this.getConfig();
+    if (!this.refreshInFlight) return config;
+    try {
+      return await this.refreshInFlight;
+    } catch {
+      return this.cachedConfig ?? config;
+    }
+  }
+
+  /** Fetches the config from the API and stores it, once at a time; failures keep the stored one. */
+  private refreshInBackground(): void {
+    if (this.refreshInFlight) return;
+    const generation = this.generation;
+    const refresh = (async () => {
+      const useStaging = await this.isStagingModeEnabled();
+      const fresh = await this.fetchConfig();
+      if (
+        generation !== this.generation ||
+        !this.isFirebaseClientConfigComplete(fresh) ||
+        !this.matchesSelectedEnvironment(fresh, useStaging)
+      ) {
+        throw new Error('Refreshed config is outdated or incomplete');
+      }
+      await this.storeConfig(fresh);
+      this.cachedConfig = fresh;
+      this.cacheExpiry = Date.now() + CONFIG_CACHE_DURATION;
+      console.log('[RuntimeConfig] Refreshed stored config from the API');
+      return fresh;
+    })();
+    this.refreshInFlight = refresh;
+    refresh
+      .catch((error) => {
+        console.warn('[RuntimeConfig] Background refresh failed; keeping stored config:', error?.message ?? error);
+      })
+      .finally(() => {
+        if (this.refreshInFlight === refresh) this.refreshInFlight = null;
+      });
   }
 
   /**
@@ -338,7 +389,9 @@ export class RuntimeConfigManager {
   async clearCache(): Promise<void> {
     this.cachedConfig = null;
     this.cacheExpiry = 0;
-    
+    this.generation += 1;
+    this.refreshInFlight = null;
+
     try {
       await AsyncStorage.removeItem(RUNTIME_CONFIG_KEY);
       console.log('[RuntimeConfig] Cache cleared');
@@ -401,6 +454,7 @@ export const runtimeConfig = new RuntimeConfigManager();
 
 // Export convenience methods
 export const getRuntimeConfig = () => runtimeConfig.getConfig();
+export const getLatestRuntimeConfig = () => runtimeConfig.getLatestConfig();
 export const refreshRuntimeConfig = () => runtimeConfig.refreshConfig();
 export const clearRuntimeConfigCache = () => runtimeConfig.clearCache();
 export const isProduction = () => runtimeConfig.isProduction();

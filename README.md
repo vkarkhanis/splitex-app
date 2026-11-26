@@ -30,7 +30,7 @@ Within an event, users can:
 
 1. A user creates an event.
 2. They invite people into the event.
-3. Participants add expenses in the event currency.
+3. Participants add expenses in the event currency, or (when the organiser has Pro) in the currency they paid in, converted to the event currency.
 4. Traxettle keeps track of who paid, who owes, and who belongs to which group.
 5. When the event is ready, Traxettle generates a settlement plan that minimizes the number of payment legs.
 6. Participants approve the settlement review state.
@@ -51,6 +51,8 @@ Traxettle is not just a basic bill splitter. Functionally, it supports:
 - closed-event history
 - exports and email-based history delivery
 - payment-method details on user profiles so payers know how to pay the right person
+- money pooling: collect money up front and spend from it — single-sponsor budgets ("Just me", free) and, with Pro, trip kitties, shared-living funds, club treasuries and target collections ("Several of us"). With receipts, a chosen list of spenders, approvers, cash handed to spenders, a graduated overdraft and a fair settle-up that nets repayments and claims (see `traxettle-app/docs/utility/MONEY_POOLING_DESIGN.md`)
+- Pro: unlimited events, multi-currency settlement, expenses entered in another currency, group pools, with a free trial for new subscribers
 
 ### Authentication And Access
 

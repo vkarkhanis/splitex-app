@@ -145,7 +145,7 @@ function buildPdfHtml(rows: UnsettledEventRow[]) {
   </html>`;
 }
 
-export default function UnsettledPaymentsScreen() {
+export default function UnsettledPaymentsScreen({ navigation }: any) {
   const { theme } = useTheme();
   const c = theme.colors;
 
@@ -279,6 +279,13 @@ export default function UnsettledPaymentsScreen() {
                 <Text style={[styles.td, { color: c.textSecondary, width: 72, textAlign: 'right' }]}>{p.currency}</Text>
               </View>
             ))}
+            <TouchableOpacity
+              testID={`unsettled-open-event-${item.eventId}`}
+              style={styles.openEvent}
+              onPress={() => navigation.navigate('EventDetail', { eventId: item.eventId, eventName: item.eventName })}
+            >
+              <Text style={[styles.toggle, { color: c.primary }]}>Open event →</Text>
+            </TouchableOpacity>
           </View>
         )}
       </View>
@@ -379,6 +386,7 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: fontSizes.lg, fontWeight: '800' },
   cardMeta: { fontSize: fontSizes.xs, marginTop: 4 },
   toggle: { fontSize: fontSizes.sm, fontWeight: '800' },
+  openEvent: { alignSelf: 'flex-end', paddingTop: spacing.md },
   tableWrap: { marginTop: spacing.md, borderRadius: radii.md, overflow: 'hidden' },
   tableRow: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderTopWidth: 0, paddingVertical: 10, paddingHorizontal: 10, gap: 10 },
   tableHead: { borderTopWidth: 1 },

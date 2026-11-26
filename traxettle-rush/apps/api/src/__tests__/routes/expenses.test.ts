@@ -32,10 +32,22 @@ jest.mock('../../config/firebase', () => {
             }
             return Promise.resolve({ writeTime: new Date() });
           }),
+          update: jest.fn().mockImplementation((data: any) => {
+            if (!mockExpenses[docId]) return Promise.reject(new Error(`No document to update: ${docId}`));
+            const { applyUpdate } = require('../../utils/firestore-merge');
+            mockExpenses[docId] = applyUpdate(mockExpenses[docId], data);
+            return Promise.resolve({ writeTime: new Date() });
+          }),
           delete: jest.fn().mockImplementation(() => {
             delete mockExpenses[docId];
             return Promise.resolve();
           }),
+          // Participants subcollection: nobody beyond the event doc's own lists.
+          collection: jest.fn().mockImplementation(() => ({
+            doc: jest.fn().mockImplementation(() => ({
+              get: jest.fn().mockResolvedValue({ exists: false, data: () => null }),
+            })),
+          })),
         })),
         add: jest.fn().mockImplementation((data: any) => {
           const id = `mock-expense-${++docIdCounter}`;
@@ -71,9 +83,15 @@ function createApp() {
   return app;
 }
 
+/** Events live in the same mock map; mock-user-1 is an ordinary (non-admin) participant. */
+function seedEvent(eventId: string, extra: Record<string, any> = {}) {
+  mockExpenses[eventId] = { name: eventId, status: 'active', createdBy: 'event-owner', admins: ['event-owner'], participantIds: ['event-owner', 'mock-user-1'], ...extra };
+}
+
 beforeEach(() => {
   Object.keys(mockExpenses).forEach(k => delete mockExpenses[k]);
   docIdCounter = 0;
+  for (const id of ['evt-1', 'evt-bal', 'evt-empty']) seedEvent(id);
 });
 
 describe('POST /api/expenses', () => {
@@ -592,5 +610,95 @@ describe('POST /api/expenses/calculate-splits', () => {
     expect(res.body.data).toHaveLength(3);
     const total = res.body.data.reduce((s: number, sp: any) => s + sp.amount, 0);
     expect(Math.abs(total - 100)).toBeLessThan(0.02);
+  });
+});
+
+describe('Event membership (IDOR protection)', () => {
+  const lunch = (overrides: Record<string, any> = {}) => ({
+    eventId: 'evt-1',
+    title: 'Lunch',
+    amount: 50,
+    currency: 'USD',
+    paidBy: 'mock-user-1',
+    splitType: 'equal',
+    splits: [{ entityType: 'user', entityId: 'mock-user-1', amount: 50 }],
+    attachments: [],
+    isPrivate: false,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  });
+
+  it('refuses to list an event\'s expenses to a non-participant', async () => {
+    mockExpenses['exp-1'] = lunch();
+    const res = await request(createApp()).get('/api/expenses/event/evt-1').set('Authorization', 'Bearer mock-outsider');
+    expect(res.status).toBe(403);
+    expect(res.body.data).toBeUndefined();
+  });
+
+  it('returns 404 when listing expenses for a missing event', async () => {
+    const res = await request(createApp()).get('/api/expenses/event/no-such-event').set('Authorization', 'Bearer mock-user-1');
+    expect(res.status).toBe(404);
+  });
+
+  it('lets a participant listed only in participantIds read expenses', async () => {
+    seedEvent('evt-1', { participantIds: ['mock-user-1', 'mock-member'] });
+    mockExpenses['exp-1'] = lunch();
+    const res = await request(createApp()).get('/api/expenses/event/evt-1').set('Authorization', 'Bearer mock-member');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+  });
+
+  it('hides other people\'s private expenses from the list but shows your own', async () => {
+    seedEvent('evt-1', { participantIds: ['mock-user-1', 'mock-member'] });
+    mockExpenses['exp-mine'] = lunch({ title: 'Mine', paidBy: 'mock-member', isPrivate: true, splits: [] });
+    mockExpenses['exp-theirs'] = lunch({ title: 'Theirs', paidBy: 'mock-user-1', isPrivate: true, splits: [] });
+    mockExpenses['exp-shared'] = lunch({ title: 'Shared' });
+    const res = await request(createApp()).get('/api/expenses/event/evt-1').set('Authorization', 'Bearer mock-member');
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((e: any) => e.title).sort()).toEqual(['Mine', 'Shared']);
+  });
+
+  it('refuses a single expense to a non-participant', async () => {
+    mockExpenses['exp-2'] = lunch();
+    const res = await request(createApp()).get('/api/expenses/exp-2').set('Authorization', 'Bearer mock-outsider');
+    expect(res.status).toBe(403);
+  });
+
+  it('answers 404 (not 403) for someone else\'s private expense', async () => {
+    seedEvent('evt-1', { participantIds: ['mock-user-1', 'mock-member'] });
+    mockExpenses['exp-private'] = lunch({ paidBy: 'mock-user-1', isPrivate: true, splits: [] });
+    const res = await request(createApp()).get('/api/expenses/exp-private').set('Authorization', 'Bearer mock-member');
+    expect(res.status).toBe(404);
+  });
+
+  it('refuses to create an expense in an event you are not part of', async () => {
+    const res = await request(createApp())
+      .post('/api/expenses')
+      .set('Authorization', 'Bearer mock-outsider')
+      .send({ eventId: 'evt-1', title: 'Sneaky', amount: 10, currency: 'USD', splitType: 'equal', splits: [{ entityType: 'user', entityId: 'mock-outsider', amount: 10 }] });
+    expect(res.status).toBe(403);
+  });
+
+  it('refuses balances to a non-participant', async () => {
+    const res = await request(createApp()).get('/api/expenses/event/evt-bal/balances').set('Authorization', 'Bearer mock-outsider');
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects pool funding sources in a split-expenses event', async () => {
+    const res = await request(createApp())
+      .post('/api/expenses')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ eventId: 'evt-1', title: 'Pool?', amount: 10, currency: 'USD', fundingSource: 'pool' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('FUNDING_SOURCE_NOT_ALLOWED');
+  });
+
+  it('rejects an unknown funding source', async () => {
+    const res = await request(createApp())
+      .post('/api/expenses')
+      .set('Authorization', 'Bearer mock-user-1')
+      .send({ eventId: 'evt-1', title: 'X', amount: 10, currency: 'USD', splitType: 'equal', splits: [{ entityType: 'user', entityId: 'u', amount: 10 }], fundingSource: 'magic' });
+    expect(res.status).toBe(400);
   });
 });

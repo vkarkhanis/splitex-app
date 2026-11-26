@@ -15,7 +15,13 @@ import {
 import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../api';
-import type { EventParticipant, Group, OnBehalfOfEntry, Expense } from '@traxettle/shared';
+import type { EventParticipant, Group, OnBehalfOfEntry, Expense, ExpenseFundingSource, PoolConfig, PoolPaidFrom } from '@traxettle/shared';
+import { canRecordAnyway, fromMinor, isPoolFundedExpense, poolErrorText, toMinor, toPoolError } from '@traxettle/shared';
+import { CurrencyPicker, FxPreviewLine, useFxPreview } from '../components/OtherCurrency';
+import type { FxQuote } from '../components/OtherCurrency';
+import { ReceiptPicker } from '../components/pool/PoolViews';
+import DateField from '../components/DateField';
+import { todayLocalISODate, toLocalISODate, parseLocalDate } from '../utils/date';
 
 interface SplitEntry {
   entityId: string;
@@ -63,6 +69,7 @@ export default function EditExpenseScreen({ route, navigation }: any) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(todayLocalISODate());
   const [expCurrency, setExpCurrency] = useState(currency || 'USD');
   const [splitType, setSplitType] = useState<'equal' | 'ratio' | 'custom'>('equal');
   const [isPrivate, setIsPrivate] = useState(false);
@@ -73,15 +80,45 @@ export default function EditExpenseScreen({ route, navigation }: any) {
   const [currentUserId, setCurrentUserId] = useState('');
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
+  // Pool-funded expenses keep how they were paid; details and receipts can change.
+  const [fundingSource, setFundingSource] = useState<ExpenseFundingSource>('self');
+  const [receipts, setReceipts] = useState<string[]>([]);
+  const isPoolDraw = fundingSource !== 'self';
+  // A pool spend by someone other than the custodian says how it was paid (§9.3). Changing that
+  // sends it back for approval, like changing the amount.
+  const [poolConfig, setPoolConfig] = useState<PoolConfig | null>(null);
+  const [custodianName, setCustodianName] = useState('The custodian');
+  const [payerId, setPayerId] = useState('');
+  const [paidFrom, setPaidFrom] = useState<PoolPaidFrom | undefined>(undefined);
+  const [originalPaidFrom, setOriginalPaidFrom] = useState<PoolPaidFrom | undefined>(undefined);
+  const showsMethod = fundingSource === 'pool' && Boolean(poolConfig) && Boolean(payerId) && payerId !== poolConfig?.custodianUserId;
+  // Phase 3: the event's currency, whether another one is allowed, and the rate this expense was saved with.
+  const [eventCurrency, setEventCurrency] = useState('');
+  const [otherCurrencyAllowed, setOtherCurrencyAllowed] = useState(false);
+  const [savedFx, setSavedFx] = useState<{ currency: string; rate: number; date: string; source: 'predefined' | 'eod' } | null>(null);
+  // Same currency as saved: it keeps its rate (no need to ask the API, or for Pro).
+  const keptQuote: FxQuote | null = (() => {
+    const n = parseFloat(amount);
+    if (!savedFx || savedFx.currency !== expCurrency || !eventCurrency || !Number.isFinite(n) || n <= 0) return null;
+    return { from: savedFx.currency, to: eventCurrency, rate: savedFx.rate, date: savedFx.date, source: savedFx.source, amount: fromMinor(toMinor(n * savedFx.rate, eventCurrency), eventCurrency) };
+  })();
+  const fetched = useFxPreview(eventId, expCurrency, eventCurrency, amount, Boolean(keptQuote));
 
   const fetchData = useCallback(async () => {
     try {
-      const [pRes, gRes, expRes, profileRes] = await Promise.all([
+      const [pRes, gRes, expRes, profileRes, evRes] = await Promise.all([
         api.get<EventParticipant[]>(`/api/events/${eventId}/participants`),
         api.get<Group[]>(`/api/groups/event/${eventId}`),
         api.get<Expense>(`/api/expenses/${expenseId}`),
         api.get('/api/users/profile').catch(() => ({ data: null })),
+        api.get<{ poolConfig?: PoolConfig; currency?: string; otherCurrencyExpenses?: boolean }>(`/api/events/${eventId}`).catch(() => ({ data: undefined })),
       ]);
+      const cfg = evRes?.data?.poolConfig || null;
+      setEventCurrency(evRes?.data?.currency || '');
+      setOtherCurrencyAllowed(Boolean(evRes?.data?.otherCurrencyExpenses));
+      setPoolConfig(cfg);
+      const custodian = (pRes.data || []).find((p) => p.userId === cfg?.custodianUserId);
+      if (custodian) setCustodianName(custodian.displayName || custodian.email || 'The custodian');
       const gData = gRes.data || [];
       setGroups(gData);
       if (profileRes.data?.userId) setCurrentUserId(profileRes.data.userId);
@@ -94,12 +131,28 @@ export default function EditExpenseScreen({ route, navigation }: any) {
       }
 
       // Pre-populate form fields
+      setFundingSource(isPoolFundedExpense(expense) ? expense.fundingSource! : 'self');
+      setPayerId(expense.paidBy);
+      // Saved before Phase 2 (no method): it was paid on the custodian's card (paidWithChoiceFor).
+      // Compared with what's first shown, so saving an untouched older spend isn't a change.
+      const method: PoolPaidFrom | undefined = expense.poolDraw?.paidFrom || (expense.fundingSource === 'pool' ? 'sponsor_card' : undefined);
+      setPaidFrom(method);
+      setOriginalPaidFrom(method);
+      setReceipts(Array.isArray(expense.attachments) ? expense.attachments : []);
       setTitle(expense.title);
       setDescription(expense.description || '');
-      setAmount(String(expense.amount));
-      setExpCurrency(expense.currency);
+      // Entered in another currency: the form shows what was entered (Phase 3).
+      const entered = expense.originalCurrency && typeof expense.originalAmount === 'number' && expense.fxRate
+        ? { amount: expense.originalAmount, currency: expense.originalCurrency, rate: expense.fxRate }
+        : null;
+      setSavedFx(entered ? { currency: entered.currency, rate: entered.rate, date: expense.fxRateDate || '', source: expense.fxRateSource || 'eod' } : null);
+      setAmount(String(entered ? entered.amount : expense.amount));
+      setExpCurrency(entered ? entered.currency : expense.currency);
       setSplitType(expense.splitType);
       setIsPrivate(expense.isPrivate);
+      // Prefer the stored date; fall back to createdAt for legacy expenses.
+      const createdLocal = parseLocalDate(expense.createdAt as any);
+      setDate(expense.date || (createdLocal ? toLocalISODate(createdLocal) : todayLocalISODate()));
 
       // On behalf of
       if (expense.paidOnBehalfOf && Array.isArray(expense.paidOnBehalfOf) && expense.paidOnBehalfOf.length > 0) {
@@ -110,7 +163,16 @@ export default function EditExpenseScreen({ route, navigation }: any) {
       // Build entities and pre-select based on existing splits
       const builtEntities = buildEntities(pRes.data || [], gData);
       if (!expense.isPrivate && expense.splits && expense.splits.length > 0) {
-        const splitMap = new Map(expense.splits.map((s: any) => [s.entityId, s]));
+        // Saved splits are in the event currency; show them in the entered one, adding up to it.
+        const shown = expense.splits.map((s) => entered
+          ? { ...s, amount: fromMinor(toMinor(s.amount / entered.rate, entered.currency), entered.currency) }
+          : s);
+        if (entered && Math.abs(expense.splits.reduce((t, s) => t + s.amount, 0) - expense.amount) <= 0.01) {
+          const diff = toMinor(entered.amount, entered.currency) - shown.reduce((t, s) => t + toMinor(s.amount, entered.currency), 0);
+          const largest = shown.reduce((best, s, i) => (s.amount > shown[best].amount ? i : best), 0);
+          shown[largest] = { ...shown[largest], amount: fromMinor(toMinor(shown[largest].amount, entered.currency) + diff, entered.currency) };
+        }
+        const splitMap = new Map(shown.map((s: any) => [s.entityId, s]));
         const updatedEntities = builtEntities.map(e => {
           const existingSplit = splitMap.get(e.entityId);
           if (existingSplit) {
@@ -212,10 +274,45 @@ export default function EditExpenseScreen({ route, navigation }: any) {
     }
   };
 
+  const savePoolDraw = async (amt: number, alreadyIncurred: boolean) => {
+    setLoading(true);
+    try {
+      await api.put(`/api/expenses/${expenseId}`, {
+        title: title.trim(),
+        description: description.trim(),
+        amount: amt,
+        // What was entered: the API converts another currency (Phase 3).
+        currency: expCurrency,
+        attachments: receipts,
+        ...(alreadyIncurred ? { alreadyIncurred: true } : {}),
+        ...(showsMethod && paidFrom && paidFrom !== originalPaidFrom ? { paidFrom } : {}),
+      });
+      Alert.alert('Success', `"${title}" updated.`);
+      navigation.goBack();
+    } catch (err: unknown) {
+      const message = poolErrorText(err, expCurrency, 'Failed to update expense');
+      if (canRecordAnyway(toPoolError(err).code) && !alreadyIncurred) {
+        Alert.alert('Not allowed right now', message, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: "It's already paid — save it", onPress: () => void savePoolDraw(amt, true) },
+        ]);
+      } else {
+        Alert.alert('Error', message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     const amt = parseFloat(amount);
     if (!title.trim() || !amt || amt <= 0) {
       Alert.alert('Error', 'Title and a positive amount are required.');
+      return;
+    }
+
+    if (isPoolDraw) {
+      await savePoolDraw(amt, false);
       return;
     }
 
@@ -246,6 +343,7 @@ export default function EditExpenseScreen({ route, navigation }: any) {
         description: description.trim() || undefined,
         amount: amt,
         currency: expCurrency,
+        date,
         splitType,
         isPrivate,
         splits,
@@ -261,6 +359,7 @@ export default function EditExpenseScreen({ route, navigation }: any) {
       } else {
         payload.paidOnBehalfOf = null;
       }
+      payload.attachments = receipts;
 
       await api.put(`/api/expenses/${expenseId}`, payload);
       Alert.alert('Success', `"${title}" updated.`);
@@ -289,9 +388,32 @@ export default function EditExpenseScreen({ route, navigation }: any) {
     >
     <ScrollView style={[styles.container, { backgroundColor: c.background }]} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Text style={[styles.heading, { color: c.text }]}>Edit Expense</Text>
+      {isPoolDraw && !showsMethod && (
+        <Text testID="edit-paid-with" style={{ color: c.textSecondary, marginBottom: spacing.md }}>
+          Paid with: {fundingSource === 'pool' ? 'pool funds' : 'my money — claimed back from the pool'}. To change that, delete and re-add the expense.
+        </Text>
+      )}
+      {showsMethod && (
+        <View testID="edit-paid-with" style={{ marginBottom: spacing.md }}>
+          <Text style={[styles.label, { color: c.textSecondary }]}>Paid with pool money</Text>
+          {([['advance', "Pool money I'm holding"], ['sponsor_card', `${custodianName}'s card or UPI`]] as const).map(([value, label]) => {
+            const selected = paidFrom === value;
+            const disabled = value === 'sponsor_card' && poolConfig?.allowSponsorCardSpends === false && originalPaidFrom !== 'sponsor_card';
+            return (
+              <TouchableOpacity key={value} testID={`edit-paid-from-${value}`} disabled={disabled} onPress={() => setPaidFrom(value)}
+                style={{ paddingVertical: spacing.sm, opacity: disabled ? 0.4 : 1 }}>
+                <Text style={{ color: selected ? c.primary : c.text, fontWeight: selected ? '700' : '400' }}>{selected ? '◉' : '○'}  {label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+          <Text style={{ color: c.textSecondary, fontSize: fontSizes.xs }}>
+            Changing how it was paid sends it back for approval. To change it to your own money, delete and re-add the expense.
+          </Text>
+        </View>
+      )}
 
       <Text style={[styles.label, { color: c.textSecondary }]}>Title</Text>
-      <TextInput style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={title} onChangeText={setTitle} placeholder="e.g. Dinner" placeholderTextColor={c.muted} />
+      <TextInput testID="edit-expense-title-input" style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={title} onChangeText={setTitle} placeholder="e.g. Dinner" placeholderTextColor={c.muted} />
 
       <Text style={[styles.label, { color: c.textSecondary }]}>Description (optional)</Text>
       <TextInput style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={description} onChangeText={setDescription} placeholder="Brief note..." placeholderTextColor={c.muted} />
@@ -299,10 +421,19 @@ export default function EditExpenseScreen({ route, navigation }: any) {
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={[styles.label, { color: c.textSecondary }]}>Amount ({sym})</Text>
-          <TextInput style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} />
+          <TextInput testID="edit-expense-amount-input" style={[styles.input, { backgroundColor: c.surface, borderColor: c.border, color: c.text }]} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={c.muted} />
         </View>
       </View>
+      {/* Phase 3: another currency, when the organiser's multi-currency Pro allows it. */}
+      {otherCurrencyAllowed && eventCurrency ? <CurrencyPicker value={expCurrency} onChange={setExpCurrency} eventCurrency={eventCurrency} /> : null}
+      <FxPreviewLine quote={keptQuote || fetched.quote} error={keptQuote ? '' : fetched.error} />
 
+      <Text style={[styles.label, { color: c.textSecondary }]}>Date</Text>
+      <DateField testID="edit-expense-date-input" value={date} onChange={setDate} />
+
+      <ReceiptPicker eventId={eventId} value={receipts} onChange={setReceipts} required={fundingSource === 'pool_reimbursement'} />
+
+      {!isPoolDraw && (<>
       {/* Split type selector */}
       {!isPrivate && (
         <>
@@ -428,10 +559,13 @@ export default function EditExpenseScreen({ route, navigation }: any) {
         </Text>
       )}
 
+      </>)}
+
       <TouchableOpacity
-        style={[styles.submitBtn, { backgroundColor: c.primary }, (loading || splitMismatch) && styles.submitBtnDisabled]}
+        testID="edit-expense-submit-button"
+        style={[styles.submitBtn, { backgroundColor: c.primary }, (loading || (!isPoolDraw && splitMismatch)) && styles.submitBtnDisabled]}
         onPress={handleSubmit}
-        disabled={loading || splitMismatch}
+        disabled={loading || (!isPoolDraw && splitMismatch)}
       >
         {loading ? (
           <ActivityIndicator color={c.white} />

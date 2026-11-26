@@ -16,6 +16,7 @@ const config: Config = {
     'src/hooks/useSocket.ts',
     'src/context/AuthContext.tsx',
     'src/context/ThemeContext.tsx',
+    'src/services/pool.ts',
   ],
   coverageDirectory: 'coverage',
   coverageThreshold: {
@@ -28,6 +29,7 @@ const config: Config = {
   },
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    '\\.(png|jpe?g|gif|webp|ttf|otf)$': '<rootDir>/jest.fileStub.js',
   },
   transform: {
     '^.+\\.(ts|tsx)$': [

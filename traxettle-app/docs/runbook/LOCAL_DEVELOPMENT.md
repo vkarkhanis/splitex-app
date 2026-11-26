@@ -168,6 +168,47 @@ sh scripts/local-dev/03_real_mobile.sh
 
 ---
 
+## Mode 7: Mobile simulator/emulator + deployed staging API
+
+Runs the development app against the **deployed** staging API (Cloud Run), with no local
+API or emulators. Use it to test what is actually deployed to staging. Needs the staging
+Firebase files from Mode 4; `rc_staging.properties` is optional (without it, Pro purchases
+don't work).
+
+```bash
+bash scripts/local-dev/06_staging_mobile.sh ios        # or: android
+bash scripts/local-dev/06_staging_mobile.sh ios --build  # reinstall the dev build first
+```
+
+To keep the bundler running while you build or add simulators, use two terminals:
+
+```bash
+bash scripts/local-dev/06_staging_mobile.sh ios --bundler-only        # terminal 1: bundler, opens the app
+bash scripts/local-dev/06_staging_mobile.sh ios --build --no-bundler  # terminal 2: build, install, open
+```
+
+`--no-bundler` builds or installs, opens the app if a bundler is already running, and
+exits. Run it again (without `--build`) after booting another simulator: it copies the app
+there without rebuilding.
+
+The script checks the staging API is up, copies the staging Firebase files, installs the
+development build if it isn't on the running simulator/emulator (10–20 min the first time),
+then starts the bundler with the staging API and opens the app. Sign in with staging accounts.
+Set `STAGING_API_URL` to point at a different staging address.
+
+On iOS the app goes on **every booted simulator** (iPhones and iPads; boot more with
+`xcrun simctl boot <UDID>`): it's built once and copied to the others. If the last iOS build
+was a TestFlight build, the script first clears Xcode's build cache and regenerates the iOS
+project. Building for the simulator on top of a Release build can otherwise fail with
+`Undefined symbols … facebook::react::Sealable::Sealable()`.
+
+On Android the app goes on **every running emulator or device** (start several from
+Android Studio → Device Manager): one Gradle build for their CPU types, installed with `adb`
+on each one that lacks it or has an older build, and connected to the bundler with
+`adb reverse`. Set `ANDROID_SERIAL=<serial from adb devices>` to use just one.
+
+---
+
 ## Quick Reference
 
 | # | Mode | Command | Firebase | Client |
@@ -178,6 +219,7 @@ sh scripts/local-dev/03_real_mobile.sh
 | 4 | Mobile + Staging | `sh scripts/local-dev/03_real_mobile.sh` | traxettle-staging | Mobile |
 | 5 | Web + Testing | `sh scripts/local-dev/04_real_web.sh` + .env.local | traxettle-test | Web |
 | 6 | Mobile + Testing | `sh scripts/local-dev/03_real_mobile.sh` + .env.local | traxettle-test | Mobile |
+| 7 | Mobile + deployed staging API | `bash scripts/local-dev/06_staging_mobile.sh [ios\|android]` | traxettle-staging (deployed) | Mobile |
 
 ---
 

@@ -18,7 +18,14 @@ import {
   useToast,
 } from '@traxettle/ui';
 import { api } from '../../../../../utils/api';
-import type { EventParticipant, Group, OnBehalfOfEntry } from '@traxettle/shared';
+import type { EventFundingModel, EventParticipant, Group, OnBehalfOfEntry, PoolConfig, PoolCycleSummary, PoolLedger } from '@traxettle/shared';
+import { canClaimFromPool, canSpendFromPool, entityKey, paidWithOptions, paidWithPayload, resolveFundingModel, toMinor } from '@traxettle/shared';
+import { FxPreviewLine, currencyOptions, useFxPreview } from '../../../../../components/OtherCurrency';
+import { PaidWithControl, SpendTimingControl } from '../../../../../components/pool/PaidWithControl';
+import type { PaidWith, SpendTiming } from '../../../../../components/pool/PaidWithControl';
+import { ReceiptField } from '../../../../../components/pool/ReceiptField';
+import { canRecordAnyway, isReceiptRequired, poolErrorText, poolNoun, toPoolError } from '../../../../../components/pool/poolFormat';
+import { poolApi } from '../../../../../utils/pool-api';
 
 const Page = styled.div`
   width: 100%;
@@ -238,8 +245,63 @@ export default function CreateExpensePage() {
     onBehalfOfEntities: [] as OnBehalfOfEntry[],
   });
 
+  // Pool funding: how this expense was paid, receipts, and the live pool state.
+  const [fundingModel, setFundingModel] = useState<EventFundingModel>('peer_to_peer');
+  const [poolConfig, setPoolConfig] = useState<PoolConfig | null>(null);
+  const [paidWith, setPaidWith] = useState<PaidWith>('self');
+  const [spendTiming, setSpendTiming] = useState<SpendTiming | null>(null);
+  const [poolSummary, setPoolSummary] = useState<PoolCycleSummary | null>(null);
+  const [poolLedger, setPoolLedger] = useState<PoolLedger | null>(null);
+  const [receipts, setReceipts] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [refusal, setRefusal] = useState<{ code?: string; message: string } | null>(null);
+  const isPoolDraw = paidWith !== 'self';
+  // Phase 3: the event's currency, and whether expenses may be entered in another one (converted on save).
+  const [eventCurrency, setEventCurrency] = useState('');
+  const [otherCurrencyAllowed, setOtherCurrencyAllowed] = useState(false);
+  const [eventAdmins, setEventAdmins] = useState<string[]>([]);
+  const fx = useFxPreview(eventId, form.currency, eventCurrency, form.amount);
+
   // Current user's entity ID (group ID if in a group, else userId from auth)
   const [currentUserId, setCurrentUserId] = useState<string>('');
+  const isCustodian = Boolean(poolConfig && currentUserId && poolConfig.custodianUserId === currentUserId);
+  // Anyone but the custodian says whether a pool spend is already paid or a request (§9.2), whichever
+  // way they paid with pool money (§9.3, decision D1).
+  const paidWithPoolMoney = paidWith === 'pool' || paidWith === 'pool_held' || paidWith === 'pool_card';
+  const needsSpendTiming = paidWithPoolMoney && Boolean(poolConfig) && Boolean(currentUserId) && !isCustodian;
+  // Nothing is bought yet when asking first, so the receipt is optional (added after paying).
+  const askingFirst = needsSpendTiming && spendTiming === 'asking';
+  const fundingSourceOf = paidWithPayload(paidWith).fundingSource;
+
+  // What this person holds of the pool's money (§9.3): offers "money I'm holding" once they've been handed some.
+  const myKey = currentUserId ? (() => {
+    const group = groups.find((g) => (g.members || []).includes(currentUserId));
+    return group ? entityKey('group', group.id) : entityKey('user', currentUserId);
+  })() : '';
+  const heldMinor = poolSummary?.holdings?.heldBy[myKey] || 0;
+  const hasAdvances = Boolean(currentUserId) && (
+    (poolLedger?.advances || []).some((a) => a.kind === 'advance' && a.status === 'confirmed' && a.toUserId === currentUserId)
+    || Boolean(poolSummary?.cycle.openingHeld?.[myKey]));
+  const custodianName = poolConfig
+    ? (() => { const p = participants.find((x) => x.userId === poolConfig.custodianUserId); return p?.displayName || p?.email || undefined; })()
+    : undefined;
+  const allowCardSpends = poolConfig?.allowSponsorCardSpends !== false;
+  const preferredSource = poolConfig?.funderMode === 'sponsor' && !isCustodian ? 'pool_reimbursement' as const : undefined;
+  // Not on a pool's spender list: they can only claim back their own money (Phase 3).
+  const canSpend = !poolConfig || !currentUserId
+    || canSpendFromPool(poolConfig, currentUserId, groups, isCustodian || eventAdmins.includes(currentUserId));
+  const canClaim = !poolConfig || !currentUserId
+    || canClaimFromPool(poolConfig, currentUserId, groups, isCustodian || eventAdmins.includes(currentUserId));
+
+  // The custodian's "Pool funds" isn't offered to anyone else: start them on their first option.
+  useEffect(() => {
+    if (!poolConfig || !currentUserId || isCustodian || paidWith !== 'pool') return;
+    const first = paidWithOptions({
+      model: fundingModel, isCustodian: false, currency: eventCurrency || form.currency, noun: poolNoun(poolConfig),
+      allowCardSpends, heldMinor, hasAdvances, custodianName, preferred: preferredSource, canSpend, canClaim,
+    })[0];
+    if (first) setPaidWith(first.value);
+  }, [poolConfig, currentUserId, isCustodian, paidWith, fundingModel, eventCurrency, form.currency, allowCardSpends, heldMinor, hasAdvances, custodianName, preferredSource, canSpend, canClaim]);
 
   const [entities, setEntities] = useState<SplitEntry[]>([]);
 
@@ -256,13 +318,32 @@ export default function CreateExpensePage() {
       setGroups(gData);
       if (eRes.data?.currency) {
         setForm(f => ({ ...f, currency: eRes.data.currency }));
+        setEventCurrency(eRes.data.currency);
+      }
+      setOtherCurrencyAllowed(Boolean(eRes.data?.otherCurrencyExpenses));
+      setEventAdmins([eRes.data?.createdBy, ...(eRes.data?.admins || [])].filter(Boolean));
+      const model = resolveFundingModel(eRes.data);
+      setFundingModel(model);
+      if (model !== 'peer_to_peer' && eRes.data?.poolConfig) {
+        setPoolConfig(eRes.data.poolConfig);
+        setPaidWith('pool');
+        poolApi.ledger(eventId).then((r) => {
+          setPoolLedger(r.data || null);
+          setPoolSummary(r.data?.summary || null);
+        }).catch(() => undefined);
       }
       setEntities(buildEntities(pData, gData));
 
       // Determine current user ID from auth token
       try {
         const profileRes = await api.get('/api/users/profile');
-        if (profileRes.data?.userId) setCurrentUserId(profileRes.data.userId);
+        const uid = profileRes.data?.userId;
+        if (uid) {
+          setCurrentUserId(uid);
+          // Spenders in a sponsor pool start on the zero-risk choice: their own money, claimed back.
+          const cfg = eRes.data?.poolConfig;
+          if (model === 'pool' && cfg?.funderMode === 'sponsor' && cfg.custodianUserId !== uid) setPaidWith('pool_reimbursement');
+        }
       } catch { /* ignore */ }
     } catch (err: any) {
       setError(err.message || 'Failed to load event data');
@@ -358,11 +439,66 @@ export default function CreateExpensePage() {
   const splitMismatch = !form.isPrivate && expenseAmount > 0 && selectedEntities.length > 0
     && Math.abs(splitTotal - expenseAmount) > 0.01;
 
+  const submitPoolDraw = async (amount: number, alreadyIncurred: boolean) => {
+    setLoading(true);
+    setError('');
+    setRefusal(null);
+    try {
+      const res = await api.post<{ poolDraw?: { status?: string } }>('/api/expenses', {
+        eventId,
+        title: form.title.trim(),
+        description: form.description.trim() || undefined,
+        amount,
+        currency: form.currency,
+        ...paidWithPayload(paidWith),
+        attachments: receipts,
+        ...(alreadyIncurred ? { alreadyIncurred: true } : {}),
+      });
+      const pending = res.data?.poolDraw?.status === 'pending';
+      const noun = poolNoun(poolConfig).toLowerCase();
+      pushToast({
+        type: 'success',
+        title: paidWith === 'pool_reimbursement' ? 'Claim submitted' : pending && !alreadyIncurred ? 'Asked for approval' : 'Expense recorded',
+        message: paidWith === 'pool_reimbursement'
+          ? `You'll be reimbursed once it's approved.`
+          : pending && !alreadyIncurred
+            ? `Spend the ${noun}'s money only once it's approved.`
+            : pending
+              ? paidWith === 'pool_held'
+                ? `Waiting for approval. If it's not approved, the money stays with you, to return or settle at the end.`
+                : `Waiting for approval. If it's not approved, you'll owe it back to the ${noun}'s holder.`
+              : `"${form.title}" was paid from the ${noun}.`,
+      });
+      router.push(`/events/${eventId}`);
+    } catch (err) {
+      const info = toPoolError(err, 'Failed to create expense');
+      const message = poolErrorText(err, form.currency, 'Failed to create expense');
+      setError(message);
+      if (canRecordAnyway(info.code) && !alreadyIncurred) setRefusal({ code: info.code, message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const amount = parseFloat(form.amount);
     if (!form.title.trim() || !amount || amount <= 0) {
       setError('Title and a positive amount are required.');
+      return;
+    }
+
+    if (isPoolDraw) {
+      // Asked first: whether a receipt is needed depends on the answer.
+      if (needsSpendTiming && !spendTiming) {
+        setError(`Say whether you've already paid with the ${poolNoun(poolConfig).toLowerCase()}'s money or are asking first.`);
+        return;
+      }
+      if (isReceiptRequired(poolConfig, fundingSourceOf, fx.amountMinor || toMinor(amount, form.currency), { askingFirst }) && receipts.length === 0) {
+        setError('Attach a receipt to record this.');
+        return;
+      }
+      await submitPoolDraw(amount, needsSpendTiming && spendTiming === 'paid');
       return;
     }
 
@@ -397,6 +533,8 @@ export default function CreateExpensePage() {
           entityId: s.entityId,
           name: s.name,
         })),
+        ...(receipts.length > 0 ? { attachments: receipts } : {}),
+        ...(fundingModel === 'hybrid' ? { fundingSource: 'self' } : {}),
       };
 
       // On behalf of: include the entities the payer is fronting money for
@@ -430,6 +568,30 @@ export default function CreateExpensePage() {
         </CardHeader>
         <CardBody>
           <Form onSubmit={handleSubmit} data-testid="create-expense-form">
+            {fundingModel !== 'peer_to_peer' && (
+              <PaidWithControl
+                model={fundingModel}
+                value={paidWith}
+                onChange={(v) => { setPaidWith(v); setRefusal(null); setError(''); }}
+                summary={poolSummary}
+                currency={eventCurrency || form.currency}
+                noun={poolNoun(poolConfig)}
+                amountMinor={fx.amountMinor}
+                disabled={loading}
+                preferred={preferredSource}
+                isCustodian={isCustodian}
+                allowCardSpends={allowCardSpends}
+                heldMinor={heldMinor}
+                hasAdvances={hasAdvances}
+                custodianName={custodianName}
+                canSpend={canSpend}
+                canClaim={canClaim}
+              />
+            )}
+            {needsSpendTiming && (
+              <SpendTimingControl value={spendTiming} onChange={(v) => { setSpendTiming(v); setError(''); }} noun={poolNoun(poolConfig)} disabled={loading} />
+            )}
+
             <Field>
               <Label htmlFor="expense-title">Title</Label>
               <Input
@@ -479,17 +641,32 @@ export default function CreateExpensePage() {
                   data-testid="expense-currency-select"
                   value={form.currency}
                   onChange={(e) => updateForm({ currency: e.target.value })}
-                  disabled={loading}
+                  // Another currency needs the organiser's multi-currency Pro (Phase 3); otherwise it's the event's.
+                  disabled={loading || !otherCurrencyAllowed}
+                  title={otherCurrencyAllowed ? undefined : `Expenses are in ${eventCurrency || form.currency}. Another currency needs the organiser to have Pro.`}
                 >
-                  <option value="USD">$ USD</option>
-                  <option value="EUR">€ EUR</option>
-                  <option value="GBP">£ GBP</option>
-                  <option value="INR">₹ INR</option>
-                  <option value="JPY">¥ JPY</option>
+                  {currencyOptions(eventCurrency || form.currency).map((c) => <option key={c} value={c}>{c}</option>)}
                 </Select>
               </Field>
             </Row>
+            <FxPreviewLine quote={fx.quote} error={fx.error} />
 
+            <ReceiptField
+              eventId={eventId}
+              value={receipts}
+              onChange={setReceipts}
+              required={isReceiptRequired(poolConfig, fundingSourceOf, fx.amountMinor, { askingFirst })}
+              disabled={loading}
+              onUploadingChange={setUploading}
+            />
+
+            {paidWith === 'pool_reimbursement' && parseFloat(form.amount) > 0 && (
+              <div style={{ fontSize: 13 }} data-testid="claim-note">
+                You&apos;ll be reimbursed {sym}{parseFloat(form.amount).toFixed(2)} from the {poolNoun(poolConfig).toLowerCase()} once it&apos;s approved.
+              </div>
+            )}
+
+            {paidWith === 'self' && (<>
             {/* Private expense toggle */}
             <PrivateToggle>
               <input
@@ -689,7 +866,18 @@ export default function CreateExpensePage() {
               </ErrorText>
             )}
 
+            </>)}
+
             {error && <ErrorText data-testid="create-expense-error">{error}</ErrorText>}
+            {refusal && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Button type="button" $variant="outline" disabled={loading} data-testid="record-anyway"
+                  onClick={() => void submitPoolDraw(parseFloat(form.amount), true)}>
+                  It&apos;s already paid — record it anyway
+                </Button>
+                <span style={{ fontSize: 12, opacity: 0.75 }}>It will be flagged for the custodian.</span>
+              </div>
+            )}
 
             <Buttons>
               <Button type="button" $variant="outline" onClick={() => router.back()} disabled={loading}>
@@ -698,10 +886,10 @@ export default function CreateExpensePage() {
               <Button
                 type="submit"
                 $variant="primary"
-                disabled={loading || !form.title.trim() || !form.amount || splitMismatch}
+                disabled={loading || uploading || !form.title.trim() || !form.amount || (!isPoolDraw && splitMismatch)}
                 data-testid="create-expense-submit"
               >
-                {loading ? 'Adding...' : 'Add Expense'}
+                {loading ? 'Adding...' : paidWith === 'pool_reimbursement' ? 'Submit claim' : 'Add Expense'}
               </Button>
             </Buttons>
           </Form>

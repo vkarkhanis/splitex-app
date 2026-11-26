@@ -35,8 +35,33 @@ import type {
 } from '@traxettle/shared';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEventSocket } from '../hooks/useSocket';
-import { usePaymentProviders } from '../hooks/usePaymentProviders';
-import { useFeedback } from '../context/FeedbackContext';
+import { ModalToasts, useFeedback } from '../context/FeedbackContext';
+import {
+  REIMBURSEMENT_STATUS,
+  REPAYMENT_STATUS,
+  POOL_LEGS_NETTED_NOTE,
+  POOL_LEGS_PAID_SEPARATELY_NOTE,
+  isPoolFundedEvent,
+  isExpenseVisibleTo,
+  isPoolFundedExpense,
+  isPoolSideLeg,
+  originalAmountText,
+  poolExpenseByline,
+  poolLegLabel,
+  poolNoun,
+  poolPaymentActions,
+  poolPaymentActionsText,
+  reimbursementStatus,
+  repaymentStatus,
+  showsProviderFxRates,
+  deletedPaymentParty,
+  DELETED_USER_NAME,
+} from '@traxettle/shared';
+import type { PoolCycleSummary } from '@traxettle/shared';
+import { poolService } from '../services/pool';
+import { PoolMeterView } from '../components/pool/PoolViews';
+import { FxRatesAttribution } from '../components/FxRatesAttribution';
+import { formatExpenseDate } from '../utils/date';
 
 // ── Helpers ──
 
@@ -60,12 +85,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
   const { user } = useAuth();
   const { pushToast } = useFeedback();
   const currentUserId = user?.userId || '';
-  const { providers: paymentProviders, isProviderEnabled, payWithRazorpay, loading: razorpayLoading } = usePaymentProviders();
   const { sharedContent, clearSharedContent } = useSharedContent();
-  const settlementGatewayPilotEnabled = useMemo(
-    () => paymentProviders.some((provider) => provider.provider !== 'manual'),
-    [paymentProviders],
-  );
 
   const STATUS_DOT: Record<string, string> = {
     pending: colors.warning,
@@ -134,7 +154,6 @@ export default function EventDetailScreen({ route, navigation }: any) {
   const [markPaidProofUrl, setMarkPaidProofUrl] = useState('');
   const [markPaidNote, setMarkPaidNote] = useState('');
   const [markPaidLoading, setMarkPaidLoading] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'razorpay' | 'billdesk' | 'manual'>('manual');
 
   // Auto-attach shared screenshot when "I've Paid" modal opens
   useEffect(() => {
@@ -199,6 +218,17 @@ export default function EventDetailScreen({ route, navigation }: any) {
     fetchAll();
   }, [fetchAll, navigation]));
 
+  // ── Pool funding ──
+  const poolFunded = isPoolFundedEvent(event) && Boolean(event?.poolConfig);
+  const [poolSummary, setPoolSummary] = useState<PoolCycleSummary | null>(null);
+  useEffect(() => {
+    if (!poolFunded) return;
+    let cancelled = false;
+    poolService.summary(eventId).then((sum) => { if (!cancelled) setPoolSummary(sum); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [poolFunded, eventId, expenses, settlements]);
+  const openPool = () => navigation.navigate('Pool', { eventId, title: poolNoun(event?.poolConfig) });
+
   // ── Derived State ──
   const isAdmin = participants.some(p => p.userId === currentUserId && p.role === 'admin');
   const currSym = event ? (CURRENCY_SYMBOLS[event.currency] || event.currency) : '$';
@@ -224,14 +254,20 @@ export default function EventDetailScreen({ route, navigation }: any) {
   const myEntityId = myGroup ? myGroup.id : currentUserId;
   const myEntityMembers = myGroup ? myGroup.members : (currentUserId ? [currentUserId] : []);
 
+  // Pool spends, shared expenses this entity is in or paid for (including "on behalf of" ones), and
+  // its own private expenses.
   const visibleExpenses = useMemo(() => {
     if (!currentUserId) return expenses.filter(e => !e.isPrivate);
-    return expenses.filter(exp => {
-      if (exp.isPrivate) return myEntityMembers.includes(exp.paidBy);
-      if (!myEntityId) return false;
-      return exp.splits?.some((s: any) => s.entityId === myEntityId);
-    });
+    return expenses.filter(exp => isExpenseVisibleTo(exp, { entityId: myEntityId, memberIds: myEntityMembers }));
   }, [expenses, currentUserId, myEntityId, myEntityMembers]);
+
+  // A claim's pay-back status lives on its reimbursement leg, which is one of the event's settlements.
+  const legStatusById = useMemo(() => new Map(settlements.map(s => [s.id, s.status])), [settlements]);
+  // Pool payments waiting on this user are handled on the Pool screen; flag them on its card.
+  const poolActionsText = useMemo(() => {
+    const { toConfirm, toPay } = poolPaymentActions(settlements, currentUserId);
+    return poolPaymentActionsText(toConfirm.length, toPay.length);
+  }, [settlements, currentUserId]);
 
   const myTotalExpense = useMemo(() => visibleExpenses.reduce((s, e) => s + e.amount, 0), [visibleExpenses]);
   const myTotalShared = useMemo(() => visibleExpenses.filter(e => !e.isPrivate).reduce((s, e) => s + e.amount, 0), [visibleExpenses]);
@@ -244,6 +280,14 @@ export default function EventDetailScreen({ route, navigation }: any) {
     }, 0);
   }, [visibleExpenses, currentUserId, myEntityId]);
   const myPrivateExpense = useMemo(() => visibleExpenses.filter(e => e.isPrivate).reduce((s, e) => s + e.amount, 0), [visibleExpenses]);
+
+  // ── Expenses list filter: optionally hide private expenses ──
+  const [excludePrivate, setExcludePrivate] = useState(false);
+  const hasPrivateExpenses = useMemo(() => visibleExpenses.some(e => e.isPrivate), [visibleExpenses]);
+  const displayedExpenses = useMemo(
+    () => (excludePrivate ? visibleExpenses.filter(e => !e.isPrivate) : visibleExpenses),
+    [excludePrivate, visibleExpenses],
+  );
 
   // ── Event Actions ──
   const handleEditEvent = async () => {
@@ -345,41 +389,12 @@ export default function EventDetailScreen({ route, navigation }: any) {
     setMarkPaidReferenceId('');
     setMarkPaidProofUrl('');
     setMarkPaidNote('');
-    // Default to manual unless the settlement gateway pilot is enabled and
-    // Razorpay is currently available for this currency.
-    const sCurrency = settlement.settlementCurrency || settlement.currency;
-    if (settlementGatewayPilotEnabled && sCurrency === 'INR' && isProviderEnabled('razorpay')) {
-      setSelectedPaymentMethod('razorpay');
-    } else {
-      setSelectedPaymentMethod('manual');
-    }
     setMarkPaidModal(true);
   };
 
+  // People pay each other outside the app; this records it ("I've Paid") for the payee to confirm.
   const handleSubmitMarkPaid = async () => {
     if (!markPaidTarget) return;
-
-    // ── Razorpay gateway checkout ──
-    if (selectedPaymentMethod === 'razorpay') {
-      const result = await payWithRazorpay(
-        markPaidTarget.id,
-        { name: user?.displayName || '', email: user?.email || '' },
-      );
-      if (result) {
-        setSettlements(prev => prev.map(s => s.id === markPaidTarget.id ? { ...s, ...result } : s));
-        setMarkPaidModal(false);
-        pushToast('success', 'Payment Successful', 'Your payment has been verified and recorded.');
-      }
-      return;
-    }
-
-    // ── BillDesk — not yet functional ──
-    if (selectedPaymentMethod === 'billdesk') {
-      pushToast('error', 'BillDesk Unavailable', 'BillDesk payment method is not yet functional. Approval is in progress.');
-      return;
-    }
-
-    // ── Manual "I've Paid" flow ──
     const referenceId = markPaidReferenceId.trim();
     const proofUrl = markPaidProofUrl.trim();
     setMarkPaidLoading(true);
@@ -475,6 +490,28 @@ export default function EventDetailScreen({ route, navigation }: any) {
             }
           },
         },
+      ],
+    );
+  };
+
+  // One side deleted their account, so the payment can't finish the usual way: an admin records
+  // whether it was paid. Either outcome closes it, so the event can settle.
+  const handleCloseForDeletedUser = (settlementId: string) => {
+    const close = async (outcome: 'paid' | 'written_off') => {
+      try {
+        await api.post(`/api/settlements/${settlementId}/close-deleted-user`, { outcome });
+        fetchAll();
+      } catch (err: any) {
+        Alert.alert('Error', err.message || 'Failed to close the payment');
+      }
+    };
+    Alert.alert(
+      'Close This Payment?',
+      `${DELETED_USER_NAME} deleted their account, so they can't pay or confirm. Record what happened:`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Not paid (write off)', style: 'destructive', onPress: () => close('written_off') },
+        { text: 'It was paid', onPress: () => close('paid') },
       ],
     );
   };
@@ -659,6 +696,31 @@ export default function EventDetailScreen({ route, navigation }: any) {
     </View>
   );
 
+  const renderPayBackBadge = (exp: Expense) => {
+    // A rejected spend already paid with the pool's money is owed back (§9.2).
+    if (exp.fundingSource === 'pool') {
+      const repay = repaymentStatus(exp.poolDraw?.status, legStatusById.get(exp.poolDraw?.settlementId ?? ''), event?.status);
+      if (!repay) return null;
+      const { label, tone } = REPAYMENT_STATUS[repay];
+      const background = { success: colors.successBg, warning: colors.warningBg, info: colors.infoBg }[tone];
+      return (
+        <Text testID={`repayment-badge-${exp.id}`} style={[styles.fxBadge, { color: colors[tone], backgroundColor: background }]}>
+          {label}
+        </Text>
+      );
+    }
+    if (exp.fundingSource !== 'pool_reimbursement') return null;
+    const payBack = reimbursementStatus(exp.poolDraw, legStatusById.get(exp.poolDraw?.settlementId ?? ''), event?.status);
+    if (!payBack) return null;
+    const { label, tone } = REIMBURSEMENT_STATUS[payBack];
+    const background = { success: colors.successBg, warning: colors.warningBg, info: colors.infoBg }[tone];
+    return (
+      <Text testID={`reimbursement-badge-${exp.id}`} style={[styles.fxBadge, { color: colors[tone], backgroundColor: background }]}>
+        {label}
+      </Text>
+    );
+  };
+
   // ── Loading / Error ──
   if (loading) {
     return <View style={[styles.center, { backgroundColor: colors.background }]}><ActivityIndicator size="large" color={colors.primary} /></View>;
@@ -667,8 +729,12 @@ export default function EventDetailScreen({ route, navigation }: any) {
     return <View style={[styles.center, { backgroundColor: colors.background }]}><Text style={{ color: colors.text }}>Event not found</Text></View>;
   }
 
-  const completedCount = settlements.filter(s => s.status === 'completed').length;
-  const settlementPct = settlements.length > 0 ? Math.round((completedCount / settlements.length) * 100) : 0;
+  // Pool payments folded into the final plan (`netted`, §11) are paid through it: left out of the counts,
+  // and listed after the plan's own payments (their label says "included in the payments above").
+  const plannedSettlements = settlements.filter(s => s.status !== 'netted');
+  const completedCount = plannedSettlements.filter(s => s.status === 'completed').length;
+  const settlementPct = plannedSettlements.length > 0 ? Math.round((completedCount / plannedSettlements.length) * 100) : 100;
+  const settlementsInOrder = [...settlements].sort((a, b) => Number(a.status === 'netted') - Number(b.status === 'netted'));
 
   return (
     <>
@@ -709,7 +775,19 @@ export default function EventDetailScreen({ route, navigation }: any) {
             </View>
           </View>
 
-          {/* ── Summary Cards ── */}
+          {/* ── Summary Cards ── (pure pool events have no splits, so show pool spend instead) */}
+          {event.fundingModel === 'pool' ? (
+          <View style={styles.summaryRow}>
+            <View style={[styles.summaryCard, { backgroundColor: colors.surface, shadowColor: colors.black }]}>
+              <Text style={[styles.summaryLabel, { color: colors.muted }]}>Spent from pool</Text>
+              <Text style={[styles.summaryValue, { color: colors.text }]}>{currSym}{visibleExpenses.filter(e => e.poolDraw?.status === 'approved').reduce((sum, e) => sum + e.amount, 0).toFixed(2)}</Text>
+            </View>
+            <View style={[styles.summaryCard, { backgroundColor: colors.surface, shadowColor: colors.black }]}>
+              <Text style={[styles.summaryLabel, { color: colors.muted }]}>Awaiting approval</Text>
+              <Text style={[styles.summaryValue, { color: colors.text }]}>{currSym}{visibleExpenses.filter(e => e.poolDraw?.status === 'pending').reduce((sum, e) => sum + e.amount, 0).toFixed(2)}</Text>
+            </View>
+          </View>
+          ) : (<>
           <View style={styles.summaryRow}>
             <View style={[styles.summaryCard, { backgroundColor: colors.surface, shadowColor: colors.black }]}>
               <Text style={[styles.summaryLabel, { color: colors.muted }]}>Total Expense</Text>
@@ -730,6 +808,28 @@ export default function EventDetailScreen({ route, navigation }: any) {
               <Text style={[styles.summaryValue, { color: colors.text }]}>{currSym}{myPrivateExpense.toFixed(2)}</Text>
             </View>
           </View>
+          </>)}
+
+          {/* ── Pool card ── */}
+          {poolFunded && (
+            <TouchableOpacity testID="event-detail-pool-card" onPress={openPool} activeOpacity={0.8}
+              style={[styles.listCard, { backgroundColor: colors.surface, flexDirection: 'column', alignItems: 'stretch' }]}>
+              <Text style={[styles.listCardTitle, { color: colors.text }]}>{poolNoun(event.poolConfig)} ›</Text>
+              {poolSummary ? (
+                <View style={{ marginTop: 6 }}><PoolMeterView overdraft={poolSummary.overdraft} currency={event.currency} /></View>
+              ) : (
+                <Text style={[styles.listCardSub, { color: colors.muted }]}>Contributions, balance and settle-up</Text>
+              )}
+              {poolSummary && poolSummary.arrears.length > 0 && (
+                <Text style={[styles.listCardSub, { color: colors.warning }]}>{poolSummary.arrears.length} contribution(s) outstanding</Text>
+              )}
+              {event.status === 'active' && poolActionsText && (
+                <Text testID="event-detail-pool-actions" style={[styles.listCardSub, { color: colors.warning, fontWeight: '600' }]}>
+                  {poolActionsText} ›
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
 
           {/* Settlement Details button — visible after first settlement generation */}
           {(event.status === 'review' || event.status === 'payment' || event.status === 'settled' || event.status === 'closed') && settlements.length > 0 && (
@@ -785,8 +885,18 @@ export default function EventDetailScreen({ route, navigation }: any) {
                 ))}
 
                 {/* Settlement transactions preview */}
-                {settlements.filter(s => s.amount > 0.01).map(s => (
-                  <View key={s.id} style={[styles.settlementCard, { backgroundColor: colors.surface, borderLeftColor: colors.primary }]}>
+                {settlements.some(s => s.status === 'netted') && (
+                  <Text style={[styles.fxAmount, { color: colors.muted, marginBottom: spacing.xs }]} testID="settlement-review-netted-note">
+                    {POOL_LEGS_NETTED_NOTE}
+                  </Text>
+                )}
+                {settlements.some(s => isPoolSideLeg(s) && s.status !== 'netted') && (
+                  <Text style={[styles.fxAmount, { color: colors.muted, marginBottom: spacing.xs }]} testID="settlement-review-pool-note">
+                    {POOL_LEGS_PAID_SEPARATELY_NOTE}
+                  </Text>
+                )}
+                {settlementsInOrder.filter(s => s.amount > 0.01).map(s => (
+                  <View key={s.id} style={[styles.settlementCard, { backgroundColor: colors.surface, borderLeftColor: colors.primary }, s.status === 'netted' && { opacity: 0.6 }]}>
                     <View style={styles.settlementRow}>
                       <View style={[styles.dot, { backgroundColor: colors.warning }]} />
                       <Text style={[styles.settlementText, { color: colors.text }]} numberOfLines={1}>
@@ -794,6 +904,11 @@ export default function EventDetailScreen({ route, navigation }: any) {
                       </Text>
                       <Text style={[styles.settlementAmount, { color: colors.text }]}>{currSym}{s.amount.toFixed(2)}</Text>
                     </View>
+                    {poolLegLabel(s) && (
+                      <Text style={[styles.fxAmount, { color: colors.muted }]}>
+                        {poolLegLabel(s)} · {s.status === 'netted' ? 'included in the payments above' : s.status === 'completed' ? 'already paid' : 'paid on its own'}
+                      </Text>
+                    )}
                     {s.settlementAmount && s.settlementCurrency && s.settlementCurrency !== s.currency && (
                       <Text style={[styles.fxAmount, { color: colors.muted }]}>
                         ≈ {CURRENCY_SYMBOLS[s.settlementCurrency] || s.settlementCurrency}{s.settlementAmount.toFixed(2)}
@@ -813,6 +928,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                     <>
                       {!isStale && canApprove && !myEntityApproved && (
                         <TouchableOpacity
+                          testID="event-detail-approve-settlement"
                           style={[styles.primaryBtn, { backgroundColor: colors.primary, marginTop: spacing.md }]}
                           onPress={handleApproveSettlement}
                           disabled={approveSettlementLoading}
@@ -837,13 +953,40 @@ export default function EventDetailScreen({ route, navigation }: any) {
             <View style={styles.section}>
               <View style={styles.sectionHeaderRow}>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>Settlements</Text>
-                <Text style={[styles.progressText, { color: colors.muted }]}>{completedCount}/{settlements.length}</Text>
+                <Text style={[styles.progressText, { color: colors.muted }]}>{completedCount}/{plannedSettlements.length}</Text>
               </View>
               <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
                 <View style={[styles.progressFill, { width: `${settlementPct}%`, backgroundColor: colors.success }]} />
               </View>
-              {settlements.map(s => {
+              {settlements.some(s => s.status === 'netted') && (
+                <Text style={[styles.fxAmount, { color: colors.muted, marginBottom: spacing.xs }]} testID="settlement-netted-note">
+                  {POOL_LEGS_NETTED_NOTE}
+                </Text>
+              )}
+              {settlements.some(s => isPoolSideLeg(s) && s.status !== 'netted') && (
+                <Text style={[styles.fxAmount, { color: colors.muted, marginBottom: spacing.xs }]} testID="settlement-pool-note">
+                  {POOL_LEGS_PAID_SEPARATELY_NOTE}
+                </Text>
+              )}
+              {settlementsInOrder.map(s => {
                 const settlementStatus = s.status as string;
+                // Folded into the plan (§11): shown for the record, paid through the payments above.
+                if (settlementStatus === 'netted') {
+                  return (
+                    <View key={s.id} style={[styles.settlementCard, { backgroundColor: colors.surface, borderLeftColor: colors.border, opacity: 0.6 }]} testID={`event-detail-settlement-card-${s.id}`}>
+                      <View style={styles.settlementRow}>
+                        <View style={[styles.dot, { backgroundColor: colors.muted }]} />
+                        <Text style={[styles.settlementText, { color: colors.text }]} numberOfLines={1}>
+                          {getEntityName(s.fromEntityId, s.fromEntityType)} → {getEntityName(s.toEntityId, s.toEntityType)}
+                        </Text>
+                        <Text style={[styles.settlementAmount, { color: colors.text }]}>{currSym}{s.amount.toFixed(2)}</Text>
+                      </View>
+                      <Text style={[styles.fxAmount, { color: colors.muted }]} testID={`settlement-netted-${s.id}`}>
+                        {poolLegLabel(s) || 'Pool payment'} · included in the payments above
+                      </Text>
+                    </View>
+                  );
+                }
                 const isPayer = currentUserId === s.fromUserId;
                 const isPayee = currentUserId === s.toUserId;
                 const hasFx =
@@ -865,6 +1008,9 @@ export default function EventDetailScreen({ route, navigation }: any) {
                       </Text>
                       <Text style={[styles.settlementAmount, { color: colors.text }]}>{currSym}{s.amount.toFixed(2)}</Text>
                     </View>
+                    {poolLegLabel(s) && (
+                      <Text style={[styles.fxAmount, { color: colors.muted }]}>{poolLegLabel(s)}, paid on its own</Text>
+                    )}
                     {hasFx && (
                       <Text style={[styles.fxAmount, { color: colors.muted }]}>
                         Pay/Receive {settlementSym}{s.settlementAmount!.toFixed(2)}
@@ -904,7 +1050,20 @@ export default function EventDetailScreen({ route, navigation }: any) {
                           </TouchableOpacity>
                         </View>
                       )}
-                      {settlementStatus === 'completed' && <Text style={[styles.doneText, { color: colors.success }]}>✓ Done</Text>}
+                      {isAdmin && settlementStatus !== 'completed' && deletedPaymentParty(s, participants) && (
+                        <TouchableOpacity
+                          testID={`event-detail-settlement-close-deleted-${s.id}`}
+                          style={[styles.smallBtnOutline, { borderColor: colors.primary }]}
+                          onPress={() => handleCloseForDeletedUser(s.id)}
+                        >
+                          <Text style={[styles.smallBtnOutlineText, { color: colors.primary }]}>Close Payment</Text>
+                        </TouchableOpacity>
+                      )}
+                      {settlementStatus === 'completed' && (
+                        s.closedForDeletedUser?.outcome === 'written_off'
+                          ? <Text style={[styles.doneText, { color: colors.muted }]}>Written off</Text>
+                          : <Text style={[styles.doneText, { color: colors.success }]}>✓ Done</Text>
+                      )}
                       {settlementStatus === 'failed' && !isPayer && renderBadge('failed')}
                       {settlementStatus === 'pending' && !isPayer && renderBadge('pending')}
                       {settlementStatus === 'initiated' && !isPayee && renderBadge('initiated')}
@@ -912,6 +1071,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                   </View>
                 );
               })}
+              {showsProviderFxRates(event, settlements) && <FxRatesAttribution />}
             </View>
           )}
 
@@ -921,7 +1081,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
               <Text style={[styles.balancedTitle, { color: colors.success }]}>All Balanced!</Text>
               <Text style={[styles.balancedDesc, { color: colors.textSecondary }]}>No payments needed — everyone is even.</Text>
               {isAdmin && (
-                <TouchableOpacity style={[styles.closeBtn, { backgroundColor: colors.primary }]} onPress={handleCloseEvent}>
+                <TouchableOpacity testID="event-detail-close-event-balanced" style={[styles.closeBtn, { backgroundColor: colors.primary }]} onPress={handleCloseEvent}>
                   <Text style={styles.closeBtnText}>Close Event</Text>
                 </TouchableOpacity>
               )}
@@ -938,7 +1098,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
                 onPress={() => setActiveTab(tab)}
               >
                 <Text style={[styles.tabText, { color: colors.muted }, activeTab === tab && [styles.tabTextActive, { color: colors.primary }]]}>
-                  {tab === 'expenses' ? `Expenses (${visibleExpenses.length})`
+                  {tab === 'expenses' ? `Expenses (${displayedExpenses.length})`
                     : tab === 'participants' ? `Members (${participants.length})`
                     : tab === 'groups' ? `Groups (${groups.length})`
                     : `Invites (${invitations.length})`}
@@ -952,9 +1112,14 @@ export default function EventDetailScreen({ route, navigation }: any) {
             <View style={styles.tabContent}>
               {(event.status === 'active' || event.status === 'review') && (
                 <View style={styles.tabActions}>
-                  {isAdmin && event.status === 'active' && (
+                  {isAdmin && event.status === 'active' && !poolFunded && (
                     <TouchableOpacity testID="event-detail-settle-button" style={[styles.outlineBtn, { borderColor: colors.border }]} onPress={handleSettle}>
                       <Text style={[styles.outlineBtnText, { color: colors.text }]}>Settle Now</Text>
+                    </TouchableOpacity>
+                  )}
+                  {isAdmin && event.status === 'active' && poolFunded && (
+                    <TouchableOpacity testID="event-detail-settle-pool" style={[styles.outlineBtn, { borderColor: colors.border }]} onPress={openPool}>
+                      <Text style={[styles.outlineBtnText, { color: colors.text }]}>Settle up</Text>
                     </TouchableOpacity>
                   )}
                   {isAdmin && event.status === 'review' && (event as any).settlementStale && (
@@ -971,10 +1136,25 @@ export default function EventDetailScreen({ route, navigation }: any) {
                   </TouchableOpacity>
                 </View>
               )}
-              {visibleExpenses.length === 0 ? (
-                <Text style={[styles.emptyText, { color: colors.muted }]}>No expenses yet.</Text>
+              {hasPrivateExpenses && (
+                <TouchableOpacity
+                  testID="event-detail-exclude-private-toggle"
+                  style={styles.filterRow}
+                  activeOpacity={0.7}
+                  onPress={() => setExcludePrivate(v => !v)}
+                >
+                  <View style={[styles.filterCheckbox, { borderColor: colors.border }, excludePrivate && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
+                    {excludePrivate && <Text style={[styles.filterCheckmark, { color: colors.white }]}>✓</Text>}
+                  </View>
+                  <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>Exclude private</Text>
+                </TouchableOpacity>
+              )}
+              {displayedExpenses.length === 0 ? (
+                <Text style={[styles.emptyText, { color: colors.muted }]}>
+                  {excludePrivate && visibleExpenses.length > 0 ? 'No shared expenses.' : 'No expenses yet.'}
+                </Text>
               ) : (
-                visibleExpenses.map(exp => (
+                displayedExpenses.map(exp => (
                   <TouchableOpacity
                     key={exp.id}
                     style={[styles.listCard, { backgroundColor: colors.surface }]}
@@ -985,15 +1165,31 @@ export default function EventDetailScreen({ route, navigation }: any) {
                       <View style={styles.listCardHeader}>
                         <Text style={[styles.listCardTitle, { color: colors.text }]} numberOfLines={1}>{exp.title}</Text>
                         {exp.isPrivate && renderBadge('private')}
+                        {isPoolFundedExpense(exp) && (
+                          <Text style={[styles.fxBadge, { color: colors.info, backgroundColor: colors.infoBg }]}>
+                            {exp.fundingSource === 'pool' ? 'Pool' : 'Claim'}{exp.poolDraw?.status === 'pending' ? ' · pending' : exp.poolDraw?.status === 'rejected' ? ' · rejected' : ''}
+                          </Text>
+                        )}
+                        {renderPayBackBadge(exp)}
                       </View>
                       <Text style={[styles.listCardSub, { color: colors.muted }]}>
-                        Paid by {getUserName(exp.paidBy)} · {exp.paidOnBehalfOf && Array.isArray(exp.paidOnBehalfOf) && exp.paidOnBehalfOf.length > 0 ? 'On Behalf' : exp.splitType.charAt(0).toUpperCase() + exp.splitType.slice(1)}
+                        {formatExpenseDate(exp.date, exp.createdAt as any)} · {isPoolFundedExpense(exp)
+                          ? `${poolExpenseByline(exp)} by ${getUserName(exp.paidBy)}`
+                          : `Paid by ${getUserName(exp.paidBy)} · ${exp.paidOnBehalfOf && Array.isArray(exp.paidOnBehalfOf) && exp.paidOnBehalfOf.length > 0 ? 'On Behalf' : exp.splitType.charAt(0).toUpperCase() + exp.splitType.slice(1)}`}
+                        {exp.attachments?.length ? ` · ${exp.attachments.length} receipt(s)` : ''}
                       </Text>
                     </View>
-                    <Text style={[styles.amountText, { color: colors.text }]}>{CURRENCY_SYMBOLS[exp.currency] || exp.currency}{exp.amount.toFixed(2)}</Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={[styles.amountText, { color: colors.text }]}>{CURRENCY_SYMBOLS[exp.currency] || exp.currency}{exp.amount.toFixed(2)}</Text>
+                      {/* Entered in another currency (Phase 3) */}
+                      {originalAmountText(exp) ? (
+                        <Text testID={`expense-original-${exp.id}`} style={{ color: colors.muted, fontSize: fontSizes.xs }}>{originalAmountText(exp)}</Text>
+                      ) : null}
+                    </View>
                     {(event.status === 'active' || event.status === 'review') && (currentUserId === exp.paidBy || isAdmin) && (
                       <View style={styles.inlineActions}>
                         <TouchableOpacity
+                          testID={`event-detail-edit-expense-${exp.id}`}
                           style={[styles.tinyBtn, { borderColor: colors.border }]}
                           onPress={(e) => { e.stopPropagation(); navigation.navigate('EditExpense', { eventId, expenseId: exp.id, currency: event.currency }); }}
                         >
@@ -1188,6 +1384,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Invite Modal ── */}
@@ -1219,6 +1416,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+      <ModalToasts />
     </Modal>
 
     {/* ── Create Group Modal ── */}
@@ -1228,14 +1426,14 @@ export default function EventDetailScreen({ route, navigation }: any) {
           <ScrollView>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Create Group</Text>
             <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Group Name</Text>
-            <TextInput style={[styles.modalInput, { backgroundColor: colors.surfaceAlt, borderColor: colors.border, color: colors.text }]} value={groupForm.name} onChangeText={v => setGroupForm(f => ({ ...f, name: v }))} placeholder="e.g. Family" placeholderTextColor={colors.muted} />
+            <TextInput testID="create-group-name-input" style={[styles.modalInput, { backgroundColor: colors.surfaceAlt, borderColor: colors.border, color: colors.text }]} value={groupForm.name} onChangeText={v => setGroupForm(f => ({ ...f, name: v }))} placeholder="e.g. Family" placeholderTextColor={colors.muted} />
             <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Description (optional)</Text>
             <TextInput style={[styles.modalInput, { backgroundColor: colors.surfaceAlt, borderColor: colors.border, color: colors.text }]} value={groupForm.description} onChangeText={v => setGroupForm(f => ({ ...f, description: v }))} placeholder="Brief description..." placeholderTextColor={colors.muted} />
             <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Members</Text>
             {participants.map(p => {
               const checked = groupForm.memberIds.includes(p.userId);
               return (
-                <TouchableOpacity key={p.userId} style={styles.memberItem} onPress={() => {
+                <TouchableOpacity key={p.userId} testID={`create-group-member-${p.userId}`} accessibilityRole="checkbox" accessibilityState={{ checked }} style={styles.memberItem} onPress={() => {
                   setGroupForm(f => {
                     const ids = checked ? f.memberIds.filter(id => id !== p.userId) : [...f.memberIds, p.userId];
                     const payer = ids.includes(f.payerUserId) ? f.payerUserId : '';
@@ -1255,7 +1453,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
             <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Payer</Text>
             <View style={styles.modalChipRow}>
               {participants.filter(p => groupForm.memberIds.includes(p.userId)).map(p => (
-                <TouchableOpacity key={p.userId} style={[styles.modalChip, { borderColor: colors.border, backgroundColor: colors.surface }, groupForm.payerUserId === p.userId && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]} onPress={() => setGroupForm(f => ({ ...f, payerUserId: p.userId }))}>
+                <TouchableOpacity key={p.userId} testID={`create-group-payer-${p.userId}`} style={[styles.modalChip, { borderColor: colors.border, backgroundColor: colors.surface }, groupForm.payerUserId === p.userId && { borderColor: colors.primary, backgroundColor: colors.primary + '15' }]} onPress={() => setGroupForm(f => ({ ...f, payerUserId: p.userId }))}>
                   <Text style={[styles.modalChipText, { color: colors.text }, groupForm.payerUserId === p.userId && { color: colors.primary, fontWeight: '600' }]}>
                     {(p as any).displayName || (p as any).email || p.userId.slice(0, 8)}
                   </Text>
@@ -1266,13 +1464,14 @@ export default function EventDetailScreen({ route, navigation }: any) {
               <TouchableOpacity style={[styles.modalCancelBtn, { borderColor: colors.border }]} onPress={() => setCreateGroupModal(false)}>
                 <Text style={[styles.modalCancelText, { color: colors.text }]}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalSubmitBtn, { backgroundColor: colors.primary }, (groupLoading || !groupForm.name.trim() || groupForm.memberIds.length === 0) && styles.modalSubmitDisabled]} onPress={handleCreateGroup} disabled={groupLoading || !groupForm.name.trim() || groupForm.memberIds.length === 0}>
+              <TouchableOpacity testID="create-group-submit-button" style={[styles.modalSubmitBtn, { backgroundColor: colors.primary }, (groupLoading || !groupForm.name.trim() || groupForm.memberIds.length === 0) && styles.modalSubmitDisabled]} onPress={handleCreateGroup} disabled={groupLoading || !groupForm.name.trim() || groupForm.memberIds.length === 0}>
                 <Text style={styles.modalSubmitText}>{groupLoading ? 'Creating...' : 'Create'}</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Edit Group Modal ── */}
@@ -1327,6 +1526,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Mark Paid Modal ── */}
@@ -1337,70 +1537,8 @@ export default function EventDetailScreen({ route, navigation }: any) {
             <Text style={[styles.modalTitle, { color: colors.text }]}>Pay Settlement</Text>
             {!!markPaidTarget && (
               <>
-                {settlementGatewayPilotEnabled && (
-                  <>
-                    {/* ── Payment Method Selector ── */}
-                    <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Payment Method</Text>
-                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
-                      {(() => {
-                        const rpProvider = paymentProviders.find(p => p.provider === 'razorpay');
-                        const rpEnabled = rpProvider?.enabled === true;
-                        const bdProvider = paymentProviders.find(p => p.provider === 'billdesk');
-                        return (
-                          <>
-                            <TouchableOpacity
-                              style={[
-                                styles.payMethodBtn,
-                                { borderColor: selectedPaymentMethod === 'razorpay' ? colors.primary : colors.border,
-                                  backgroundColor: selectedPaymentMethod === 'razorpay' ? colors.primary + '15' : colors.surfaceAlt },
-                                !rpEnabled && { opacity: 0.5 },
-                              ]}
-                              onPress={() => rpEnabled ? setSelectedPaymentMethod('razorpay') : pushToast('info', 'Razorpay', rpProvider?.reason || 'Not available')}
-                            >
-                              <Text style={[styles.payMethodBtnText, { color: selectedPaymentMethod === 'razorpay' ? colors.primary : colors.text }]}>
-                                Razorpay{rpProvider?.mode === 'test' ? ' (Test)' : ''}
-                              </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={[
-                                styles.payMethodBtn,
-                                { borderColor: selectedPaymentMethod === 'billdesk' ? colors.primary : colors.border,
-                                  backgroundColor: selectedPaymentMethod === 'billdesk' ? colors.primary + '15' : colors.surfaceAlt,
-                                  opacity: 0.5 },
-                              ]}
-                              onPress={() => pushToast('error', 'BillDesk Unavailable', bdProvider?.reason || 'BillDesk payment method is not yet functional.')}
-                            >
-                              <Text style={[styles.payMethodBtnText, { color: colors.muted }]}>BillDesk</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={[
-                                styles.payMethodBtn,
-                                { borderColor: selectedPaymentMethod === 'manual' ? colors.primary : colors.border,
-                                  backgroundColor: selectedPaymentMethod === 'manual' ? colors.primary + '15' : colors.surfaceAlt },
-                              ]}
-                              onPress={() => setSelectedPaymentMethod('manual')}
-                            >
-                              <Text style={[styles.payMethodBtnText, { color: selectedPaymentMethod === 'manual' ? colors.primary : colors.text }]}>Manual</Text>
-                            </TouchableOpacity>
-                          </>
-                        );
-                      })()}
-                    </View>
-                  </>
-                )}
-
-                {/* ── Razorpay: simple pay button ── */}
-                {settlementGatewayPilotEnabled && selectedPaymentMethod === 'razorpay' && (
-                  <View style={{ paddingVertical: spacing.md, alignItems: 'center' }}>
-                    <Text style={{ color: colors.textSecondary, fontSize: fontSizes.sm, textAlign: 'center', marginBottom: spacing.sm }}>
-                      You will be redirected to Razorpay's secure checkout to complete the payment.
-                    </Text>
-                  </View>
-                )}
-
-                {/* ── Manual: existing reference/proof/note fields ── */}
-                {(!settlementGatewayPilotEnabled || selectedPaymentMethod === 'manual') && (
-                  <>
+                {/* ── How to pay the payee, and what to record ── */}
+                <>
                     <Text style={[styles.modalLabel, { color: colors.textSecondary }]}>Payee Methods</Text>
                     {((markPaidTarget as any).payeePaymentMethods || []).length > 0 ? (
                       ((markPaidTarget as any).payeePaymentMethods || []).map((m: any, idx: number) => (
@@ -1454,31 +1592,28 @@ export default function EventDetailScreen({ route, navigation }: any) {
                       placeholderTextColor={colors.muted}
                       multiline
                     />
-                  </>
-                )}
+                </>
               </>
             )}
             <View style={styles.modalFooter}>
-              <TouchableOpacity style={[styles.modalCancelBtn, { borderColor: colors.border }]} onPress={() => setMarkPaidModal(false)} disabled={markPaidLoading || razorpayLoading}>
+              <TouchableOpacity style={[styles.modalCancelBtn, { borderColor: colors.border }]} onPress={() => setMarkPaidModal(false)} disabled={markPaidLoading}>
                 <Text style={[styles.modalCancelText, { color: colors.text }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalSubmitBtn, { backgroundColor: colors.primary }, (markPaidLoading || razorpayLoading) && styles.modalSubmitDisabled]}
+                testID="event-detail-mark-paid-submit"
+                style={[styles.modalSubmitBtn, { backgroundColor: colors.primary }, markPaidLoading && styles.modalSubmitDisabled]}
                 onPress={handleSubmitMarkPaid}
-                disabled={markPaidLoading || razorpayLoading}
+                disabled={markPaidLoading}
               >
                 <Text style={styles.modalSubmitText}>
-                  {(markPaidLoading || razorpayLoading)
-                    ? 'Processing...'
-                    : settlementGatewayPilotEnabled && selectedPaymentMethod === 'razorpay'
-                      ? 'Pay with Razorpay'
-                      : 'I\'ve Paid'}
+                  {markPaidLoading ? 'Processing...' : 'I\'ve Paid'}
                 </Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Settlement Details Modal ── */}
@@ -1497,12 +1632,12 @@ export default function EventDetailScreen({ route, navigation }: any) {
               <View style={styles.expDetailMetaRow}>
                 <Text style={[styles.expDetailLabel, { color: colors.muted }]}>Total</Text>
                 <Text style={[styles.expDetailValue, { color: colors.text }]}>
-                  {currSym}{settlements.filter(s => s.amount > 0.01).reduce((sum, s) => sum + s.amount, 0).toFixed(2)}
+                  {currSym}{plannedSettlements.filter(s => s.amount > 0.01).reduce((sum, s) => sum + s.amount, 0).toFixed(2)}
                 </Text>
               </View>
               <View style={styles.expDetailMetaRow}>
                 <Text style={[styles.expDetailLabel, { color: colors.muted }]}>Transactions</Text>
-                <Text style={[styles.expDetailValue, { color: colors.text }]}>{settlements.filter(s => s.amount > 0.01).length}</Text>
+                <Text style={[styles.expDetailValue, { color: colors.text }]}>{plannedSettlements.filter(s => s.amount > 0.01).length}</Text>
               </View>
             </View>
 
@@ -1530,7 +1665,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
             {settlements.filter(s => s.amount > 0.01).length === 0 ? (
               <Text style={[styles.emptyText, { color: colors.muted }]}>No settlements — everyone is even.</Text>
             ) : (
-              settlements.filter(s => s.amount > 0.01).map(s => {
+              settlementsInOrder.filter(s => s.amount > 0.01).map(s => {
                 const displayAmt = s.settlementAmount && s.settlementCurrency && s.settlementCurrency !== s.currency
                   ? `${CURRENCY_SYMBOLS[s.settlementCurrency] || s.settlementCurrency}${s.settlementAmount.toFixed(2)}`
                   : `${currSym}${s.amount.toFixed(2)}`;
@@ -1541,7 +1676,9 @@ export default function EventDetailScreen({ route, navigation }: any) {
                         <Text style={[styles.expDetailSplitName, { color: colors.text }]}>
                           {getEntityName(s.fromEntityId, s.fromEntityType)} → {getEntityName(s.toEntityId, s.toEntityType)}
                         </Text>
-                        <Text style={[{ fontSize: fontSizes.xs, color: colors.muted }]}>{s.status}</Text>
+                        <Text style={[{ fontSize: fontSizes.xs, color: colors.muted }]}>
+                          {s.status === 'netted' ? `${poolLegLabel(s) || 'Pool payment'} · included in the payments above` : s.status}
+                        </Text>
                       </View>
                       <Text style={[styles.expDetailSplitAmount, { color: colors.text }]}>{displayAmt}</Text>
                     </View>
@@ -1595,6 +1732,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Expense Detail / Split Breakdown Modal ── */}
@@ -1616,6 +1754,10 @@ export default function EventDetailScreen({ route, navigation }: any) {
                     <Text style={[styles.expDetailValue, { color: colors.text }]}>
                       {CURRENCY_SYMBOLS[selectedExpense.currency] || selectedExpense.currency}{selectedExpense.amount.toFixed(2)}
                     </Text>
+                  </View>
+                  <View style={styles.expDetailMetaRow}>
+                    <Text style={[styles.expDetailLabel, { color: colors.muted }]}>Date</Text>
+                    <Text style={[styles.expDetailValue, { color: colors.text }]}>{formatExpenseDate(selectedExpense.date, selectedExpense.createdAt as any)}</Text>
                   </View>
                   <View style={styles.expDetailMetaRow}>
                     <Text style={[styles.expDetailLabel, { color: colors.muted }]}>Paid by</Text>
@@ -1689,6 +1831,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           </ScrollView>
         </View>
       </View>
+      <ModalToasts />
     </Modal>
 
     {/* ── Proof Image Viewer Modal ── */}
@@ -1711,6 +1854,7 @@ export default function EventDetailScreen({ route, navigation }: any) {
           <Text style={styles.proofViewerOpenText}>Open in Browser</Text>
         </TouchableOpacity>
       </View>
+      <ModalToasts />
     </Modal>
   </>
   );
@@ -1808,10 +1952,20 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
   },
   highlightCard: { borderWidth: 1 },
+  filterRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+  filterCheckbox: {
+    width: 20, height: 20, borderRadius: 4, borderWidth: 2,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  filterCheckmark: { fontSize: 12, fontWeight: '700' },
+  filterLabel: { fontSize: fontSizes.sm, fontWeight: '600' },
   listCardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  listCardTitle: { fontSize: fontSizes.md, fontWeight: '600' },
+  // flexShrink lets a long title ellipsize (with numberOfLines) responsively on
+  // any screen width instead of overflowing and overlapping the amount.
+  listCardTitle: { fontSize: fontSizes.md, fontWeight: '600', flexShrink: 1 },
   listCardSub: { fontSize: fontSizes.xs, marginTop: 2 },
-  amountText: { fontSize: fontSizes.md, fontWeight: '700' },
+  // amount keeps its intrinsic width so it is never shrunk or overlapped.
+  amountText: { fontSize: fontSizes.md, fontWeight: '700', flexShrink: 0 },
   inlineActions: { flexDirection: 'row', gap: spacing.xs, alignItems: 'center', marginLeft: spacing.xs },
   tinyBtn: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radii.sm, borderWidth: 1 },
   tinyBtnText: { fontSize: fontSizes.xs, fontWeight: '600' },
@@ -1919,17 +2073,4 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm,
   },
   proofViewerOpenText: { color: '#fff', fontWeight: '600', fontSize: fontSizes.sm },
-  payMethodBtn: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xs,
-    borderWidth: 1.5,
-    borderRadius: radii.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  payMethodBtnText: {
-    fontSize: fontSizes.sm,
-    fontWeight: '600',
-  },
 });

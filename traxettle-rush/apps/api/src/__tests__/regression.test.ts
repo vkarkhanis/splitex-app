@@ -66,6 +66,18 @@ jest.mock('../config/firebase', () => {
             }
             return Promise.resolve({ writeTime: new Date() });
           }),
+          update: jest.fn().mockImplementation((data: any) => {
+            let store: Record<string, any> = {};
+            if (collectionPath === 'events') store = mockEvents;
+            else if (collectionPath === 'expenses') store = mockExpenses;
+            else if (collectionPath === 'groups') store = mockGroups;
+            else if (collectionPath === 'invitations') store = mockInvitations;
+            else if (collectionPath === 'users') store = mockUsers;
+            if (!store[docId]) return Promise.reject(new Error(`No document to update: ${docId}`));
+            const { applyUpdate } = require('../utils/firestore-merge');
+            store[docId] = applyUpdate(store[docId], data);
+            return Promise.resolve({ writeTime: new Date() });
+          }),
           delete: jest.fn().mockImplementation(() => {
             if (collectionPath === 'events') delete mockEvents[docId];
             else if (collectionPath === 'expenses') delete mockExpenses[docId];
@@ -362,7 +374,15 @@ describe('Regression: Participants', () => {
 
 // ─── 5. EXPENSE CRUD ────────────────────────────────────────────────────────
 
+/** Expense endpoints now require event membership: seed the events these tests use. */
+function seedMemberEvents(...ids: string[]) {
+  for (const id of ids) {
+    mockEvents[id] = { name: id, status: 'active', createdBy: 'mock-user-1', admins: ['mock-user-1'], participantIds: ['mock-user-1', 'mock-user-2'], currency: 'USD' };
+  }
+}
+
 describe('Regression: Expense CRUD', () => {
+  beforeEach(() => seedMemberEvents('evt-1', 'evt-list', 'evt-bal'));
   it('POST /api/expenses should create expense', async () => {
     const app = createApp();
     const res = await request(app)
@@ -457,6 +477,7 @@ describe('Regression: Expense CRUD', () => {
 // ─── 6. EXPENSE SPLIT TYPES ─────────────────────────────────────────────────
 
 describe('Regression: Split Types', () => {
+  beforeEach(() => seedMemberEvents('evt-1'));
   it('should create expense with equal split', async () => {
     const app = createApp();
     const res = await request(app)

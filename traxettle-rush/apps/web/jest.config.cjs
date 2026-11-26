@@ -11,6 +11,8 @@ module.exports = {
     'src/utils/errorMessages.ts',
     'src/utils/api.ts',
     'src/hooks/useSocket.ts',
+    'src/utils/pool-api.ts',
+    'src/components/pool/**/*.{ts,tsx}',
   ],
   coverageDirectory: 'coverage',
   coverageThreshold: {

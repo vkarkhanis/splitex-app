@@ -4,6 +4,7 @@ If you need an easy way to split bills, manage group expenses, track who paid, a
 
 WHY PEOPLE USE TRAXETTLE
 • Split expenses for trips, vacations, dinners, weddings, parties, and shared living
+• Collect money up front in a shared pool and spend from it
 • Track group spending in one place
 • See who owes whom with clear settlement flows
 • Manage shared expenses across multiple people and multiple currencies
@@ -11,11 +12,14 @@ WHY PEOPLE USE TRAXETTLE
 
 KEY FEATURES
 • Expense splitting app for groups, friends, couples, families, and roommates
-• Smart bill split options for equal, percentage, ratio, and custom shares
+• Smart bill split options: equal, ratio, exact amounts, or paid on behalf of others
 • Event-based expense tracking so every trip or outing stays organized
+• A date on every expense, and a filter to hide private expenses
 • Shared expense manager with participant-level visibility
 • Easy settlement tracking with payer and payee clarity
 • Multi-currency expense splitting for international travel and cross-border groups
+• Receipts on any expense, from the camera or your photos
+• Pool money: collect first, spend from the pool, and settle up at the end
 • Invitations so people can join events and contribute expenses
 • Closed event history for records and reference
 • CSV and PDF exports for expense reports and reconciliation
@@ -37,15 +41,25 @@ Traxettle is designed to make split bill and settle-up flows easier:
 • Review balances
 • Settle payments with clear records
 
+POOL MONEY
+• Just me (free): fund a budget for a wedding or family event, choose who can spend, and approve their spends and claims
+• Several of us (Pro): a trip kitty, a monthly shared fund, a club treasury, or a collection towards a target
+• Choose who can spend, and name approvers who check spends and claims
+• Hand cash to spenders and see who holds what
+• Spending pauses when the pool runs low, until more money is added
+• Refunds, repayments and unpaid claims combine into one final set of payments
+
 NEW USER FRIENDLY
 • Guided in-app walkthrough for first-time users
 • Helpful prompts as you explore key features
 • Option to skip now and replay the walkthrough later from profile
 
 PRO FEATURES
-• Expanded multi-currency settlement support
-• Advanced exports and financial visibility
-• More power for frequent travelers and heavy group-expense users
+• Unlimited events
+• Multi-currency settlement
+• Expenses in another currency: enter a cost in the currency you paid in, and it's converted to the event's currency. Everyone in your events can use it
+• Group pools: kitty, shared fund, club treasury and collection. Only the person who creates the pool needs Pro; everyone else joins free
+• Free trial for new subscribers, where offered
 
 WHY TRAXETTLE
 • Clean interface

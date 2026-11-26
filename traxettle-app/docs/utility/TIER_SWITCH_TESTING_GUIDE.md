@@ -20,6 +20,8 @@ Set:
 4. Verify:
 - Free blocks FX event creation/update.
 - Pro allows FX event creation/update.
+- Free: Create event → Pool money shows *Several of us* locked (PRO). Pro: it can be picked.
+- In an event created by a free account, Add expense offers only the event's currency. Switch the creator to Pro and reload: the currency picker appears for everyone in the event.
 - Playwright regression:
 ```bash
 cd traxettle-rush/e2e

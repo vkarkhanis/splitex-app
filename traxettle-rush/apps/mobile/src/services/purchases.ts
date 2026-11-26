@@ -6,7 +6,8 @@ import Purchases, {
   LOG_LEVEL,
 } from 'react-native-purchases';
 import { ENV } from '../config/env';
-import { getRuntimeConfig } from '../config/runtime';
+import { getLatestRuntimeConfig } from '../config/runtime';
+import { resolveIntroOffer, type IntroOffer } from '../utils/subscriptionTerms';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 let PRO_ENTITLEMENT = ENV.REVENUECAT_PRO_ENTITLEMENT_ID;
@@ -41,7 +42,7 @@ export async function reconfigurePurchasesWithRuntimeConfig(): Promise<void> {
   }
 
   try {
-    const runtimeConfig = await getRuntimeConfig();
+    const runtimeConfig = await getLatestRuntimeConfig();
     const { revenueCatConfig } = runtimeConfig;
     
     // Update local constants
@@ -90,7 +91,7 @@ export async function initPurchases(appUserId?: string): Promise<void> {
   let offering: string;
 
   try {
-    const runtimeConfig = await getRuntimeConfig();
+    const runtimeConfig = await getLatestRuntimeConfig();
     const { revenueCatConfig } = runtimeConfig;
     
     apiKey = Platform.OS === 'ios' 
@@ -237,6 +238,38 @@ export async function getProPackage(): Promise<PurchasesPackage | null> {
   });
   
   return pkg;
+}
+
+/**
+ * The introductory offer (free trial) to show for this package, or null for the normal price.
+ * On iOS it asks RevenueCat whether this user can still get Apple's introductory offer; any
+ * error shows the normal price, as RevenueCat advises. Android needs no check (plan §10A.2).
+ */
+export async function getIntroOffer(pkg: PurchasesPackage | null): Promise<IntroOffer | null> {
+  if (!pkg) return null;
+  const { product } = pkg;
+  let iosEligibility: number | null = null;
+  if (Platform.OS === 'ios') {
+    if (!product.introPrice) return null; // no offer in App Store Connect, so nothing to check
+    try {
+      const result = await Purchases.checkTrialOrIntroductoryPriceEligibility([product.identifier]);
+      iosEligibility = result[product.identifier]?.status ?? null;
+    } catch (err) {
+      console.warn('[Purchases] Introductory offer eligibility check failed:', err);
+      return null;
+    }
+  }
+  return resolveIntroOffer({ platform: Platform.OS, product, iosEligibility });
+}
+
+/**
+ * Calls `listener` whenever RevenueCat's customer info changes (a purchase, a renewal, an
+ * expiry noticed when the app returns to the foreground). Returns a function that stops it.
+ */
+export function onCustomerInfoChanged(listener: (info: CustomerInfo) => void): () => void {
+  if (!_initialised) return () => {};
+  Purchases.addCustomerInfoUpdateListener(listener);
+  return () => { Purchases.removeCustomerInfoUpdateListener(listener); };
 }
 
 // ─── Purchase & Restore ──────────────────────────────────────────────────────

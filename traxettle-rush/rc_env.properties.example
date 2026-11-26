@@ -18,10 +18,12 @@ RC_REVENUECAT_APPLE_PUBLIC_KEY=appl_CHANGE_ME
 # Public SDK key for Android app (starts with goog_)
 RC_REVENUECAT_GOOGLE_PUBLIC_KEY=goog_CHANGE_ME
 
-# RevenueCat entitlement identifier used by app and webhook mapping.
-RC_REVENUECAT_PRO_ENTITLEMENT_ID=pro
+# RevenueCat entitlement identifier used by app and webhook mapping. Must equal the identifier in
+# RevenueCat → Product catalog → Entitlements (Traxettle's is traxettle-pro).
+RC_REVENUECAT_PRO_ENTITLEMENT_ID=traxettle-pro
 
-# RevenueCat offering identifier used by mobile client.
+# RevenueCat offering identifier used by mobile client (only the build's fallback: the API always serves
+# `default`). One offering for both stores; its $rc_annual package holds the App Store and Play products.
 RC_REVENUECAT_OFFERING_ID=default
 
 # Shared webhook secret configured in RevenueCat webhook settings and API env.

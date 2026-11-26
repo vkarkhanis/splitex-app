@@ -7,12 +7,17 @@ import { EmailService } from '../services/email.service';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth';
 import { emitToEvent } from '../config/websocket';
 import { db } from '../config/firebase';
+import { PoolService } from '../services/pool.service';
+import { SettlementService } from '../services/settlement.service';
 
 const router: Router = Router();
 const invitationService = new InvitationService();
 const eventService = new EventService();
 const groupService = new GroupService();
 const emailService = new EmailService();
+const poolService = new PoolService();
+const settlementService = new SettlementService();
+const planner = settlementService.calculateSettlementPlan.bind(settlementService);
 
 function parseLimit(v: any): number | null {
   const n = Number.parseInt(String(v || ''), 10);
@@ -322,6 +327,7 @@ router.post('/:invitationId/accept', requireAuth, async (req: AuthenticatedReque
     }
 
     // Add participant first, then mark invitation accepted.
+    const alreadyMember = await eventService.isParticipant(invitation.eventId, uid);
     await eventService.addParticipant(invitation.eventId, uid, invitation.invitedBy, invitation.role);
 
     if (invitation.groupId) {
@@ -338,6 +344,16 @@ router.post('/:invitationId/accept', requireAuth, async (req: AuthenticatedReque
       { merge: true },
     );
     const updated = await invitationService.getInvitation(req.params.invitationId);
+
+    // A genuine join may reshape a pool (e.g. a shared-living fund rolls its cycle).
+    if (!alreadyMember) {
+      try {
+        const result = await poolService.onMembershipChanged(invitation.eventId, uid, { joinedUserIds: [uid] }, planner);
+        if (result.action !== 'none') emitToEvent(invitation.eventId, 'pool:updated', { reason: result.action });
+      } catch (poolErr) {
+        console.error('Pool membership sync failed:', poolErr);
+      }
+    }
 
     emitToEvent(invitation.eventId, 'invitation:accepted', { invitation: updated || invitation });
     emitToEvent(invitation.eventId, 'participant:added', { userId: uid });

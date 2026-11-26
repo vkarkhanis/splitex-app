@@ -21,6 +21,7 @@ import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-si
 import PasswordInput from '../components/PasswordInput';
 import { isStrongPassword, PASSWORD_RULE_MESSAGE } from '../utils/passwordRules';
 import { switchEnvironmentAndRebootstrap } from '../services/environment-switch';
+import AppleSignInButton, { useAppleSignInAvailable } from '../components/AppleSignInButton';
 
 const GOOGLE_ENABLED = !!ENV.GOOGLE_WEB_CLIENT_ID && !ENV.GOOGLE_WEB_CLIENT_ID.includes('REPLACE_WITH');
 
@@ -36,6 +37,7 @@ export default function RegisterScreen({ navigation }: any) {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [useStaging, setUseStaging] = useState(false);
   const [envTapCount, setEnvTapCount] = useState(0);
+  const appleAvailable = useAppleSignInAvailable();
 
   useEffect(() => {
     // Load current environment setting
@@ -180,14 +182,18 @@ export default function RegisterScreen({ navigation }: any) {
           )}
         </TouchableOpacity>
 
+        {(appleAvailable || GOOGLE_ENABLED) && (
+          <View style={styles.divider}>
+            <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
+            <Text style={[styles.dividerText, { color: c.muted }]}>or</Text>
+            <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
+          </View>
+        )}
+
+        {appleAvailable && <AppleSignInButton mode="signUp" />}
+
         {GOOGLE_ENABLED && (
           <>
-            <View style={styles.divider}>
-              <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
-              <Text style={[styles.dividerText, { color: c.muted }]}>or</Text>
-              <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
-            </View>
-
             <TouchableOpacity
               style={[styles.googleButton, { backgroundColor: c.surface, borderColor: c.border }, googleLoading && styles.buttonDisabled]}
               onPress={handleGoogleSignIn}

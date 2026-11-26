@@ -122,3 +122,57 @@ describe('requireAuth middleware', () => {
     expect(req.user!.uid).toBe('mock-user-456');
   });
 });
+
+describe('mock token environment guard', () => {
+  const saved = { NODE_ENV: process.env.NODE_ENV, APP_ENV: process.env.APP_ENV, ALLOW_MOCK_AUTH: process.env.ALLOW_MOCK_AUTH };
+  let next: NextFunction;
+
+  const setEnv = (env: Partial<Record<keyof typeof saved, string | undefined>>) => {
+    for (const key of Object.keys(saved) as Array<keyof typeof saved>) {
+      const value = key in env ? env[key] : undefined;
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+
+  beforeEach(() => {
+    next = jest.fn();
+    jest.clearAllMocks();
+    (mockAuth.verifyIdToken as jest.Mock).mockRejectedValue(new Error('not a firebase token'));
+  });
+
+  afterAll(() => setEnv(saved));
+
+  it.each([
+    ['production', { NODE_ENV: 'production' }],
+    ['staging', { NODE_ENV: 'staging' }],
+    ['an unset environment', {}],
+  ])('refuses mock tokens in %s', async (_label, env) => {
+    setEnv(env);
+    const req = createMockReq({ authorization: 'Bearer mock-attacker' });
+    const res = createMockRes();
+
+    await requireAuth(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Unauthorized', code: 'AUTH_INVALID' });
+    expect(next).not.toHaveBeenCalled();
+    expect(req.user).toBeUndefined();
+  });
+
+  it.each([
+    ['tests', { NODE_ENV: 'test' }],
+    ['local development', { NODE_ENV: 'production', APP_ENV: 'local' }],
+    ['NODE_ENV=development', { NODE_ENV: 'development' }],
+    ['an explicit opt-in', { NODE_ENV: 'staging', ALLOW_MOCK_AUTH: 'true' }],
+  ])('accepts mock tokens in %s', async (_label, env) => {
+    setEnv(env);
+    const req = createMockReq({ authorization: 'Bearer mock-dev-user' });
+    const res = createMockRes();
+
+    await requireAuth(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(req.user!.uid).toBe('mock-dev-user');
+  });
+});

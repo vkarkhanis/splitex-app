@@ -13,6 +13,8 @@ import { groupRoutes } from './routes/groups';
 import { invitationRoutes } from './routes/invitations';
 import { billingRoutes } from './routes/billing';
 import { internalEntitlementRoutes } from './routes/internal-entitlements';
+import { poolRoutes } from './routes/pools';
+import { uploadRoutes } from './routes/uploads';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/logger';
 import { initWebSocket } from './config/websocket';
@@ -45,6 +47,8 @@ app.use('/api/expenses', expenseRoutes);
 app.use('/api/settlements', settlementRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/invitations', invitationRoutes);
+app.use('/api/pools', poolRoutes);
+app.use('/api/uploads', uploadRoutes);
 
 // Firebase email-link fallback page:
 // If the link opens in browser, send the user back into the mobile app.

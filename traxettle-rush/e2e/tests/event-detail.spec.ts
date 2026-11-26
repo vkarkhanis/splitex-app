@@ -13,10 +13,8 @@ test.describe('Event Detail Page', () => {
   });
 
   test('should display event detail page with tabs', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created - mock services may not support this');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}`);
     await expect(page.getByTestId('event-detail-page')).toBeVisible();
     await expect(page.getByTestId('tab-expenses')).toBeVisible();
@@ -26,10 +24,8 @@ test.describe('Event Detail Page', () => {
   });
 
   test('should switch between tabs', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}`);
 
     // Click participants tab
@@ -50,10 +46,8 @@ test.describe('Event Detail Page', () => {
   });
 
   test('should open edit event modal', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}`);
     const editButton = page.getByTestId('edit-event-btn');
     const canEdit = await editButton.isVisible().catch(() => false);
@@ -73,10 +67,8 @@ test.describe('Event Detail Page', () => {
   });
 
   test('should open invite modal from participants tab', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}`);
     await page.getByTestId('tab-participants').click();
     await page.getByTestId('invite-btn').click();
@@ -86,10 +78,8 @@ test.describe('Event Detail Page', () => {
   });
 
   test('should open create group modal from groups tab', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}`);
     await page.getByTestId('tab-groups').click();
     await page.getByTestId('create-group-btn').click();
@@ -98,10 +88,8 @@ test.describe('Event Detail Page', () => {
   });
 
   test('should navigate to add expense page', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
     await page.goto(`/events/${eventId}`);
     await page.getByTestId('add-expense-btn').click();
     await expect(page).toHaveURL(new RegExp(`/events/${eventId}/expenses/create`));
@@ -109,10 +97,8 @@ test.describe('Event Detail Page', () => {
   });
 
   test('shows the session lock overlay instead of a misleading not-found state when auth is invalidated', async ({ page }) => {
-    if (!eventId) {
-      test.skip(!eventId, 'No event created');
-      return;
-    }
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
 
     await page.goto(`/events/${eventId}`);
     await expect(page.getByTestId('event-detail-page')).toBeVisible();

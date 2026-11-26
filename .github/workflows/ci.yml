@@ -1,0 +1,98 @@
+name: CI
+# The automated regression suite (traxettle-app/docs/runbook/REGRESSION_SUITE.md): type checks,
+# every unit suite and every Playwright browser test, on every pull request (any target branch,
+# including phase-to-phase PRs) and on pushes to main and stage. Maestro (mobile end-to-end) needs
+# simulators and runs locally: `rush test:regression:mobile`.
+on:
+  push:
+    branches: [ "main", "stage" ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# GitHub only reads workflows from the repository root; the code lives in traxettle-rush/.
+defaults:
+  run:
+    working-directory: traxettle-rush
+
+jobs:
+  unit:
+    name: Type checks and unit tests
+    # A fixed image, not ubuntu-latest: that moved to Ubuntu 26.04, which Playwright 1.58 doesn't
+    # support. Move both jobs on together when Playwright is upgraded.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # rush.json requires Node >=24.11.1 <25.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Rush install
+        run: node common/scripts/install-run-rush.js install
+
+      # Apps consume the shared libraries from their built dist/.
+      - name: Build shared libraries
+        run: node common/scripts/install-run-rush.js build --to @traxettle/shared --to @traxettle/ui
+
+      - name: Typecheck
+        run: |
+          (cd apps/api && npx tsc --noEmit)
+          (cd apps/web && npx tsc --noEmit)
+          (cd apps/mobile && npx tsc --noEmit)
+
+      # Each package's own test script (the rush test:* commands need a global rushx).
+      - name: Test shared library
+        run: (cd libraries/shared && npm test -- --ci)
+
+      - name: Test UI library
+        run: (cd libraries/ui && npm test -- --ci)
+
+      - name: Test API
+        run: (cd apps/api && npm test -- --ci)
+
+      - name: Test web (with coverage thresholds)
+        run: (cd apps/web && npm test -- --ci)
+
+      - name: Test mobile
+        run: (cd apps/mobile && npm test -- --ci)
+
+  e2e:
+    name: Browser tests (Playwright)
+    # Playwright installs Chromium and its system libraries only on the Ubuntu versions it knows.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Rush install
+        run: node common/scripts/install-run-rush.js install
+
+      - name: Build shared libraries
+        run: node common/scripts/install-run-rush.js build --to @traxettle/shared --to @traxettle/ui
+
+      - name: Install Chromium for Playwright
+        run: (cd e2e && npx playwright install --with-deps chromium)
+
+      # Starts the API (in-memory store, mock sign-in) on :3201 and the web app on :3200.
+      - name: Run browser tests
+        run: (cd e2e && npx playwright test --config=playwright.config.ts)
+
+      - name: Keep the report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            traxettle-rush/e2e/playwright-report
+            traxettle-rush/e2e/test-results
+          retention-days: 14

@@ -1,10 +1,44 @@
-import { Expense, CreateExpenseDto, UpdateExpenseDto, ExpenseSplit } from '@traxettle/shared';
+import { Expense, CreateExpenseDto, UpdateExpenseDto, ExpenseSplit, isPoolFundedExpense } from '@traxettle/shared';
+import type { PoolDrawState, PoolExpenseFlag } from '@traxettle/shared';
 import { db } from '../config/firebase';
+import type { FxStamp } from './expense-fx.service';
+
+/** Present only on an expense entered in another currency (Phase 3). */
+function fxFields(data: Record<string, any>): Partial<Expense> {
+  if (!data.originalCurrency || typeof data.originalAmount !== 'number') return {};
+  return {
+    originalAmount: data.originalAmount,
+    originalCurrency: data.originalCurrency,
+    fxRate: data.fxRate,
+    fxRateDate: data.fxRateDate,
+    fxRateSource: data.fxRateSource,
+  };
+}
+
+const CLEARED_FX = { originalAmount: null, originalCurrency: null, fxRate: null, fxRateDate: null, fxRateSource: null };
+
+/** Pool fields are only present on pool-funded expenses; absent means 'self'. */
+function poolFields(data: Record<string, any>): Partial<Expense> {
+  if (!data.fundingSource || data.fundingSource === 'self') return {};
+  return {
+    fundingSource: data.fundingSource,
+    poolCycleId: data.poolCycleId,
+    poolDraw: data.poolDraw,
+    poolFlags: Array.isArray(data.poolFlags) ? data.poolFlags : [],
+  };
+}
+
+export interface PoolExpenseFields {
+  fundingSource: 'pool' | 'pool_reimbursement';
+  poolCycleId: string;
+  poolDraw: PoolDrawState;
+  poolFlags: PoolExpenseFlag[];
+}
 
 export class ExpenseService {
   private collection = 'expenses';
 
-  async createExpense(userId: string, dto: CreateExpenseDto): Promise<Expense> {
+  async createExpense(userId: string, dto: CreateExpenseDto, pool?: PoolExpenseFields, fx?: FxStamp): Promise<Expense> {
     const now = new Date().toISOString();
 
     // Validate splits sum to amount for custom splits (skip for private expenses)
@@ -26,6 +60,8 @@ export class ExpenseService {
       splitType: dto.splitType,
       splits: dto.isPrivate ? [] : (dto.splits || []),
       attachments: dto.attachments || [],
+      // Date the expense occurred (date-only, YYYY-MM-DD). Defaults to today (server date) when omitted.
+      date: dto.date || now.slice(0, 10),
       createdAt: now,
       updatedAt: now,
     };
@@ -33,6 +69,21 @@ export class ExpenseService {
     // "On behalf of" — payer fronts money for other entities; payer's share = 0
     if (dto.paidOnBehalfOf && dto.paidOnBehalfOf.length > 0) {
       expenseData.paidOnBehalfOf = dto.paidOnBehalfOf;
+    }
+
+    // Entered in another currency: amount/currency above are already converted (Phase 3).
+    if (fx) Object.assign(expenseData, fx);
+
+    // Pool-funded expenses: transparent to everyone, splits optional (used only
+    // for consumption-weighted sharing). Peer-to-peer expenses get no pool fields.
+    if (pool) {
+      expenseData.fundingSource = pool.fundingSource;
+      expenseData.poolCycleId = pool.poolCycleId;
+      expenseData.poolDraw = pool.poolDraw;
+      expenseData.poolFlags = pool.poolFlags;
+      expenseData.isPrivate = false;
+      expenseData.splits = dto.splits || [];
+      expenseData.splitType = dto.splitType || 'equal';
     }
 
     const docRef = await db.collection(this.collection).add(expenseData);
@@ -63,6 +114,9 @@ export class ExpenseService {
       splitType: data.splitType,
       splits: data.splits || [],
       attachments: data.attachments || [],
+      ...poolFields(data),
+      ...fxFields(data),
+      date: data.date,
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
     } as Expense;
@@ -90,13 +144,24 @@ export class ExpenseService {
         splitType: data.splitType,
         splits: data.splits || [],
         attachments: data.attachments || [],
+        ...poolFields(data),
+        ...fxFields(data),
+        date: data.date,
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
       } as Expense;
     });
   }
 
-  async updateExpense(expenseId: string, userId: string, dto: UpdateExpenseDto, isAdmin = false): Promise<Expense | null> {
+  async updateExpense(
+    expenseId: string,
+    userId: string,
+    dto: UpdateExpenseDto,
+    isAdmin = false,
+    poolUpdate?: Pick<PoolExpenseFields, 'poolDraw' | 'poolFlags'>,
+    /** Phase 3: a new stamp, null to clear one, undefined to leave it. */
+    fxUpdate?: FxStamp | null,
+  ): Promise<Expense | null> {
     const expense = await this.getExpense(expenseId);
     if (!expense) return null;
 
@@ -126,12 +191,24 @@ export class ExpenseService {
     if (dto.splits !== undefined) updates.splits = dto.splits;
     if (dto.attachments !== undefined) updates.attachments = dto.attachments;
     if (dto.isPrivate !== undefined) updates.isPrivate = dto.isPrivate;
+    if (dto.date !== undefined) updates.date = dto.date;
     if (dto.paidOnBehalfOf !== undefined) {
       // null clears the field, array sets it
       updates.paidOnBehalfOf = dto.paidOnBehalfOf || [];
     }
+    if (poolUpdate) {
+      updates.poolDraw = poolUpdate.poolDraw;
+      updates.poolFlags = poolUpdate.poolFlags;
+    }
+    if (fxUpdate === null) Object.assign(updates, CLEARED_FX);
+    else if (fxUpdate) Object.assign(updates, fxUpdate);
+    if (isPoolFundedExpense(expense)) {
+      updates.isPrivate = false; // pool ledgers are always transparent
+    }
 
-    await db.collection(this.collection).doc(expenseId).set(updates, { merge: true });
+    // update(), not set-merge: a merge would keep stale keys inside poolDraw
+    // (e.g. the settlementId of a reimbursement leg removed by this edit).
+    await db.collection(this.collection).doc(expenseId).update(updates);
 
     return this.getExpense(expenseId);
   }
@@ -176,6 +253,8 @@ export class ExpenseService {
     const balances: Record<string, number> = {};
 
     for (const expense of expenses) {
+      // Pool-funded expenses draw down the pool; they create no debt between people.
+      if (isPoolFundedExpense(expense)) continue;
       // Payer gets credited
       balances[expense.paidBy] = (balances[expense.paidBy] || 0) + expense.amount;
 

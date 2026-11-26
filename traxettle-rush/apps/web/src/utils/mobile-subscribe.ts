@@ -18,10 +18,11 @@ export function getMobileSubscribeLinks() {
     process.env.NEXT_PUBLIC_PLAY_STORE_URL ||
     'https://play.google.com/store/apps/details?id=com.traxettle.app';
 
-  // If you don’t have a public iOS App Store URL yet, this falls back to a search page.
+  // The App Store listing (app id 6823113088). Without a country in the path, Apple opens the
+  // visitor's own storefront, with their prices.
   const appStoreUrl =
     process.env.NEXT_PUBLIC_APP_STORE_URL ||
-    'https://apps.apple.com/us/search?term=Traxettle';
+    'https://apps.apple.com/app/traxettle/id6823113088';
 
   const deepLinkScheme = process.env.NEXT_PUBLIC_MOBILE_DEEPLINK_SCHEME || 'com.traxettle.app';
 

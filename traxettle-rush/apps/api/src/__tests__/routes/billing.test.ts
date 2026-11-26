@@ -8,6 +8,9 @@ const resolveUserIdMock = jest.fn();
 const mapTierMock = jest.fn();
 const mapStatusMock = jest.fn();
 const getExpiryMock = jest.fn();
+const isTransferMock = jest.fn();
+const resolveTransferAccountsMock = jest.fn();
+const fetchEntitlementStateMock = jest.fn();
 const applyRevenueCatEntitlementMock = jest.fn();
 const computeCapabilitiesMock = jest.fn();
 const markProcessedMock = jest.fn();
@@ -21,6 +24,9 @@ jest.mock('../../services/billing/revenuecat.service', () => ({
     mapTier: mapTierMock,
     mapStatus: mapStatusMock,
     getExpiry: getExpiryMock,
+    isTransfer: isTransferMock,
+    resolveTransferAccounts: resolveTransferAccountsMock,
+    fetchEntitlementState: fetchEntitlementStateMock,
   })),
 }));
 
@@ -65,6 +71,9 @@ describe('billing routes', () => {
     mapTierMock.mockReset();
     mapStatusMock.mockReset();
     getExpiryMock.mockReset();
+    isTransferMock.mockReset();
+    resolveTransferAccountsMock.mockReset();
+    fetchEntitlementStateMock.mockReset();
     applyRevenueCatEntitlementMock.mockReset();
     computeCapabilitiesMock.mockReset();
     markProcessedMock.mockReset();
@@ -77,6 +86,7 @@ describe('billing routes', () => {
     mapTierMock.mockReturnValue('pro');
     mapStatusMock.mockReturnValue('active');
     getExpiryMock.mockReturnValue(null);
+    isTransferMock.mockReturnValue(false);
     applyRevenueCatEntitlementMock.mockResolvedValue({
       tier: 'pro',
       entitlementStatus: 'active',
@@ -241,5 +251,58 @@ describe('billing routes', () => {
 
     expect(res.status).toBe(500);
     expect(res.body.success).toBe(false);
+  });
+
+  describe('TRANSFER (e.g. Restore Purchase on another Traxettle account)', () => {
+    const payload = { event: { id: 'evt-t', type: 'TRANSFER', transferred_from: ['production::old'], transferred_to: ['production::new'] } };
+    const accounts = [
+      { appUserId: 'production::old', userId: 'old' },
+      { appUserId: 'production::new', userId: 'new' },
+    ];
+
+    beforeEach(() => {
+      parseEventMock.mockReturnValue({ id: 'evt-t', type: 'TRANSFER' });
+      isTransferMock.mockReturnValue(true);
+      resolveTransferAccountsMock.mockResolvedValue(accounts);
+      fetchEntitlementStateMock.mockImplementation(async (appUserId: string) =>
+        appUserId === 'production::new'
+          ? { tier: 'pro', entitlementStatus: 'active', entitlementExpiresAt: '2027-01-01T00:00:00Z' }
+          : { tier: 'free', entitlementStatus: 'expired', entitlementExpiresAt: null },
+      );
+      applyRevenueCatEntitlementMock.mockImplementation(async (_userId: string, state: any) => ({ ...state, internalTester: false }));
+    });
+
+    it('moves Pro to the account the purchase went to and takes it from the other', async () => {
+      const res = await request(app()).post('/api/billing/revenuecat/webhook').send(payload);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ processed: true, transferred: 2 });
+      expect(applyRevenueCatEntitlementMock).toHaveBeenCalledWith('new', expect.objectContaining({ tier: 'pro', entitlementStatus: 'active' }));
+      expect(applyRevenueCatEntitlementMock).toHaveBeenCalledWith('old', expect.objectContaining({ tier: 'free', entitlementStatus: 'expired' }));
+      expect(emitToUserMock).toHaveBeenCalledWith('new', 'user:tier-updated', expect.objectContaining({ tier: 'pro' }));
+      expect(emitToUserMock).toHaveBeenCalledWith('old', 'user:tier-updated', expect.objectContaining({ tier: 'free' }));
+      expect(markProcessedMock).toHaveBeenCalledWith('evt-t', payload);
+      expect(resolveUserIdMock).not.toHaveBeenCalled(); // TRANSFER has no app_user_id; no 400
+    });
+
+    it('writes nothing and answers 500 (so RevenueCat retries) if a lookup fails', async () => {
+      fetchEntitlementStateMock.mockRejectedValueOnce(new Error('RevenueCat customer lookup failed (503)'));
+
+      const res = await request(app()).post('/api/billing/revenuecat/webhook').send(payload);
+
+      expect(res.status).toBe(500);
+      expect(applyRevenueCatEntitlementMock).not.toHaveBeenCalled();
+      expect(markProcessedMock).not.toHaveBeenCalled();
+    });
+
+    it('accepts a transfer between customers who are not Traxettle accounts', async () => {
+      resolveTransferAccountsMock.mockResolvedValue([]);
+
+      const res = await request(app()).post('/api/billing/revenuecat/webhook').send(payload);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ processed: true, transferred: 0 });
+      expect(applyRevenueCatEntitlementMock).not.toHaveBeenCalled();
+    });
   });
 });

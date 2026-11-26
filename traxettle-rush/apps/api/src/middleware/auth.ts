@@ -21,9 +21,22 @@ const authService = new AuthService();
 const useFirebaseEmulator = process.env.FIREBASE_USE_EMULATOR === 'true';
 const emulatorProjectId = process.env.FIREBASE_PROJECT_ID || 'traxettle-local';
 
+function isLocalOrTestEnvironment(): boolean {
+  return process.env.APP_ENV === 'local' || process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
+}
+
+/**
+ * `Bearer mock-<uid>` tokens are a development convenience. They are accepted
+ * only in local/test environments (or with an explicit opt-in) and are refused
+ * everywhere else, including when the environment is unset.
+ */
+export function isMockAuthAllowed(): boolean {
+  return isLocalOrTestEnvironment() || process.env.ALLOW_MOCK_AUTH === 'true';
+}
+
 function getJwtSecret(): string {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
-  if (process.env.APP_ENV === 'local' || process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
+  if (isLocalOrTestEnvironment()) {
     return 'local-dev-jwt-secret-change-me';
   }
   throw new Error('JWT_SECRET is not configured');
@@ -73,6 +86,9 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
     }
 
     if (token.startsWith('mock-')) {
+      if (!isMockAuthAllowed()) {
+        return unauthorized(res, 'AUTH_INVALID');
+      }
       req.user = {
         uid: token,
         email: 'mock@example.com',

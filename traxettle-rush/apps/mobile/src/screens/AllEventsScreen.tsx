@@ -13,6 +13,7 @@ import { spacing, radii, fontSizes, CURRENCY_SYMBOLS } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../api';
 import type { Event as TraxettleEvent } from '@traxettle/shared';
+import { groupEventsForLists } from '../utils/eventLists';
 
 type Tab = 'active' | 'settled';
 
@@ -27,6 +28,7 @@ export default function AllEventsScreen({ navigation }: any) {
 
   const STATUS_COLORS: Record<string, string> = {
     active: c.success,
+    review: c.primary,
     payment: c.warning,
     settled: c.info,
     closed: c.muted,
@@ -55,13 +57,7 @@ export default function AllEventsScreen({ navigation }: any) {
     fetchEvents();
   };
 
-  const activeEvents = events
-    .filter(e => e.status === 'active' || e.status === 'payment')
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-  const settledEvents = events
-    .filter(e => e.status === 'settled')
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const { inProgress: activeEvents, settled: settledEvents } = groupEventsForLists(events);
 
   const displayedEvents = tab === 'active' ? activeEvents : settledEvents;
 

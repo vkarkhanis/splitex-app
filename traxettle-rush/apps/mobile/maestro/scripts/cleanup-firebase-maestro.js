@@ -44,41 +44,19 @@ if (!admin) {
 }
 
 const projectId = process.env.FIREBASE_PROJECT_ID;
-const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-const privateKey = process.env.FIREBASE_PRIVATE_KEY
-  ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-  : undefined;
-
 const useFirebaseEmulator = process.env.FIREBASE_USE_EMULATOR === 'true';
 
-function hasCreds() {
-  return Boolean(projectId && clientEmail && privateKey && privateKey.trim());
-}
-
 function initFirebase() {
-  if (!hasCreds() && !useFirebaseEmulator) {
-    console.log('[maestro-cleanup] Skipping: Firebase credentials not configured.');
+  // This deletes by loose prefixes (emails starting "smb", events named "Maestro ..."), which could
+  // match real users. Only ever run it against the local emulator, never with real credentials.
+  if (!useFirebaseEmulator) {
+    console.log('[maestro-cleanup] Skipping: only cleans the local Firebase emulator (FIREBASE_USE_EMULATOR=true).');
     return null;
   }
-
-  if (useFirebaseEmulator) {
-    process.env.FIREBASE_AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
-    process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
-    process.env.STORAGE_EMULATOR_HOST = process.env.STORAGE_EMULATOR_HOST || '127.0.0.1:9199';
-  }
-
-  if (!admin.apps.length) {
-    if (useFirebaseEmulator) {
-      admin.initializeApp({
-        projectId: projectId || 'traxettle-local',
-      });
-    } else {
-      admin.initializeApp({
-        credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
-        projectId,
-      });
-    }
-  }
+  process.env.FIREBASE_AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
+  process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
+  process.env.STORAGE_EMULATOR_HOST = process.env.STORAGE_EMULATOR_HOST || '127.0.0.1:9199';
+  if (!admin.apps.length) admin.initializeApp({ projectId: projectId || 'traxettle-local' });
   return admin.firestore();
 }
 

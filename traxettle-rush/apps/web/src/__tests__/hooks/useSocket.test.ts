@@ -58,6 +58,8 @@ describe('socket hooks', () => {
 
     socket.trigger('expense:created', { id: 'exp-1' });
     expect(onUpdate).toHaveBeenCalledWith('expense:created', { id: 'exp-1' });
+    socket.trigger('pool:updated', { reason: 'draw_recorded' });
+    expect(onUpdate).toHaveBeenCalledWith('pool:updated', { reason: 'draw_recorded' });
 
     cleanups.forEach((fn) => fn());
     expect(socket.emit).toHaveBeenCalledWith('leave-event', 'event-1');
@@ -92,6 +94,8 @@ describe('socket hooks', () => {
 
     socket.trigger('settlement:updated', { id: 'set-1' });
     expect(onUpdate).toHaveBeenCalledWith('settlement:updated', { id: 'set-1' });
+    socket.trigger('pool:updated', { reason: 'top_up' });
+    expect(onUpdate).toHaveBeenCalledWith('pool:updated', { reason: 'top_up' });
 
     cleanups.forEach((fn) => fn());
     expect(socket.emit).toHaveBeenCalledWith('leave-event', 'a');

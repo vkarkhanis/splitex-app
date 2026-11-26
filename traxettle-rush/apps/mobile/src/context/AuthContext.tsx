@@ -19,6 +19,7 @@ import {
   getResolvedApiBaseUrl,
   registerAuthFailureHandler,
 } from '../api';
+import { hasActivePro } from '@traxettle/shared';
 import { ENV, isLocalLikeEnv } from '../config/env';
 import {
   getLocalUnlockState,
@@ -29,6 +30,7 @@ import {
   tryBiometricUnlock,
   verifyPin,
 } from '../services/local-session';
+import type { AppleSignInResult } from '../services/appleSignIn';
 
 interface AuthUser {
   userId: string;
@@ -38,12 +40,19 @@ interface AuthUser {
 
 interface AuthCapabilities {
   multiCurrencySettlement: boolean;
+  /**
+   * Create "Several of us" pools (design doc §12). Undefined until a server that reports it answers,
+   * so only an explicit `false` locks the option; the API decides otherwise.
+   */
+  contributorPools?: boolean;
 }
 
 interface AuthContextType {
   user: AuthUser | null;
   loading: boolean;
   tier: 'free' | 'pro';
+  /** Pro that is paid up, by the same rule the API uses for Pro limits (see hasActivePro). */
+  activePro: boolean;
   capabilities: AuthCapabilities;
   internalTester: boolean;
   preferredCurrency: string;
@@ -55,6 +64,7 @@ interface AuthContextType {
   sendEmailLinkSignIn: (email: string) => Promise<void>;
   completeEmailLinkSignIn: (url: string, email?: string) => Promise<void>;
   loginWithGoogle: (idToken: string) => Promise<void>;
+  loginWithApple: (apple: AppleSignInResult) => Promise<void>;
   register: (email: string, password: string, displayName: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -70,6 +80,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   tier: 'free',
+  activePro: false,
   capabilities: { multiCurrencySettlement: false },
   internalTester: false,
   preferredCurrency: 'USD',
@@ -81,6 +92,7 @@ const AuthContext = createContext<AuthContextType>({
   sendEmailLinkSignIn: async () => {},
   completeEmailLinkSignIn: async () => {},
   loginWithGoogle: async () => {},
+  loginWithApple: async () => {},
   register: async () => {},
   logout: async () => {},
   refreshProfile: async () => {},
@@ -105,8 +117,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [tier, setTier] = useState<'free' | 'pro'>(ENV.DEFAULT_TIER === 'pro' ? 'pro' : 'free');
+  const [activePro, setActivePro] = useState(ENV.DEFAULT_TIER === 'pro');
   const [capabilities, setCapabilities] = useState<AuthCapabilities>({
     multiCurrencySettlement: ENV.DEFAULT_TIER === 'pro',
+    ...(ENV.DEFAULT_TIER === 'pro' ? { contributorPools: true } : {}),
   });
   const [internalTester, setInternalTester] = useState(false);
   const [preferredCurrency, setPreferredCurrency] = useState('USD');
@@ -122,8 +136,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const allowLocalTierOverride = ENV.INTERNAL_FEATURES_ENABLED && isLocalLikeEnv();
     const nextTier = allowLocalTierOverride ? (ENV.DEFAULT_TIER === 'pro' ? 'pro' : serverTier) : serverTier;
     setTier(nextTier);
+    setActivePro((allowLocalTierOverride && ENV.DEFAULT_TIER === 'pro') || hasActivePro(data ?? {}));
     const serverCapabilities: AuthCapabilities = {
       multiCurrencySettlement: Boolean(data?.capabilities?.multiCurrencySettlement),
+      ...(typeof data?.capabilities?.contributorPools === 'boolean' ? { contributorPools: data.capabilities.contributorPools } : {}),
     };
     
     console.log('[AuthContext] Profile data:', {
@@ -136,7 +152,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     setCapabilities(
       allowLocalTierOverride
-        ? { multiCurrencySettlement: nextTier === 'pro' || serverCapabilities.multiCurrencySettlement }
+        ? {
+          multiCurrencySettlement: nextTier === 'pro' || serverCapabilities.multiCurrencySettlement,
+          ...(nextTier === 'pro' ? { contributorPools: true } : serverCapabilities.contributorPools !== undefined ? { contributorPools: serverCapabilities.contributorPools } : {}),
+        }
         : serverCapabilities,
     );
     setInternalTester(Boolean(data?.internalTester));
@@ -306,6 +325,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Same exchange as Google: the API checks Apple's identity token and returns a Firebase custom
+  // token for the account, so Firebase needs no Apple provider set up.
+  const loginWithApple = async ({ identityToken, rawNonce, fullName }: AppleSignInResult) => {
+    try {
+      const { data } = await api.post('/api/auth/apple', { identityToken, rawNonce, fullName });
+      const firebaseCustomToken = data.firebaseCustomToken as string | undefined;
+      if (!firebaseCustomToken) {
+        throw new Error('No Firebase session received from server');
+      }
+      const credential = await signInWithCustomToken(getAuth(), firebaseCustomToken);
+      const token = await credential.user.getIdToken();
+      await setTokens(token, null);
+      await loadUser();
+    } catch (error) {
+      console.error('[AuthContext] Apple login failed', {
+        status: (error as any)?.status,
+        code: (error as any)?.code,
+        message: (error as any)?.message,
+      });
+      throw error;
+    }
+  };
+
   const register = async (email: string, password: string, displayName: string) => {
     const normalizedEmail = email.trim().toLowerCase();
     const auth = getAuth();
@@ -356,6 +398,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await clearTokens();
     setUser(null);
     setTier('free');
+    setActivePro(false);
     setCapabilities({ multiCurrencySettlement: false });
     setInternalTester(false);
     setPreferredCurrency('USD');
@@ -414,11 +457,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (backgroundedAt && Date.now() - backgroundedAt >= 5 * 60 * 1000) {
           setSessionLocked(true);
         }
+        // Pick up changes made elsewhere, e.g. a subscription bought, renewed or cancelled
+        // (the server learns of those from RevenueCat while the app is in the background).
+        refreshProfile().catch(() => {});
       }
     });
 
     return () => sub.remove();
-  }, [user]);
+  }, [user, refreshProfile]);
 
   const setupPin = useCallback(async (pin: string, enableBiometrics: boolean) => {
     await saveLocalUnlockPreferences(pin, enableBiometrics);
@@ -460,6 +506,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         loading,
         tier,
+        activePro,
         capabilities,
         internalTester,
         preferredCurrency,
@@ -471,6 +518,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sendEmailLinkSignIn,
         completeEmailLinkSignIn,
         loginWithGoogle,
+        loginWithApple,
         register,
         logout,
         refreshProfile,

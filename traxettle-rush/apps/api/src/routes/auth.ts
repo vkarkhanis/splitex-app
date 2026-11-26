@@ -542,6 +542,33 @@ router.post('/google', async (req, res) => {
   }
 });
 
+// Sign in with Apple (iOS). Like Google: the API verifies Apple's identity token itself, then
+// signs the app into Firebase with a custom token, so no Firebase Apple provider is needed.
+router.post('/apple', async (req, res) => {
+  try {
+    const { identityToken, rawNonce, fullName } = req.body || {};
+    if (typeof identityToken !== 'string' || typeof rawNonce !== 'string' || !identityToken || !rawNonce) {
+      return res.status(400).json({ success: false, error: 'Apple identity token and nonce are required' } as ApiResponse);
+    }
+
+    const user = await authService.signInWithApple({
+      identityToken,
+      rawNonce,
+      fullName: typeof fullName === 'string' ? fullName : null,
+    });
+    const tokens = await authService.generateTokens(user);
+    await ensureFirebaseUser({ uid: user.id, email: user.email, displayName: user.displayName });
+    const firebaseCustomToken = await auth.createCustomToken(user.id);
+
+    return res.json({ success: true, data: { user, tokens, firebaseCustomToken } } as ApiResponse);
+  } catch (error: any) {
+    console.error('[auth/apple] Sign-in failed', { detail: error?.message });
+    const status = typeof error?.status === 'number' ? error.status : 401;
+    const userFacing = status === 400 && error?.message ? error.message : 'Apple sign-in failed';
+    return res.status(status).json({ success: false, error: userFacing } as ApiResponse);
+  }
+});
+
 router.post('/bootstrap-firebase', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const userRef = db.collection('users').doc(req.user!.uid);

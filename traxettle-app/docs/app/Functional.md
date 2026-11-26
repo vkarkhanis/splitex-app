@@ -16,20 +16,20 @@ This document tracks all functionalities of the Traxettle application. It is kep
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 1.1 | Phone OTP sign-in | ✅ Supported | Send OTP → verify → receive JWT tokens. Mock OTP: `123456` |
+| 1.1 | Phone OTP sign-in | ❌ Not Currently Supported | Endpoints exist but return "not available in phase 1" |
 | 1.2 | Google OAuth sign-in | ✅ Supported | Firebase client-side Google auth |
-| 1.3 | Microsoft OAuth sign-in | ✅ Supported | Firebase client-side Microsoft auth |
+| 1.3 | Microsoft OAuth sign-in | ❌ Not Currently Supported | `POST /api/auth/microsoft` returns 410 "not available in phase 1" |
 | 1.4 | JWT access token (1h expiry) | ✅ Supported | Sent as `Authorization: Bearer <token>` |
 | 1.5 | JWT refresh token (7d expiry) | ✅ Supported | Used via `/api/auth/refresh` |
 | 1.6 | Automatic token refresh | ✅ Supported | Client-side token refresh on expiry |
 | 1.7 | User logout | ✅ Supported | Invalidates session |
 | 1.8 | User profile — view | ✅ Supported | `GET /api/users/profile` |
 | 1.9 | User profile — update | ✅ Supported | `PUT /api/users/profile` (name, preferences) |
-| 1.10 | Mock auth mode (dev) | ✅ Supported | `Bearer mock-<userId>` for development without Firebase |
-| 1.11 | Email/password sign-in | ❌ Not Currently Supported | — |
-| 1.12 | Apple sign-in | ❌ Not Currently Supported | — |
+| 1.10 | Mock auth mode (dev) | ✅ Supported | `Bearer mock-<userId>`; accepted only when `APP_ENV=local`, `NODE_ENV=test|development`, or `ALLOW_MOCK_AUTH=true` — refused in staging/production |
+| 1.11 | Email/password sign-in | ✅ Supported | `POST /api/auth/register` and `/login` (bcrypt-hashed passwords) |
+| 1.12 | Apple sign-in | ✅ Supported (iOS) | Sign in with Apple on the iOS Login and Register screens (`expo-apple-authentication`; not on Android or web). The app sends Apple's identity token and a one-time nonce to `POST /api/auth/apple`; the API checks it against Apple's public keys (`AppleAuthService`) and returns a Firebase custom token, as for Google, so Firebase has no Apple provider. Accounts: uid `apple-<Apple user id>`; a returning user is found by their Apple id (`appleSub`), and an Apple ID whose verified email matches an existing account is linked to it. "Hide My Email" users get their Apple relay address as email. Deleting the account asks Apple for a fresh authorization code and revokes it (needs the Sign in with Apple key in the API config); see `docs/runbook/SIGN_IN_WITH_APPLE_SETUP.md` |
 | 1.13 | Multi-factor authentication | ❌ Not Currently Supported | — |
-| 1.14 | Account deletion | ❌ Not Currently Supported | — |
+| 1.14 | Account deletion | ✅ Supported | `DELETE /api/users/account` (`AccountDeletionService`): deletes the Firebase Authentication account (so it can't sign in again), profile, sessions and events only the user joined. Shared events stay for the others: the participant record becomes "Deleted user", admin passes to the earliest-joined participant, a pending review approval is given on the user's behalf, expenses and payments are kept so balances stay correct. Groups drop the user; invitations to them are deleted. A payment with a deleted user can't finish the usual way, so event admins close it as **paid** or **written off** (`POST /api/settlements/:id/close-deleted-user`; shown as "Written off", recorded in the audit trail); it then counts as done so the event can settle. Before deleting, mobile and web warn (without blocking) what the user still owes or is owed per event (`GET /api/users/account/outstanding`) |
 
 ---
 
@@ -46,8 +46,8 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 2.7 | Event types | ✅ Supported | Trip and Event |
 | 2.8 | Event lock on settle/close | ✅ Supported | Payment/settled/closed events block all mutations (expenses, groups, invitations, participants); only status→closed allowed on settled events |
 | 2.9 | Hide closed events from dashboard | ✅ Supported | Closed events filtered out of dashboard; not visible to any user; removed in real-time when closed via WebSocket |
-| 2.10 | Multi-currency settlement | ✅ Supported | Pro-capability gated server-side; Free users get `403 FEATURE_REQUIRES_PRO` on FX event fields |
-| 2.11 | Event archiving / closed events section | ❌ Not Currently Supported | Planned: view past closed events and their details |
+| 2.10 | Multi-currency settlement | ✅ Supported | Pro-capability gated server-side; Free users get `403 FEATURE_REQUIRES_PRO` on FX event fields. Only a change to the currency or FX settings counts: renaming a multi-currency event, or editing it during settlement review, works when those are resent unchanged |
+| 2.11 | Event archiving / closed events section | ✅ Supported | Closed events page (web) and screen (mobile) |
 | 2.12 | Event search / filter | ❌ Not Currently Supported | — |
 | 2.13 | Event duplication | ❌ Not Currently Supported | — |
 
@@ -72,7 +72,7 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
 | 4.1 | Create expense | ✅ Supported | Title, amount, currency, description, split type |
-| 4.2 | View expenses for event | ✅ Supported | List all expenses with split details |
+| 4.2 | View expenses for event | ✅ Supported | Participants only; other people's private expenses are hidden server-side |
 | 4.3 | View single expense | ✅ Supported | Full expense details with splits |
 | 4.4 | Update expense | ✅ Supported | Creator or event admin; all fields editable; dedicated edit page |
 | 4.5 | Delete expense | ✅ Supported | Creator or event admin |
@@ -88,11 +88,11 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 4.15 | Edit expense page | ✅ Supported | Dedicated edit page with pre-populated form, same split validation as create |
 | 4.16 | "On Behalf Of" expenses | ✅ Supported | Payer fronts money for another entity; payer's share = 0; splits exclude payer's entity; toggle + entity selector in create/edit UI |
 | 4.17 | Expense categories / tags | ❌ Not Currently Supported | — |
-| 4.18 | Receipt upload / attachment | ❌ Not Currently Supported | — |
+| 4.18 | Receipt upload / attachment | ✅ Supported | Photos or PDF bills (≤5MB) on any expense via `POST /api/uploads`; camera capture on mobile |
 | 4.19 | Recurring expenses | ❌ Not Currently Supported | — |
 | 4.20 | Expense comments / notes | ❌ Not Currently Supported | — |
 | 4.21 | Expense history / audit log | ❌ Not Currently Supported | — |
-| 4.22 | Multi-currency expenses | ❌ Not Currently Supported | — |
+| 4.22 | Expenses in another currency | ✅ Supported | When the event's creator has Pro (`multiCurrencySettlement`), anyone in the event can enter an expense or pool spend in another currency. The API converts the amount and each split to the event currency at the event's predefined rate, else today's end-of-day rate, and keeps what was entered (`originalAmount`, `originalCurrency`, `fxRate`, `fxRateDate`, `fxRateSource`). Editing keeps the saved rate; a new currency gets a new rate; back to the event currency clears them. A free creator's events refuse it with `403 OTHER_CURRENCY_NOT_ALLOWED`. Preview: `GET /api/events/:eventId/fx-preview`. Totals, balances and settlement use the converted amount |
 
 ---
 
@@ -160,7 +160,7 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 7.11 | Settlement summary UI | ✅ Supported | Card-based layout with progress bar, per-transaction status (pending/initiated/completed), Pay/Confirm Receipt buttons |
 | 7.12 | Group payer resolution | ✅ Supported | For group entities, the group's designated payer sees Pay button; group's payer receives Confirm Receipt button |
 | 7.13 | Real-time settlement broadcast | ✅ Supported | WebSocket emits `settlement:generated`, `settlement:updated`, and `event:updated` to all event room clients; dashboard tiles update in real-time via multi-event room subscription |
-| 7.14 | FX rate service (EOD + predefined) | ✅ Supported | Fetches rates from open.er-api.com with Firestore caching; supports predefined rates with reverse lookup; `convert()` helper |
+| 7.14 | FX rate service (EOD + predefined) | ✅ Supported | Fetches rates from open.er-api.com with Firestore caching; supports predefined rates with reverse lookup; `convert()` helper. Its free terms require the credit "Rates By Exchange Rate API" (linking to exchangerate-api.com) wherever its rates are shown: web and mobile show it under settlements that use provider rates (`showsProviderFxRates`) and under the EOD option when creating an event |
 | 7.15 | Dual currency settlement display | ✅ Supported | Settlement summary shows original + converted amounts with FX rate; total converted amount shown |
 | 7.16 | Settlement currency configuration | ✅ Supported | Event creation UI: settlement currency selector, FX rate mode (EOD/predefined), predefined rate input |
 | 7.17 | Payment gateway integration | 🚧 In Progress | Mock default in non-prod; real gateway path available with internal opt-in policy |
@@ -180,7 +180,7 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 8.4 | Dashboard page | ✅ Supported | Event list with create button, empty state |
 | 8.5 | Create event page | ✅ Supported | Full form with validation; settlement currency, FX rate mode, predefined FX rate inputs |
 | 8.6 | Event detail page | ✅ Supported | Tabbed UI (Expenses, Participants, Groups, Invitations) |
-| 8.7 | Create expense page | ✅ Supported | Entity selection (groups + individuals), radio split type, private toggle, currency symbols, split validation, "On Behalf Of" toggle + entity selector |
+| 8.7 | Create expense page | ✅ Supported | Entity selection (groups + individuals), radio split type, private toggle, currency symbols, split validation, "On Behalf Of" toggle + entity selector; currency picker with a conversion preview (4.22), disabled with an explanation when the organiser isn't Pro |
 | 8.7a | Edit expense page | ✅ Supported | Pre-populated form, same validation as create, accessible to creator or admin, onBehalfOf editing |
 | 8.8 | Invitations page | ✅ Supported | View and accept/decline pending invitations |
 | 8.9 | Profile page | ✅ Supported | View/edit profile; local-only web tier switch controls when env flags are enabled |
@@ -195,7 +195,7 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 8.17 | Confirmation modals | ✅ Supported | All destructive/important actions (settle, close event, delete group/expense, remove participant) use themed modals with danger/warning variants instead of browser dialogs |
 | 8.18 | Consistent status badges | ✅ Supported | Event status badges (active/payment/settled) use identical color mapping across Dashboard tiles and Event detail page: active=success, payment=info, settled=warning |
 | 8.19 | Responsive design | ❌ Not Currently Supported | Desktop-first, mobile not optimized |
-| 8.20 | Dark mode | ❌ Not Currently Supported | — |
+| 8.20 | Dark mode | ✅ Supported | Light, dark, ocean and forest themes |
 | 8.21 | PWA support | ❌ Not Currently Supported | — |
 | 8.22 | Accessibility (WCAG) | ❌ Not Currently Supported | — |
 
@@ -209,13 +209,14 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 9.2 | Mobile authentication | ✅ Supported | Login + Register screens; AuthContext with token persistence via AsyncStorage |
 | 9.3 | Mobile dashboard | ✅ Supported | Event list with pull-to-refresh, FX badge, status badges, create event button |
 | 9.4 | Mobile event detail | ✅ Supported | Summary cards, expense list, settlement cards with dual currency, pay/approve actions, groups |
-| 9.5 | Mobile create expense | ✅ Supported | Full form with entity selection, split calculation, "On Behalf Of" toggle + selector |
+| 9.5 | Mobile create expense | ✅ Supported | Full form with entity selection, split calculation, "On Behalf Of" toggle + selector; currency chips under Amount with a conversion preview (4.22), hidden when the organiser isn't Pro |
 | 9.6 | Mobile create event | ✅ Supported | Event form with settlement currency, FX rate mode, predefined rate input; Pro tier gating |
-| 9.7 | Free/Pro monetization tiers | ✅ Supported | Server-authoritative entitlement + capability model; local/internal testing controls enabled by env |
+| 9.7 | Free/Pro monetization tiers | ✅ Supported | Server-authoritative entitlement + capability model (`multiCurrencySettlement`, `contributorPools`); local/internal testing controls enabled by env |
 | 9.8 | Push notifications | ❌ Not Currently Supported | — |
 | 9.9 | Offline support | ❌ Not Currently Supported | — |
-| 9.10 | Camera for receipt capture | ❌ Not Currently Supported | — |
-| 9.11 | In-app purchase (IAP) | ❌ Not Currently Supported | Pro tier upgrade ready but IAP not integrated |
+| 9.10 | Camera for receipt capture | ✅ Supported | Take photo / choose photo on the expense form |
+| 9.11 | In-app purchase (IAP) | ✅ Supported | Google Play Billing / Apple IAP via RevenueCat (`react-native-purchases`) |
+| 9.12 | Free trial for new subscribers | ✅ Supported | The upgrade screen shows *Start free trial* when the store offers the account a trial: iOS checks introductory-offer eligibility, Android reads the offer's free phase. The 7-day offers are created in the stores after the release ([MONEY_POOLING_PHASE2_PLAN.md](../utility/MONEY_POOLING_PHASE2_PLAN.md) §10A) |
 
 ---
 
@@ -238,17 +239,17 @@ This document tracks all functionalities of the Traxettle application. It is kep
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 11.1 | API unit tests (Jest + Supertest) | ✅ Supported | 392 tests across 15 suites, 92.9% statement / 83.6% branch coverage |
-| 11.2 | Shared library unit tests | ✅ Supported | 36 tests, 100% coverage |
-| 11.3 | E2E tests (Playwright) | ✅ Supported | 31 tests: navigation, events, expenses, invitations, groups |
-| 11.4 | Regression test suite | ✅ Supported | 48 tests covering all Phase 2 functionality; `rush test:regression` |
+| 11.1 | API unit tests (Jest + Supertest) | ✅ Supported | 913 tests across 44 suites (2026-11-24), every route against an in-memory Firestore |
+| 11.2 | Shared library unit tests | ✅ Supported | 258 tests (money maths, pools, wording); UI library: 15 |
+| 11.3 | E2E tests (Playwright) | ✅ Supported | 88 tests: auth, navigation, events, expenses, groups, invitations, settlements, tiers, pools (Phases 1–3). Run in CI on every pull request |
+| 11.4 | Regression test suite | ✅ Supported | One command for every automated check: `rush test:regression` (type checks, all unit suites, all Playwright tests); `rush test:regression:mobile` adds the Maestro flows. See [REGRESSION_SUITE.md](../runbook/REGRESSION_SUITE.md) |
 | 11.5a | Settlement service tests | ✅ Supported | 38+ tests — greedy algorithm, entity balances, generation, entity-aware tile calculations, initiatePayment, approvePayment, auto-settle, onBehalfOf (3 scenarios), edge cases |
 | 11.5d | FX rate service tests | ✅ Supported | 14 tests — getRate (predefined, reverse, fallback), getEodRate (cache hit, API fetch, errors, reverse fallback), convert, getPaymentProvider |
 | 11.5b | Event guards tests | ✅ Supported | 10 tests — getEventLockStatus, requireActiveEvent for active/payment/settled/closed states |
 | 11.5c | Expense admin auth tests | ✅ Supported | Tests for admin update/delete permissions, ratio split edge cases |
 | 11.6 | EmailService unit tests | ✅ Supported | Mock mode, SMTP mode, error handling, email content |
-| 11.7 | Web component/hook unit tests | 🚧 In Progress | Core socket + entitlement behavior tests added; suite expansion ongoing |
-| 11.8 | Mobile unit tests | 🚧 In Progress | AuthContext entitlement hydration/switch tests added; suite expansion ongoing |
+| 11.7 | Web component/hook unit tests | ✅ Supported | 117 tests (pool components, forms, entitlements, sockets) with coverage thresholds |
+| 11.8 | Mobile unit tests | ✅ Supported | 163 tests (screens, pool views, purchases, auth). Mobile end-to-end: Maestro flows in `apps/mobile/maestro` |
 | 11.9 | Performance / load tests | ❌ Not Currently Supported | — |
 | 11.10 | Visual regression tests | ❌ Not Currently Supported | — |
 
@@ -262,9 +263,9 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | 12.2 | Rush custom commands | ✅ Supported | dev, build, test, clean, lint, typecheck per-project |
 | 12.3 | Environment variable management | ✅ Supported | `.env.example` template, `.env.local` for local dev |
 | 12.4 | Mock mode (no Firebase) | ✅ Supported | API falls back to mock services automatically |
-| 12.5 | CI/CD pipeline | ❌ Not Currently Supported | — |
-| 12.6 | Docker containerization | ❌ Not Currently Supported | — |
-| 12.7 | Production deployment | ❌ Not Currently Supported | — |
+| 12.5 | CI/CD pipeline | ✅ Supported | GitHub Actions on Node 24: typecheck + shared/UI/API/web tests (mobile non-blocking); deploy scripts under `scripts/` |
+| 12.6 | Docker containerization | ✅ Supported | `Dockerfile` (API) and `Dockerfile.web` |
+| 12.7 | Production deployment | ✅ Supported | See `docs/deployment/DEPLOYMENT_RUNBOOK.md` |
 | 12.8 | Monitoring / logging | ❌ Not Currently Supported | Basic console logging only |
 | 12.9 | Rate limiting | ❌ Not Currently Supported | — |
 | 12.10 | API documentation (Swagger/OpenAPI) | ❌ Not Currently Supported | — |
@@ -289,8 +290,8 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
 | 14.1 | Expense summary per event | ✅ Supported | Balance calculation via API |
-| 14.2 | Expense charts / visualizations | ❌ Not Currently Supported | — |
-| 14.3 | Export to CSV / PDF | ❌ Not Currently Supported | — |
+| 14.2 | Expense charts / visualizations | ❌ Not Currently Supported | Mobile Analytics screen is a "coming soon" placeholder |
+| 14.3 | Export to CSV / PDF | ✅ Supported | CSV and printable exports for closed events and unsettled payments; pool ledgers are viewable per cycle |
 | 14.4 | Spending trends | ❌ Not Currently Supported | — |
 | 14.5 | Category-wise breakdown | ❌ Not Currently Supported | — |
 | 14.6 | Admin dashboard / analytics | ❌ Not Currently Supported | — |
@@ -302,13 +303,47 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
 | 15.1 | Shared entitlement model | ✅ Supported | `tier`, `entitlementStatus`, `entitlementSource`, and capability payload in shared contracts |
-| 15.2 | RevenueCat webhook ingestion | ✅ Supported | Idempotent processing and entitlement state mapping in API |
+| 15.2 | RevenueCat webhook ingestion | ✅ Supported | Idempotent processing and entitlement state mapping in API. Pro ends on `EXPIRATION` (or a `CANCELLATION` whose expiry has passed, i.e. a refund); turning off auto-renew, a scheduled pause, or a store grace period keeps Pro until then. Every Pro limit (event cap, multi-currency, group pools) uses paid-up Pro: tier `pro` with status `active` or `grace_period` |
 | 15.3 | Internal entitlement switch route | ✅ Supported | Non-prod only; gated by env flag and tester checks |
 | 15.4 | WebSocket tier update broadcast | ✅ Supported | API emits `user:tier-updated`; web refreshes profile/capabilities live |
 | 15.5 | Local tier switching (mobile + web) | ✅ Supported | Enabled only with local/internal feature flags |
 | 15.6 | Staging/TestFlight mobile-only switching | ✅ Supported | Web read-only; switch route protected for internal testers |
 | 15.7 | Production manual tier switch disabled | ✅ Supported | Billing/webhook-driven tier transitions only |
 | 15.8 | Non-prod real payment opt-in guardrails | ✅ Supported | Requires env flag + request flag + internal tester identity |
+
+---
+
+## 16. Money Pooling
+
+Pooling is an additional **funding model**: money is collected first and expenses draw it down. Split-expenses events are unchanged (an absent `fundingModel` means peer-to-peer). Design: [MONEY_POOLING_DESIGN.md](../utility/MONEY_POOLING_DESIGN.md) · Phase 2: [MONEY_POOLING_PHASE2_PLAN.md](../utility/MONEY_POOLING_PHASE2_PLAN.md) · Phase 3: [MONEY_POOLING_PHASE3_PROPOSAL.md](../utility/MONEY_POOLING_PHASE3_PROPOSAL.md) · Testing: [MONEY_POOLING_TESTING.md](../runbook/MONEY_POOLING_TESTING.md).
+
+| # | Feature | Status | Notes |
+|---|---------|--------|-------|
+| 16.1 | Funding choice at event creation | ✅ Supported | Split expenses (default) or Pool money → Several of us / Just me. **First release (1.0.40):** production showed only *Just me*. **From the Phase 2 release:** production offers both (`CONTRIBUTOR_POOLS_IN_PRODUCTION` in `libraries/shared/src/pool-ui.ts` is `true`). **Pro:** *Several of us* needs a Pro creator (16.21); *Just me* is free |
+| 16.2 | Pool presets | ✅ Supported | Kitty (one-off, pro-rata refund), Fund (monthly, carry-forward), Treasury (tiered dues, keep surplus), Collection (target before spending), Budget (single sponsor) |
+| 16.3 | Hybrid events | ✅ Supported | Pool expenses and regular split expenses in one event; one combined settlement plan |
+| 16.4 | Add a pool to an existing event | ✅ Supported | One-way conversion to hybrid; existing expenses unchanged. API only (no app screen). A *Several of us* preset needs the person converting to be Pro |
+| 16.5 | Contributions | ✅ Supported | Per-person or tiered amounts; mark paid → custodian confirms; partial payments; waive; proof of payment; custodian's own dues confirm at once |
+| 16.6 | Top-ups | ✅ Supported | Add money any time (e.g. to unpause the pool or pay carried arrears) |
+| 16.7 | Pool expenses | ✅ Supported | "Paid with: Pool funds" — no splits needed, deducts from the pool. Anyone but the custodian picks how they paid: *money I'm holding* (16.18) or *the custodian's card or UPI* (which a budget can switch off), and whether it's already paid or asking first |
+| 16.8 | Reimbursement claims | ✅ Supported | "My money — claim it back" with receipt → approval → settlement leg paid by the custodian, without settling or locking the event |
+| 16.9 | Graduated overdraft | ✅ Supported | Warn down to −20% of the pool, then pause pre-authorised spending until the overdraft is repaid plus more; already-paid expenses are always recorded and flagged |
+| 16.10 | Approvals & spender controls | ✅ Supported | Approval never / above an amount / always, changeable after creation; nobody approves their own spending except the custodian (it's their money); sponsor budgets authorise spenders (people or groups) with optional caps; receipts can be mandatory. In *Several of us* pools, **Who can spend** is everyone or only people the organiser chooses (`spendersMode: listed`); anyone else can still claim back their own money, always with approval. Someone holding pool money can't be taken off the list until it's returned (`409 POOL_HOLDER_DELISTED`) |
+| 16.10a | Approvers | ✅ Supported | The organiser names approvers (`approverUserIds`) in any pool. They approve or reject other people's spends and claims, never their own, and can't settle up, close a month, change settings or confirm money. Approving doesn't make someone a spender |
+| 16.11 | Transparency ledger | ✅ Supported | Balance meter, contributions, arrears, spending by person, every movement with receipts, cycle history |
+| 16.12 | Recurring cycles | ✅ Supported | Close a month: carry each person's credit forward (or pay out), open the next month with fresh dues |
+| 16.13 | Membership changes | ✅ Supported | Shared-living funds square up a leaver and carry everyone else forward; treasuries just update the roster |
+| 16.14 | Fair settle-up | ✅ Supported | Shares weighted by agreed amounts, so non-payers still owe their share; deficit cover credited to whoever fronted it; reuses the existing settlement flow |
+| 16.15 | Real-time updates | ✅ Supported | `pool:updated` socket events refresh the pool tab and dashboard tiles; custodian alerted on flagged expenses |
+| 16.16 | Scheduled (automatic) cycle closing | ❌ Not Currently Supported | Cycles are closed by the custodian/admin; there is no background scheduler |
+| 16.17 | Pool notifications by email/push | ❌ Not Currently Supported | In-app and socket only |
+| 16.18 | Rejected spends owed back | ✅ Supported | A spend already paid on the custodian's card or UPI and then rejected creates a repayment, spender → custodian. Only the custodian or an admin can delete it (design doc §9.2) |
+| 16.19 | Money added by others | ✅ Supported | A top-up from anyone but the custodian is a loan, paid back at close, unless marked a gift (§10) |
+| 16.20 | Handing money to spenders | ✅ Supported | The custodian gives a spender cash (an advance); the spender confirms it. The app derives what each holds, and *With you + With spenders* always equals what's left. Spenders return money (the custodian confirms), or the custodian records money returned. At close, what someone still holds is settled. Optional proof on each (§9.3) |
+| 16.21 | "Several of us" is Pro | ✅ Supported | Kitty, Fund, Treasury and Collection, including hybrid events built on them, need a Pro creator (or converter). Free users get `403 FEATURE_REQUIRES_PRO` with `feature: contributor_pools`, and the apps show a PRO badge. Members join free, and a lapse never blocks an existing pool (§12) |
+| 16.22 | Paying back early | ✅ Supported | The custodian pays back what someone lent before the pool closes; the lender confirms. Allowed while spending is paused, with a warning (§10.6) |
+| 16.23 | Netting at settle-up | ✅ Supported | Unpaid repayments and claims of the cycle being settled are folded into the final payments (fewest payments, including between members). Rows already being paid, earlier cycles and leaving settlements stay separate (§11) |
+| 16.24 | Pool spends in another currency | ✅ Supported | As 4.22. Receipt and approval thresholds and the pool balance use the converted amount; the pool's lists show both amounts (*entered as $10.00*) ([Phase 3](../utility/MONEY_POOLING_PHASE3_PROPOSAL.md) §9) |
 
 ---
 
@@ -323,7 +358,10 @@ This document tracks all functionalities of the Traxettle application. It is kep
 | **Phase 4** | Settlement flow overhaul: payment mode, pay/approve endpoints, real-time status, settlement summary UI, auto-settle, edge cases | ✅ Complete |
 | **Phase 4.5** | UX polish: confirmation modals (replace all browser dialogs), consistent badge colors, real-time dashboard updates via WebSocket | ✅ Complete |
 | **Phase 5** | "On Behalf Of" expenses, multi-currency FX settlement, complete mobile app (iOS/Android), Free/Pro monetization tiers, comprehensive tests | ✅ Complete |
+| **Phase 6** | Money pooling (kitty, fund, treasury, collection, sponsor budget, hybrid), receipts on all expenses, expense-access hardening, CI running tests | ✅ Complete |
+| **Phase 7** | Pooling Phases 2–3: *Several of us* for Pro, hand-overs, early repayment, netting, free trial, spender lists, approvers, expenses in another currency; automated regression suite (Playwright and Maestro) | ✅ Complete |
+
 
 ---
 
-*Last updated: February 2026*
+*Last updated: November 2026*

@@ -16,18 +16,24 @@ import { spacing, radii, fontSizes } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { api, ApiRequestError } from '../api';
 import { useAuth } from '../context/AuthContext';
-import { usePurchase } from '../context/PurchaseContext';
+import { buildFundingPayload, DEFAULT_FUNDING_CHOICE, proRequiredMessage, validateFundingChoice } from '@traxettle/shared';
+import type { FundingChoice } from '@traxettle/shared';
+import { FundingStepView } from '../components/pool/PoolViews';
+import { useContributorPoolsAvailable } from '../hooks/useContributorPoolsAvailable';
+import { FxRatesAttribution } from '../components/FxRatesAttribution';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD'];
 
 export default function CreateEventScreen({ navigation }: any) {
   const { theme } = useTheme();
   const colors = theme.colors;
-  const { tier, capabilities } = useAuth();
-  const { isPro } = usePurchase();
+  const { tier, activePro, capabilities } = useAuth();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'event' | 'trip'>('event');
+  const [funding, setFunding] = useState<FundingChoice>(DEFAULT_FUNDING_CHOICE);
+  // "Several of us" stays visible on staging only until it's released (see the hook).
+  const allowContributorPools = useContributorPoolsAvailable();
 
   // Debug logging for Pro features
   console.log('[CreateEvent] Debug:', {
@@ -75,8 +81,19 @@ export default function CreateEventScreen({ navigation }: any) {
     setPickerTarget(null);
   };
 
+  // Pro here follows the server's entitlement, as on web. The server enforces the
+  // event limit and multi-currency itself; a store purchase on this device isn't needed.
+  // A lapsed subscription can still read tier 'pro', so check paid-up Pro, not the tier.
+  const canUseFx = capabilities.multiCurrencySettlement;
   const needsFx = settlementCurrency && settlementCurrency !== currency;
-  const isFxProFeature = needsFx && !isPro;
+  const isFxProFeature = needsFx && !canUseFx;
+  // "Several of us" pools need Pro (design doc §12); only an explicit `false` from the server locks it.
+  const groupPoolsLocked = capabilities.contributorPools === false;
+  const groupPoolBlocked = groupPoolsLocked && funding.kind === 'pool' && funding.funder === 'contributors';
+  const offerUpgrade = (message: string) => Alert.alert('Pro Feature', message, [
+    { text: 'Not now', style: 'cancel' },
+    { text: 'Upgrade', onPress: () => navigation.navigate('ProUpgrade') },
+  ]);
 
   const handleSubmit = async () => {
     if (!name.trim()) {
@@ -88,6 +105,10 @@ export default function CreateEventScreen({ navigation }: any) {
       Alert.alert('Pro Feature', 'Multi-currency settlement requires a Pro subscription. Upgrade to unlock this feature.');
       return;
     }
+    if (groupPoolBlocked) {
+      offerUpgrade(`${proRequiredMessage('contributor_pools')} Only you need Pro: everyone you invite joins free.`);
+      return;
+    }
 
     if (needsFx && fxRateMode === 'predefined') {
       const parsed = Number(predefinedFxRate);
@@ -97,9 +118,15 @@ export default function CreateEventScreen({ navigation }: any) {
       }
     }
 
+    const fundingError = validateFundingChoice(funding);
+    if (fundingError) {
+      Alert.alert('Check the pool details', fundingError);
+      return;
+    }
+
     setLoading(true);
     try {
-      if (!isPro) {
+      if (!activePro) {
         const events = await api.get<any[]>('/api/events');
         const activeOrClosedCount = (events.data || []).filter(
           (evt: any) => evt?.status === 'active' || evt?.status === 'closed'
@@ -132,6 +159,9 @@ export default function CreateEventScreen({ navigation }: any) {
         }
       }
 
+      // Pool funding is additive: split events send no funding fields at all.
+      Object.assign(payload, buildFundingPayload(funding, currency));
+
       const { data } = await api.post('/api/events', payload);
       const createdEventId = (data as any)?.id || (data as any)?.eventId || (data as any)?.event?.id;
       if (!createdEventId) {
@@ -141,7 +171,9 @@ export default function CreateEventScreen({ navigation }: any) {
       navigation.replace('EventDetail', { eventId: createdEventId, eventName: name });
     } catch (err: any) {
       if (err instanceof ApiRequestError && err.code === 'FEATURE_REQUIRES_PRO') {
-        Alert.alert('Pro Feature', 'Multi-currency settlement requires a Pro subscription. Upgrade to unlock this feature.');
+        // Name the feature the API refused, not always multi-currency.
+        if (err.feature === 'contributor_pools') offerUpgrade(proRequiredMessage('contributor_pools'));
+        else Alert.alert('Pro Feature', 'Multi-currency settlement requires a Pro subscription. Upgrade to unlock this feature.');
         return;
       }
       Alert.alert('Error', err.message || 'Failed to create event');
@@ -228,10 +260,13 @@ export default function CreateEventScreen({ navigation }: any) {
         ))}
       </View>
 
+      <FundingStepView value={funding} onChange={setFunding} currency={currency} allowContributorPools={allowContributorPools}
+        contributorPoolsLocked={groupPoolsLocked} onUpgrade={() => navigation.navigate('ProUpgrade')} />
+
       {/* Settlement Currency */}
       <Text style={[styles.label, { color: colors.textSecondary }]}>
         Settlement Currency (optional)
-        {!isPro && <Text style={[styles.proBadge, { color: colors.warning }]}> PRO</Text>}
+        {!canUseFx && <Text style={[styles.proBadge, { color: colors.warning }]}> PRO</Text>}
       </Text>
       <View style={styles.chipRow}>
         <TouchableOpacity
@@ -279,6 +314,7 @@ export default function CreateEventScreen({ navigation }: any) {
               <Text style={[styles.chipText, { color: colors.text }, fxRateMode === 'predefined' && { color: colors.primary, fontWeight: '600' }]}>Predefined</Text>
             </TouchableOpacity>
           </View>
+          {fxRateMode === 'eod' && <FxRatesAttribution />}
           {fxRateMode === 'predefined' && (
             <>
               <Text style={[styles.label, { color: colors.textSecondary }]}>1 {currency} = ? {settlementCurrency}</Text>

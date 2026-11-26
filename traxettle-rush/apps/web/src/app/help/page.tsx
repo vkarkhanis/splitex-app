@@ -4,6 +4,7 @@ import React from 'react';
 import { useRouter } from 'next/navigation';
 import styled from 'styled-components';
 import { Button, Card, CardBody, CardHeader, CardSubtitle, CardTitle, Badge } from '@traxettle/ui';
+import { poolingHelpLine, proBadges } from '../../utils/proFeatures';
 
 const HELP_URL = 'https://www.karkhanislabs.com/traxettle';
 
@@ -102,9 +103,11 @@ export default function HelpPage() {
               <List>
                 <li>Create events and add shared + private expenses</li>
                 <li>Split by equal, ratio, or custom amounts</li>
+                <li>Enter a cost in the currency you paid in, converted to the event’s currency (when the event’s organiser has Pro)</li>
                 <li>Generate a settlement plan and approve it together</li>
                 <li>Track payments with proof uploads (optional)</li>
                 <li>Close events when everything is completed</li>
+                <li data-testid="help-pooling">{poolingHelpLine()}</li>
               </List>
               <div style={{ height: 12 }} />
               <Tip>
@@ -122,9 +125,7 @@ export default function HelpPage() {
             </CardHeader>
             <CardBody>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-                <Badge $variant="warning">Multi-currency settlement</Badge>
-                <Badge $variant="warning">Advanced analytics</Badge>
-                <Badge $variant="warning">More power-user features</Badge>
+                {proBadges().map((label) => <Badge key={label} $variant="warning">{label}</Badge>)}
               </div>
               <List>
                 <li>Pro is purchased in the mobile app (Play Store / App Store)</li>

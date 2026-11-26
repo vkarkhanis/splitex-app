@@ -1,4 +1,5 @@
 import { db } from '../config/firebase';
+import { hasActivePro } from '@traxettle/shared';
 import type { EntitlementSource, EntitlementStatus, PlanTier, UserCapabilities } from '@traxettle/shared';
 
 export interface UserEntitlement {
@@ -19,6 +20,8 @@ const DEFAULT_ENTITLEMENT: UserEntitlement = {
 
 const PRO_FEATURE_CODES = {
   multiCurrencySettlement: 'multi_currency_settlement',
+  /** "Several of us" pools (design doc §12). */
+  contributorPools: 'contributor_pools',
 } as const;
 
 export class EntitlementService {
@@ -49,12 +52,10 @@ export class EntitlementService {
   }
 
   computeCapabilities(entitlement: UserEntitlement): UserCapabilities {
-    const isActivePro =
-      entitlement.tier === 'pro' &&
-      (entitlement.entitlementStatus === 'active' || entitlement.entitlementStatus === 'grace_period');
-
     return {
-      multiCurrencySettlement: isActivePro,
+      multiCurrencySettlement: hasActivePro(entitlement),
+      // Creating "Several of us" pools (design doc §12). Only the creator needs it; members join free.
+      contributorPools: hasActivePro(entitlement),
     };
   }
 

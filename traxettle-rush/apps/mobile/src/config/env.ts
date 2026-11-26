@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { BUILD_ENV } from './buildEnv';
+import appJson from '../../app.json';
 
 /**
  * Mobile app environment configuration.
@@ -36,8 +37,8 @@ export const ENV = {
   /** AsyncStorage key prefix */
   STORAGE_PREFIX: '@traxettle_',
 
-  /** App version shown in settings */
-  APP_VERSION: '1.0.0',
+  /** App version shown in settings (set for each store build by scripts/version.sh) */
+  APP_VERSION: appJson.expo.version,
   /**
    * Default behavior:
    * - false: keep payment initiation mocked in local/TestFlight/internal environments.

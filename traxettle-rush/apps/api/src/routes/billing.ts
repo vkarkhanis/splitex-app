@@ -91,6 +91,32 @@ router.post('/revenuecat/webhook', async (req, res) => {
       return res.json({ success: true, data: { skipped: true } } as ApiResponse);
     }
 
+    // A TRANSFER (e.g. Restore Purchase on another Traxettle account) names the accounts the purchase
+    // moved between instead of app_user_id, and carries no entitlement: ask RevenueCat for each one.
+    // All lookups run before anything is written; a failure answers 500, so RevenueCat retries.
+    if (revenueCatService.isTransfer(event)) {
+      const accounts = await revenueCatService.resolveTransferAccounts(event);
+      const states = await Promise.all(
+        accounts.map((account) => revenueCatService.fetchEntitlementState(account.appUserId)),
+      );
+      const updated: Array<{ userId: string; tier: string }> = [];
+      for (const [i, { userId }] of accounts.entries()) {
+        const entitlement = await entitlementService.applyRevenueCatEntitlement(userId, states[i]);
+        const capabilities = entitlementService.computeCapabilities(entitlement);
+        emitToUser(userId, 'user:tier-updated', {
+          tier: entitlement.tier,
+          entitlementStatus: entitlement.entitlementStatus,
+          capabilities,
+        });
+        updated.push({ userId, tier: entitlement.tier });
+      }
+      console.log('[Billing Webhook] Applied transfer:', { eventId, updated });
+      if (eventId) {
+        await billingEventsService.markProcessed(eventId, req.body);
+      }
+      return res.json({ success: true, data: { processed: true, transferred: updated.length } } as ApiResponse);
+    }
+
     const userId = await revenueCatService.resolveUserId(event);
     if (!userId) {
       return res.status(400).json({ success: false, error: 'Missing app_user_id in webhook payload' } as ApiResponse);

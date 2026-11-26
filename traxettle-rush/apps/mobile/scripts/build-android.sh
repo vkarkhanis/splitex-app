@@ -12,8 +12,10 @@
 #   1. Validates prerequisites (google-services.json, keystore, signing creds)
 #   2. Copies google-services.json → android/app/
 #   3. Sets EXPO_PUBLIC_* env vars for the chosen profile
-#   4. Runs the Gradle build (bundleRelease for .aab, assembleDebug for .apk)
-#   5. Prints the output path
+#   4. production: sets the version shared with iOS and a new versionCode
+#      (scripts/version.sh), recorded once the build succeeds
+#   5. Runs the Gradle build (bundleRelease for .aab, assembleDebug for .apk)
+#   6. Prints the output path
 #
 # Prerequisites:
 #   - google-services.json in apps/mobile/ (gitignored)
@@ -183,6 +185,11 @@ ok "EXPO_PUBLIC_APP_ENV=$EXPO_PUBLIC_APP_ENV"
 [ "$PROFILE" != "debug" ] && ok "EXPO_PUBLIC_API_URL=$EXPO_PUBLIC_API_URL"
 ok "RevenueCat config loaded from rc_${RC_ENV}.properties"
 
+# An iOS build waiting in Xcode (build-ios.sh xcode) still holds .env and buildEnv.ts; backing
+# them up here would later "restore" its values.
+[ -f "$MOBILE_DIR/.xcode-build-pending" ] && fail "An iOS Xcode build is still waiting (it holds .env and src/config/buildEnv.ts).
+   Finish it first: bash scripts/build-ios.sh xcode-done   (or xcode-done --not-uploaded)"
+
 # Write .env so Metro/Expo inlines EXPO_PUBLIC_* at bundle time
 ENV_FILE="$MOBILE_DIR/.env"
 ENV_FILE_EXISTED=false
@@ -235,7 +242,14 @@ cleanup_env() {
 }
 trap cleanup_env EXIT
 
-# ── Step 4: Run Gradle build ────────────────────────────────────────────────
+# ── Step 4: Version (Play builds) ───────────────────────────────────────────
+# Shares the version with iOS for this release; bumped only if Android already shipped
+# it. versionCode goes up for every new build.
+if [ "$PROFILE" = "production" ]; then
+  bash "$MOBILE_DIR/scripts/version.sh" prepare android
+fi
+
+# ── Step 5: Run Gradle build ────────────────────────────────────────────────
 echo ""
 info "Starting Gradle build..."
 echo ""
@@ -261,6 +275,10 @@ case "$PROFILE" in
 esac
 
 NODE_ENV=production ./gradlew "$GRADLE_TASK" --no-daemon
+
+if [ "$PROFILE" = "production" ]; then
+  bash "$MOBILE_DIR/scripts/version.sh" record android
+fi
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"

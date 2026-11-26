@@ -31,6 +31,11 @@ import {
 import { WebApiError, api } from '../../../utils/api';
 import { useEventSocket } from '../../../hooks/useSocket';
 import { getResolvedApiBaseUrl } from '../../../config/dev-options';
+import { PoolTab } from '../../../components/pool/PoolTab';
+import { SpenderPermissions } from '../../../components/pool/SpenderPermissions';
+import { poolNoun } from '../../../components/pool/poolFormat';
+import { REIMBURSEMENT_STATUS, REPAYMENT_STATUS, POOL_LEGS_NETTED_NOTE, POOL_LEGS_PAID_SEPARATELY_NOTE, isExpenseVisibleTo, isPoolFundedEvent, isPoolFundedExpense, isPoolSideLeg, originalAmountText, poolExpenseByline, poolLegLabel, reimbursementStatus, repaymentStatus, showsProviderFxRates, deletedPaymentParty, DELETED_USER_NAME } from '@traxettle/shared';
+import { FxRatesAttribution } from '../../../components/FxRatesAttribution';
 import type {
   Event as TraxettleEvent,
   Expense,
@@ -513,7 +518,7 @@ const ProofLink = styled.a`
   }
 `;
 
-type ActiveTab = 'expenses' | 'participants' | 'groups' | 'invitations';
+type ActiveTab = 'pool' | 'expenses' | 'participants' | 'groups' | 'invitations' | 'spenders';
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   USD: '$', EUR: '€', GBP: '£', INR: '₹', JPY: '¥', AUD: 'A$', CAD: 'C$',
@@ -598,6 +603,9 @@ export default function EventDetailPage() {
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ActiveTab>('expenses');
+  const [poolRefreshKey, setPoolRefreshKey] = useState(0);
+  const tabPickedRef = useRef(false);
+  const pickTab = (tab: ActiveTab) => { tabPickedRef.current = true; setActiveTab(tab); };
   const [error, setError] = useState('');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
@@ -665,6 +673,10 @@ export default function EventDetailPage() {
   // Real-time updates via WebSocket — granular handlers to avoid full page refresh
   const fetchAllRef = useRef<() => void>(() => {});
   useEventSocket(eventId, useCallback((type: string, payload: any) => {
+    // Pool balances move with contributions, pool expenses and their payments.
+    if (type.startsWith('pool:') || type.startsWith('expense:') || type.startsWith('settlement:')) {
+      setPoolRefreshKey((k) => k + 1);
+    }
     if (type === 'event:deleted') {
       router.push('/dashboard');
       return;
@@ -793,6 +805,12 @@ export default function EventDetailPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
   useEffect(() => { fetchAllRef.current = fetchAll; }, [fetchAll]);
+
+  // Pool events open on the Pool tab (unless the user already picked a tab).
+  const poolFunded = isPoolFundedEvent(event);
+  useEffect(() => {
+    if (poolFunded && event?.poolConfig && !tabPickedRef.current) setActiveTab('pool');
+  }, [poolFunded, event?.poolConfig]);
 
   const handleEditEvent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -986,6 +1004,35 @@ export default function EventDetailPage() {
           const res = await api.post<{ settlement: Settlement; allComplete: boolean }>(`/api/settlements/${settlementId}/mark-paid-by-payee`, {});
           setSettlements(prev => prev.map(s => s.id === settlementId ? { ...s, status: 'completed' as const } : s));
           pushToast({ type: 'success', title: 'Marked as paid', message: 'Settlement completed successfully.' });
+          if (res.data?.allComplete) fetchAll();
+        } catch (err: any) {
+          pushToast({ type: 'error', title: 'Error', message: err.message });
+        }
+      },
+    });
+  };
+
+  // One side deleted their account, so the payment can't finish the usual way: an admin records
+  // whether it was paid. Either outcome closes it, so the event can settle.
+  const handleCloseForDeletedUser = (settlementId: string, outcome: 'paid' | 'written_off') => {
+    const paid = outcome === 'paid';
+    setConfirmModal({
+      open: true,
+      title: paid ? 'Close as paid?' : 'Write off this payment?',
+      message: paid
+        ? `${DELETED_USER_NAME} deleted their account and can't confirm. Close this payment as paid?`
+        : `${DELETED_USER_NAME} deleted their account and can't pay. Close this payment as not paid?`,
+      variant: 'warning',
+      confirmLabel: paid ? 'Close as paid' : 'Write off',
+      onConfirm: async () => {
+        closeConfirmModal();
+        try {
+          const res = await api.post<{ settlement: Settlement; allComplete: boolean }>(
+            `/api/settlements/${settlementId}/close-deleted-user`,
+            { outcome },
+          );
+          setSettlements(prev => prev.map(s => (s.id === settlementId && res.data?.settlement ? { ...s, ...res.data.settlement } : s)));
+          pushToast({ type: 'success', title: paid ? 'Closed as paid' : 'Written off', message: 'The payment is closed.' });
           if (res.data?.allComplete) fetchAll();
         } catch (err: any) {
           pushToast({ type: 'error', title: 'Error', message: err.message });
@@ -1212,6 +1259,8 @@ export default function EventDetailPage() {
     return getUserName(entityId);
   };
 
+  const isSponsorPool = Boolean(poolFunded && event?.poolConfig?.funderMode === 'sponsor');
+
   // Is the current user an admin of this event?
   const isAdmin = currentUserId
     ? participants.some(p => p.userId === currentUserId && p.role === 'admin')
@@ -1227,26 +1276,14 @@ export default function EventDetailPage() {
   // All user IDs that belong to my entity (for private expense ownership check)
   const myEntityMembers: string[] = myGroup ? myGroup.members : (currentUserId ? [currentUserId] : []);
 
-  // Helper: does an expense involve my entity? (shared expense where my entity is in the splits)
-  const isSharedWithMyEntity = (exp: Expense) => {
-    if (exp.isPrivate) return false;
-    if (!myEntityId) return false;
-    return exp.splits?.some((s: any) => s.entityId === myEntityId);
-  };
-
-  // Helper: is a private expense owned by my entity?
-  // Private expense belongs to an entity if the creator (paidBy) is a member of that entity.
-  const isMyEntityPrivate = (exp: Expense) => {
-    if (!exp.isPrivate) return false;
-    return myEntityMembers.includes(exp.paidBy);
-  };
-
-  // Visible expenses for this user's entity:
-  // - All shared expenses where this entity is in the splits
-  // - Private expenses created by a member of this entity
+  // The expenses this entity sees, in the list and the totals: pool spends, shared expenses it's in
+  // or paid for (including "on behalf of" ones), and its own private expenses.
   const visibleExpenses = currentUserId
-    ? expenses.filter(exp => isSharedWithMyEntity(exp) || isMyEntityPrivate(exp))
+    ? expenses.filter(exp => isExpenseVisibleTo(exp, { entityId: myEntityId, memberIds: myEntityMembers }))
     : expenses.filter(exp => !exp.isPrivate); // fallback for unauthenticated: show shared only
+
+  // A claim's pay-back status lives on its reimbursement leg, which is one of the event's settlements.
+  const legStatusById = new Map(settlements.map((s) => [s.id, s.status]));
 
   // 1. Total Expense = All shared expenses involving this entity + this entity's private expenses
   const myTotalExpense = visibleExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -1315,24 +1352,38 @@ export default function EventDetailPage() {
         <MetaItem>{formatDate(event.startDate)}{event.endDate ? ` – ${formatDate(event.endDate)}` : ''}</MetaItem>
       </MetaRow>
 
+      {event.fundingModel === 'pool' ? (
+        // Pure pool events have no splits, so "your share" cards would read ₹0. The pool tab has the detail.
+        <SummaryGrid data-testid="pool-summary-grid">
+          <SummaryCard>
+            <SummaryLabel>Spent from the {poolNoun(event.poolConfig).toLowerCase()}</SummaryLabel>
+            <SummaryValue>{currSym}{visibleExpenses.filter((e) => e.poolDraw?.status === 'approved').reduce((sum, e) => sum + e.amount, 0).toFixed(2)}</SummaryValue>
+          </SummaryCard>
+          <SummaryCard>
+            <SummaryLabel>Awaiting approval</SummaryLabel>
+            <SummaryValue>{currSym}{visibleExpenses.filter((e) => e.poolDraw?.status === 'pending').reduce((sum, e) => sum + e.amount, 0).toFixed(2)}</SummaryValue>
+          </SummaryCard>
+        </SummaryGrid>
+      ) : (
       <SummaryGrid>
-        <SummaryCard>
+        <SummaryCard data-testid="summary-total-expense">
           <SummaryLabel>Total Expense</SummaryLabel>
           <SummaryValue>{currSym}{myTotalExpense.toFixed(2)}</SummaryValue>
         </SummaryCard>
-        <SummaryCard>
+        <SummaryCard data-testid="summary-total-shared">
           <SummaryLabel>Total Shared</SummaryLabel>
           <SummaryValue>{currSym}{myTotalShared.toFixed(2)}</SummaryValue>
         </SummaryCard>
-        <SummaryCard>
+        <SummaryCard data-testid="summary-your-shared">
           <SummaryLabel>Your Shared</SummaryLabel>
           <SummaryValue>{currSym}{myYourShared.toFixed(2)}</SummaryValue>
         </SummaryCard>
-        <SummaryCard>
+        <SummaryCard data-testid="summary-private-expense">
           <SummaryLabel>Private Expense</SummaryLabel>
           <SummaryValue>{currSym}{myPrivateExpense.toFixed(2)}</SummaryValue>
         </SummaryCard>
       </SummaryGrid>
+      )}
 
       {/* Settlement Review — approval status shown during review phase */}
       {event.status === 'review' && settlements.length > 0 && (() => {
@@ -1342,10 +1393,12 @@ export default function EventDetailPage() {
         const approvedCount = approvalEntries.filter(([, a]) => a.approved).length;
         const totalEntities = approvalEntries.length;
         const approvalPct = totalEntities > 0 ? Math.round((approvedCount / totalEntities) * 100) : 0;
-        const totalSettlementAmount = settlements.reduce((sum, s) => sum + s.amount, 0);
-        const hasFx = settlements.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
-        const totalSettlementConverted = hasFx ? settlements.reduce((sum, s) => sum + (s.settlementAmount || s.amount), 0) : 0;
-        const fxCurrSym = hasFx ? (CURRENCY_SYMBOLS[(settlements[0] as any).settlementCurrency] || (settlements[0] as any).settlementCurrency || '') : '';
+        // Pool payments folded into the plan (`netted`, §11) are inside its amounts: listed, not counted again.
+        const planned = settlements.filter((s) => s.status !== 'netted');
+        const totalSettlementAmount = planned.reduce((sum, s) => sum + s.amount, 0);
+        const hasFx = planned.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
+        const totalSettlementConverted = hasFx ? planned.reduce((sum, s) => sum + (s.settlementAmount || s.amount), 0) : 0;
+        const fxCurrSym = hasFx ? (CURRENCY_SYMBOLS[(planned[0] as any).settlementCurrency] || (planned[0] as any).settlementCurrency || '') : '';
 
         return (
           <SettlementSection data-testid="settlement-review-section">
@@ -1381,7 +1434,7 @@ export default function EventDetailPage() {
               </SummaryCard>
               <SummaryCard>
                 <SummaryLabel>Transactions</SummaryLabel>
-                <SummaryValue>{settlements.length}</SummaryValue>
+                <SummaryValue>{planned.length}</SummaryValue>
               </SummaryCard>
               <SummaryCard>
                 <SummaryLabel>Approvals</SummaryLabel>
@@ -1393,7 +1446,7 @@ export default function EventDetailPage() {
             <div style={{ marginBottom: 16 }}>
               <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Approval Status</h3>
               {approvalEntries.map(([entityId, approval]) => (
-                <div key={entityId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--color-border, #eee)' }}>
+                <div key={entityId} data-testid={`settlement-approval-${entityId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--color-border, #eee)' }}>
                   <StatusDot $status={approval.approved ? 'completed' : 'pending'} />
                   <span style={{ flex: 1 }}>{approval.displayName || entityId}</span>
                   <Badge $variant={approval.approved ? 'success' : 'warning'}>
@@ -1404,14 +1457,26 @@ export default function EventDetailPage() {
             </div>
 
             {/* Settlement transactions preview */}
-            {settlements.filter(s => s.amount > 0.01).map((s) => (
-              <TransactionCard key={s.id} $status={s.status} data-testid={`settlement-review-txn-${s.id}`}>
+            {settlements.some((s) => s.status === 'netted') && (
+              <p style={{ fontSize: 12, opacity: 0.75, margin: '0 0 8px' }} data-testid="settlement-review-netted-note">{POOL_LEGS_NETTED_NOTE}</p>
+            )}
+            {settlements.some((s) => isPoolSideLeg(s) && s.status !== 'netted') && (
+              <p style={{ fontSize: 12, opacity: 0.75, margin: '0 0 8px' }} data-testid="settlement-review-pool-note">{POOL_LEGS_PAID_SEPARATELY_NOTE}</p>
+            )}
+            {/* Folded pool payments go last: their label says they're in the payments above. */}
+            {settlements.filter(s => s.amount > 0.01).sort((a, b) => Number(a.status === 'netted') - Number(b.status === 'netted')).map((s) => (
+              <TransactionCard key={s.id} $status={s.status} data-testid={`settlement-review-txn-${s.id}`} style={s.status === 'netted' ? { opacity: 0.6 } : undefined}>
                 <TransactionFlow>
                   <TransactionNames>
                     <span>{getEntityName(s.fromEntityId, s.fromEntityType)}</span>
                     <ArrowIcon>→</ArrowIcon>
                     <span>{getEntityName(s.toEntityId, s.toEntityType)}</span>
                   </TransactionNames>
+                  {poolLegLabel(s) && (
+                    <TransactionMeta data-testid={`settlement-review-kind-${s.id}`}>
+                      {poolLegLabel(s)} · {s.status === 'netted' ? 'included in the payments above' : s.status === 'completed' ? 'already paid' : 'paid on its own'}
+                    </TransactionMeta>
+                  )}
                 </TransactionFlow>
                 <TransactionAmount>
                   {currSym}{s.amount.toFixed(2)}
@@ -1457,19 +1522,21 @@ export default function EventDetailPage() {
 
       {/* Settlement Summary — shown when event is in payment/settled/closed and has settlements */}
       {(event.status === 'payment' || event.status === 'settled' || event.status === 'closed') && settlements.length > 0 && (() => {
-        const completedCount = settlements.filter(s => s.status === 'completed').length;
-        const pct = Math.round((completedCount / settlements.length) * 100);
-        const totalSettlementAmount = settlements.reduce((sum, s) => sum + s.amount, 0);
-        const hasFx = settlements.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
-        const totalSettlementConverted = hasFx ? settlements.reduce((sum, s) => sum + (s.settlementAmount || s.amount), 0) : 0;
-        const fxCurrSym = hasFx ? (CURRENCY_SYMBOLS[(settlements[0] as any).settlementCurrency] || (settlements[0] as any).settlementCurrency || '') : '';
+        // Pool payments folded into the plan (`netted`, §11) are paid through it: left out of the counts.
+        const planned = settlements.filter((s) => s.status !== 'netted');
+        const completedCount = planned.filter(s => s.status === 'completed').length;
+        const pct = planned.length > 0 ? Math.round((completedCount / planned.length) * 100) : 100;
+        const totalSettlementAmount = planned.reduce((sum, s) => sum + s.amount, 0);
+        const hasFx = planned.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
+        const totalSettlementConverted = hasFx ? planned.reduce((sum, s) => sum + (s.settlementAmount || s.amount), 0) : 0;
+        const fxCurrSym = hasFx ? (CURRENCY_SYMBOLS[(planned[0] as any).settlementCurrency] || (planned[0] as any).settlementCurrency || '') : '';
 
         return (
           <SettlementSection data-testid="settlement-section">
             <SettlementHeader>
               <SettlementTitle>Settlement Summary</SettlementTitle>
               <SettlementProgress>
-                <span>{completedCount}/{settlements.length} complete</span>
+                <span>{completedCount}/{planned.length} complete</span>
                 <ProgressBar>
                   <ProgressFill $pct={pct} />
                 </ProgressBar>
@@ -1486,16 +1553,40 @@ export default function EventDetailPage() {
               </SummaryCard>
               <SummaryCard>
                 <SummaryLabel>Transactions</SummaryLabel>
-                <SummaryValue>{settlements.length}</SummaryValue>
+                <SummaryValue>{planned.length}</SummaryValue>
               </SummaryCard>
               <SummaryCard>
                 <SummaryLabel>Completed</SummaryLabel>
-                <SummaryValue>{completedCount} / {settlements.length}</SummaryValue>
+                <SummaryValue>{completedCount} / {planned.length}</SummaryValue>
               </SummaryCard>
             </SummaryGrid>
 
-            {settlements.map((s) => {
+            {settlements.some((s) => s.status === 'netted') && (
+              <p style={{ fontSize: 12, opacity: 0.75, margin: '0 0 8px' }} data-testid="settlement-netted-note">{POOL_LEGS_NETTED_NOTE}</p>
+            )}
+            {settlements.some((s) => isPoolSideLeg(s) && s.status !== 'netted') && (
+              <p style={{ fontSize: 12, opacity: 0.75, margin: '0 0 8px' }} data-testid="settlement-pool-note">{POOL_LEGS_PAID_SEPARATELY_NOTE}</p>
+            )}
+            {[...settlements].sort((a, b) => Number(a.status === 'netted') - Number(b.status === 'netted')).map((s) => {
               const settlementStatus = s.status as string;
+              // Folded into the plan (§11): shown for the record, paid through the payments above.
+              if (settlementStatus === 'netted') {
+                return (
+                  <TransactionCard key={s.id} $status={s.status} data-testid={`settlement-txn-${s.id}`} style={{ opacity: 0.6 }}>
+                    <TransactionFlow>
+                      <TransactionNames>
+                        <span>{getEntityName(s.fromEntityId, s.fromEntityType)}</span>
+                        <ArrowIcon>→</ArrowIcon>
+                        <span>{getEntityName(s.toEntityId, s.toEntityType)}</span>
+                      </TransactionNames>
+                      <TransactionMeta data-testid={`settlement-netted-${s.id}`}>
+                        {poolLegLabel(s) || 'Pool payment'} · included in the payments above
+                      </TransactionMeta>
+                    </TransactionFlow>
+                    <TransactionAmount>{currSym}{s.amount.toFixed(2)}</TransactionAmount>
+                  </TransactionCard>
+                );
+              }
               const payerUserId =
                 s.fromEntityType === 'group'
                   ? (groups.find((g) => g.id === s.fromEntityId)?.payerUserId || s.fromUserId)
@@ -1522,6 +1613,7 @@ export default function EventDetailPage() {
                       {settlementStatus === 'initiated' && 'Marked paid — awaiting payee confirmation'}
                       {settlementStatus === 'failed' && 'Payment failed/rejected — payer should resubmit'}
                       {settlementStatus === 'completed' && 'Payment confirmed ✓'}
+                      {poolLegLabel(s) && ` · ${poolLegLabel(s)}, paid on its own`}
                       {s.fromEntityType === 'group' && ` · Payer: ${getUserName(payerUserId)}`}
                       {s.toEntityType === 'group' && ` · Recipient: ${getUserName(payeeUserId)}`}
                     </TransactionMeta>
@@ -1559,8 +1651,20 @@ export default function EventDetailPage() {
                     {settlementStatus === 'failed' && !isPayer && (
                       <Badge $variant="error">Failed</Badge>
                     )}
+                    {isAdmin && settlementStatus !== 'completed' && deletedPaymentParty(s, participants) && (
+                      <>
+                        <Button $variant="outline" $size="sm" onClick={() => handleCloseForDeletedUser(s.id, 'paid')} data-testid={`close-deleted-paid-${s.id}`}>
+                          Close as paid
+                        </Button>
+                        <Button $variant="outline" $size="sm" onClick={() => handleCloseForDeletedUser(s.id, 'written_off')} data-testid={`close-deleted-writeoff-${s.id}`}>
+                          Write off
+                        </Button>
+                      </>
+                    )}
                     {settlementStatus === 'completed' && (
-                      <Badge $variant="success">Done</Badge>
+                      s.closedForDeletedUser?.outcome === 'written_off'
+                        ? <Badge $variant="default">Written off</Badge>
+                        : <Badge $variant="success">Done</Badge>
                     )}
                     {settlementStatus === 'pending' && !isPayer && (
                       <Badge $variant="default">Pending</Badge>
@@ -1572,6 +1676,7 @@ export default function EventDetailPage() {
                 </TransactionCard>
               );
             })}
+            {showsProviderFxRates(event, settlements) && <FxRatesAttribution />}
           </SettlementSection>
         );
       })()}
@@ -1590,28 +1695,74 @@ export default function EventDetailPage() {
       )}
 
       <TabList>
-        <Tab $active={activeTab === 'expenses'} onClick={() => setActiveTab('expenses')} data-testid="tab-expenses">
+        {poolFunded && event.poolConfig && (
+          <Tab $active={activeTab === 'pool'} onClick={() => pickTab('pool')} data-testid="tab-pool">
+            {poolNoun(event.poolConfig)}
+          </Tab>
+        )}
+        <Tab $active={activeTab === 'expenses'} onClick={() => pickTab('expenses')} data-testid="tab-expenses">
           Expenses ({visibleExpenses.length})
         </Tab>
-        <Tab $active={activeTab === 'participants'} onClick={() => setActiveTab('participants')} data-testid="tab-participants">
-          Participants ({participants.length})
-        </Tab>
-        <Tab $active={activeTab === 'groups'} onClick={() => setActiveTab('groups')} data-testid="tab-groups">
-          Groups ({groups.length})
-        </Tab>
-        <Tab $active={activeTab === 'invitations'} onClick={() => setActiveTab('invitations')} data-testid="tab-invitations">
-          Invitations ({invitations.length})
-        </Tab>
+        {isSponsorPool ? (
+          <Tab $active={activeTab === 'spenders'} onClick={() => pickTab('spenders')} data-testid="tab-spenders">
+            Spenders ({Math.max(0, participants.length - 1)})
+          </Tab>
+        ) : (
+          <>
+            <Tab $active={activeTab === 'participants'} onClick={() => pickTab('participants')} data-testid="tab-participants">
+              Participants ({participants.length})
+            </Tab>
+            <Tab $active={activeTab === 'groups'} onClick={() => pickTab('groups')} data-testid="tab-groups">
+              Groups ({groups.length})
+            </Tab>
+            <Tab $active={activeTab === 'invitations'} onClick={() => pickTab('invitations')} data-testid="tab-invitations">
+              Invitations ({invitations.length})
+            </Tab>
+          </>
+        )}
       </TabList>
+
+      {/* Pool Tab */}
+      {activeTab === 'pool' && poolFunded && event.poolConfig && (
+        <TabPanel data-testid="pool-panel">
+          <PoolTab
+            event={event}
+            currentUserId={currentUserId}
+            participants={participants}
+            groups={groups}
+            settlements={settlements}
+            refreshKey={poolRefreshKey}
+            onChanged={() => fetchAllRef.current()}
+          />
+          {/* "Several of us": who can spend and approve (Phase 3). A Budget has its own Spenders tab. */}
+          {!isSponsorPool && (
+            <div style={{ marginTop: 16 }}>
+              <SpenderPermissions event={event} participants={participants} groups={groups} canEdit={isAdmin && event.status === 'active'} onSaved={() => fetchAllRef.current()} />
+            </div>
+          )}
+        </TabPanel>
+      )}
+
+      {/* Spenders Tab (sponsor budgets): permissions, then people, groups and invitations */}
+      {activeTab === 'spenders' && isSponsorPool && (
+        <TabPanel data-testid="spenders-panel">
+          <SpenderPermissions event={event} participants={participants} groups={groups} canEdit={isAdmin && event.status === 'active'} onSaved={() => fetchAllRef.current()} />
+        </TabPanel>
+      )}
 
       {/* Expenses Tab */}
       {activeTab === 'expenses' && (
         <TabPanel data-testid="expenses-panel">
           {(event.status === 'active' || event.status === 'review') && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12, gap: 8 }}>
-              {isAdmin && event.status === 'active' && (
+              {isAdmin && event.status === 'active' && !poolFunded && (
                 <Button $variant="outline" onClick={handleSettle} disabled={settleLoading} data-testid="settle-btn">
                   {settleLoading ? 'Calculating...' : 'Settle Now'}
+                </Button>
+              )}
+              {isAdmin && event.status === 'active' && poolFunded && (
+                <Button $variant="outline" onClick={() => pickTab('pool')} data-testid="settle-pool-btn">
+                  Settle up in {poolNoun(event.poolConfig)}
                 </Button>
               )}
               {isAdmin && event.status === 'review' && (event as any).settlementStale && (
@@ -1641,6 +1792,13 @@ export default function EventDetailPage() {
                 {visibleExpenses.map((expense) => {
                   const isExpanded = expandedExpenseId === expense.id;
                   const sym = CURRENCY_SYMBOLS[expense.currency] || expense.currency;
+                  const payBack = expense.fundingSource === 'pool_reimbursement'
+                    ? reimbursementStatus(expense.poolDraw, legStatusById.get(expense.poolDraw?.settlementId ?? ''), event.status)
+                    : null;
+                  // A rejected spend already paid with the pool's money is owed back (§9.2).
+                  const repay = expense.fundingSource === 'pool'
+                    ? repaymentStatus(expense.poolDraw?.status, legStatusById.get(expense.poolDraw?.settlementId ?? ''), event.status)
+                    : null;
                   return (
                     <ExpenseRowWrapper key={expense.id} data-testid={`expense-item-${expense.id}`}>
                       <ExpenseRowClickable onClick={() => setExpandedExpenseId(isExpanded ? null : expense.id)}>
@@ -1648,13 +1806,37 @@ export default function EventDetailPage() {
                           <ListItemTitle>
                             {expense.title}
                             {expense.isPrivate && <Badge $variant="warning" style={{ marginLeft: 8, fontSize: 10 }}>Private</Badge>}
+                            {expense.fundingSource === 'pool' && <Badge $variant="info" style={{ marginLeft: 8, fontSize: 10 }} data-testid={`funding-badge-${expense.id}`}>Pool</Badge>}
+                            {expense.fundingSource === 'pool_reimbursement' && <Badge $variant="info" style={{ marginLeft: 8, fontSize: 10 }} data-testid={`funding-badge-${expense.id}`}>Claim</Badge>}
+                            {expense.poolDraw?.status === 'pending' && <Badge $variant="warning" style={{ marginLeft: 6, fontSize: 10 }}>Awaiting approval</Badge>}
+                            {expense.poolDraw?.status === 'rejected' && <Badge $variant="error" style={{ marginLeft: 6, fontSize: 10 }}>Rejected</Badge>}
+                            {payBack && (
+                              <Badge $variant={REIMBURSEMENT_STATUS[payBack].tone} style={{ marginLeft: 6, fontSize: 10 }} data-testid={`reimbursement-badge-${expense.id}`}>
+                                {REIMBURSEMENT_STATUS[payBack].label}
+                              </Badge>
+                            )}
+                            {repay && (
+                              <Badge $variant={REPAYMENT_STATUS[repay].tone} style={{ marginLeft: 6, fontSize: 10 }} data-testid={`repayment-badge-${expense.id}`}>
+                                {REPAYMENT_STATUS[repay].label}
+                              </Badge>
+                            )}
                             <span style={{ fontSize: 11, marginLeft: 6, opacity: 0.5 }}>{isExpanded ? '▲' : '▼'}</span>
                           </ListItemTitle>
                           <ListItemSub>
-                            Paid by: {getUserName(expense.paidBy)} · {expense.paidOnBehalfOf && expense.paidOnBehalfOf.length > 0 ? 'On Behalf' : expense.splitType.charAt(0).toUpperCase() + expense.splitType.slice(1)} split{!expense.isPrivate && ` · ${expense.splits.length} split(s)`}
+                            {isPoolFundedExpense(expense)
+                              ? <>{poolExpenseByline(expense)} by {getUserName(expense.paidBy)}{expense.attachments?.length ? ` · ${expense.attachments.length} receipt(s)` : ''}</>
+                              : <>Paid by: {getUserName(expense.paidBy)} · {expense.paidOnBehalfOf && expense.paidOnBehalfOf.length > 0 ? 'On Behalf' : expense.splitType.charAt(0).toUpperCase() + expense.splitType.slice(1)} split{!expense.isPrivate && ` · ${expense.splits.length} split(s)`}{expense.attachments?.length ? ` · ${expense.attachments.length} receipt(s)` : ''}</>}
                           </ListItemSub>
                         </ListItemInfo>
-                        <Amount>{sym}{expense.amount.toFixed(2)}</Amount>
+                        <Amount>
+                          {sym}{expense.amount.toFixed(2)}
+                          {/* Entered in another currency (Phase 3) */}
+                          {originalAmountText(expense) && (
+                            <span style={{ display: 'block', fontSize: 11, opacity: 0.7, fontWeight: 400 }} data-testid={`expense-original-${expense.id}`}>
+                              {originalAmountText(expense)}
+                            </span>
+                          )}
+                        </Amount>
                         {(event.status === 'active' || event.status === 'review') && (currentUserId === expense.paidBy || isAdmin) && (
                           <>
                             <Link href={`/events/${eventId}/expenses/${expense.id}/edit`} onClick={(e) => e.stopPropagation()}>
@@ -1699,6 +1881,21 @@ export default function EventDetailPage() {
                           </SplitDetailGrid>
                         </SplitDetailPanel>
                       )}
+                      {isExpanded && (expense.attachments?.length ?? 0) > 0 && (
+                        <SplitDetailPanel data-testid={`expense-receipts-${expense.id}`}>
+                          <SplitMetaRow>
+                            <SplitMetaItem>
+                              <strong>Receipts:</strong>{' '}
+                              {expense.attachments.map((url, i) => (
+                                <a key={url} href={resolveProofHref(url)} target="_blank" rel="noreferrer" style={{ marginRight: 10 }}>
+                                  Receipt {i + 1}
+                                </a>
+                              ))}
+                            </SplitMetaItem>
+                            {isPoolFundedExpense(expense) && expense.description && <SplitMetaItem><strong>Note:</strong> {expense.description}</SplitMetaItem>}
+                          </SplitMetaRow>
+                        </SplitDetailPanel>
+                      )}
                     </ExpenseRowWrapper>
                   );
                 })}
@@ -1709,7 +1906,7 @@ export default function EventDetailPage() {
       )}
 
       {/* Participants Tab */}
-      {activeTab === 'participants' && (
+      {(activeTab === 'participants' || activeTab === 'spenders') && (
         <TabPanel data-testid="participants-panel">
           {event.status === 'active' && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -1761,7 +1958,7 @@ export default function EventDetailPage() {
       )}
 
       {/* Groups Tab */}
-      {activeTab === 'groups' && (
+      {(activeTab === 'groups' || activeTab === 'spenders') && (
         <TabPanel data-testid="groups-panel">
           {event.status === 'active' && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -1807,7 +2004,7 @@ export default function EventDetailPage() {
       )}
 
       {/* Invitations Tab */}
-      {activeTab === 'invitations' && (
+      {(activeTab === 'invitations' || activeTab === 'spenders') && (
         <TabPanel data-testid="invitations-panel">
           {event.status === 'active' && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -2087,7 +2284,7 @@ export default function EventDetailPage() {
               Are you sure you want to delete &ldquo;{event?.name}&rdquo;?
             </p>
             {pendingSettlementTotal !== null && pendingSettlementTotal > 0 && (
-              <WarningBox>
+              <WarningBox data-testid="delete-pending-settlement">
                 <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>
                   ⚠️ Pending Settlement: {currSym}{pendingSettlementTotal.toFixed(2)} {event?.currency}
                 </p>
@@ -2128,15 +2325,15 @@ export default function EventDetailPage() {
       </Modal>
 
       {/* Generic Confirmation Modal (replaces all window.confirm calls) */}
-      <Modal open={confirmModal.open} onClose={closeConfirmModal}>
+      <Modal open={confirmModal.open} onClose={closeConfirmModal} dataTestId="confirm-modal">
         <ModalHeader>
           <ModalTitle>{confirmModal.title}</ModalTitle>
         </ModalHeader>
         <ModalBody>
           <p style={{ margin: '0 0 20px', fontSize: 14, lineHeight: 1.6 }}>{confirmModal.message}</p>
           <ModalFooter>
-            <Button type="button" $variant="outline" onClick={closeConfirmModal}>Cancel</Button>
-            <Button type="button" $variant={confirmModal.variant === 'warning' ? 'primary' : 'danger'} onClick={confirmModal.onConfirm}>
+            <Button type="button" $variant="outline" onClick={closeConfirmModal} data-testid="confirm-modal-cancel">Cancel</Button>
+            <Button type="button" $variant={confirmModal.variant === 'warning' ? 'primary' : 'danger'} onClick={confirmModal.onConfirm} data-testid="confirm-modal-confirm">
               {confirmModal.confirmLabel}
             </Button>
           </ModalFooter>
@@ -2144,7 +2341,7 @@ export default function EventDetailPage() {
       </Modal>
 
       {/* Mark Paid Modal */}
-      <Modal open={showMarkPaidModal} onClose={() => setShowMarkPaidModal(false)}>
+      <Modal open={showMarkPaidModal} onClose={() => setShowMarkPaidModal(false)} dataTestId="settlement-pay-modal">
         <ModalHeader>
           <ModalTitle>Pay Externally and Mark Paid</ModalTitle>
         </ModalHeader>
@@ -2185,6 +2382,7 @@ export default function EventDetailPage() {
                 <Label htmlFor="mark-paid-reference">Reference ID (optional)</Label>
                 <Input
                   id="mark-paid-reference"
+                  data-testid="settlement-pay-reference"
                   value={markPaidReferenceId}
                   onChange={(e) => setMarkPaidReferenceId(e.target.value)}
                   placeholder="UTR / txn ID / bank reference"
@@ -2233,6 +2431,7 @@ export default function EventDetailPage() {
               $variant="primary"
               disabled={markPaidSubmitting || markPaidUploading || !markPaidTarget}
               onClick={() => markPaidTarget && doMarkPaid(markPaidTarget.id, markPaidTarget.settlementCurrency || markPaidTarget.currency)}
+              data-testid="settlement-pay-submit"
             >
               {markPaidSubmitting ? 'Submitting…' : 'I\'ve Paid'}
             </Button>
@@ -2247,12 +2446,15 @@ export default function EventDetailPage() {
         </ModalHeader>
         <ModalBody>
           {(() => {
-            const nonZeroSettlements = settlements.filter(s => s.amount > 0.01);
+            // Pool payments folded into the plan (`netted`, §11) go last and aren't counted again in the total.
+            const nonZeroSettlements = settlements.filter(s => s.amount > 0.01)
+              .sort((a, b) => Number(a.status === 'netted') - Number(b.status === 'netted'));
+            const plannedNonZero = nonZeroSettlements.filter((s) => s.status !== 'netted');
             if (nonZeroSettlements.length === 0) {
               return <p style={{ textAlign: 'center', padding: 20, opacity: 0.6 }}>No settlements — everyone is even.</p>;
             }
-            const totalAmt = nonZeroSettlements.reduce((sum, s) => sum + s.amount, 0);
-            const hasFx = nonZeroSettlements.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
+            const totalAmt = plannedNonZero.reduce((sum, s) => sum + s.amount, 0);
+            const hasFx = plannedNonZero.some(s => s.settlementCurrency && s.settlementCurrency !== s.currency);
             const settlCurrSym = hasFx ? (CURRENCY_SYMBOLS[(nonZeroSettlements[0] as any).settlementCurrency] || (nonZeroSettlements[0] as any).settlementCurrency || '') : '';
             const approvals = (event as any)?.settlementApprovals as Record<string, SettlementApproval> | undefined;
             const approvalEntries = approvals ? Object.entries(approvals) : [];
@@ -2262,7 +2464,7 @@ export default function EventDetailPage() {
                 <div style={{ marginBottom: 16 }}>
                   <strong>Status:</strong> <Badge $variant={statusBadgeVariant(event.status)}>{event.status}</Badge>
                   <span style={{ marginLeft: 12 }}><strong>Total:</strong> {currSym}{totalAmt.toFixed(2)}</span>
-                  {hasFx && <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.7 }}>≈ {settlCurrSym}{nonZeroSettlements.reduce((s, t) => s + (t.settlementAmount || t.amount), 0).toFixed(2)}</span>}
+                  {hasFx && <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.7 }}>≈ {settlCurrSym}{plannedNonZero.reduce((s, t) => s + (t.settlementAmount || t.amount), 0).toFixed(2)}</span>}
                 </div>
 
                 {approvalEntries.length > 0 && (
@@ -2296,7 +2498,7 @@ export default function EventDetailPage() {
                           </span>
                           <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{displayAmt}</span>
                           <Badge $variant={s.status === 'completed' ? 'success' : s.status === 'initiated' ? 'warning' : 'default'} style={{ fontSize: 10 }}>
-                            {s.status}
+                            {s.status === 'netted' ? `${poolLegLabel(s) || 'Pool payment'} · included in the payments above` : s.status}
                           </Badge>
                         </div>
                         <div style={{ marginTop: 8, paddingLeft: 4 }}>

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import styled from 'styled-components';
 import { Badge, Button, Card, CardBody, CardHeader, CardSubtitle, CardTitle } from '@traxettle/ui';
 import { getMobileSubscribeLinks } from '../../utils/mobile-subscribe';
+import { proBadges } from '../../utils/proFeatures';
 
 const Page = styled.div`
   width: 100%;
@@ -77,9 +78,7 @@ export default function ProPage() {
 
               <div style={{ height: 14 }} />
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Badge $variant="warning">Multi-currency settlement</Badge>
-                <Badge $variant="warning">Advanced analytics</Badge>
-                <Badge $variant="warning">More power-user features</Badge>
+                {proBadges().map((label) => <Badge key={label} $variant="warning">{label}</Badge>)}
               </div>
 
               <div style={{ height: 14 }} />

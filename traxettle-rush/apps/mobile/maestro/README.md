@@ -1,54 +1,29 @@
-# Maestro Test Suite (Mobile)
+# Maestro flows (mobile end-to-end)
 
-This folder contains mobile E2E tests powered by Maestro.
+Part of the regression suite. Setup, running and conventions are in
+[traxettle-app/docs/runbook/REGRESSION_SUITE.md §6](../../../../traxettle-app/docs/runbook/REGRESSION_SUITE.md#6-mobile-maestro).
 
-## Structure
+## Layout
 
-- `flows/auth/auth-and-profile.yaml`: authentication and profile smoke flow
-- `flows/navigation/history-and-invitations.yaml`: invitations inbox and closed-events history smoke flow
-- `flows/settlement/same-currency-mock.yaml`: same-currency settlement flow (mock payment)
-- `flows/settlement/multi-currency-mock.yaml`: multi-currency (`USD -> INR`) settlement flow with EOD FX path (mock payment)
+- `flows/<area>/*.yaml`: the flows. `flows/config.yaml` picks the flows and holds iOS settings; the runner always passes it with `--config`.
+- `subflows/*.yaml`: shared steps that flows include with `runFlow`: `sign-up`, `sign-in`, `sign-out`, `after-sign-in` (PIN, Save Password, walkthrough), `create-split-event`, `invite`, `accept-invitation`, `open-event`, `add-expense`, `switch-to-pro` and `go-back`.
+- `scripts/build-test-app.sh ios|android`: builds and installs the **Debug** test app. Its JavaScript comes from Metro and its defaults point at the local API. Never use a Release build: it falls back to the production API.
+- `scripts/run-maestro.sh`: starts the Firebase emulators, the API and Metro. Then it runs `preflight.yaml` and stops unless the app reaches the local API. Then it cleans test data, runs the flows and cleans up. Use it through `rush test:regression:mobile`.
+- `preflight.yaml`: the safety check. It tries to sign in as a made-up account, which changes nothing.
+- `scripts/cleanup-firebase-maestro.js`: removes test users and data from the emulators.
 
-Settlement retry coverage:
-- `same-currency-mock` now validates payer retry by asserting `Retry Payment` after the first pay action and re-triggering payment before payee confirmation.
-
-## Run Commands
-
-From monorepo root:
-
-- `rush test:maestro` : run all Maestro flows without artifacts
-- `rush test:maestro:artifacts` : run all Maestro flows with debug artifacts (screenshots/logs)
-- `rush test:maestro:android` : run all Maestro flows on Android emulator (`emulator-5556` by default)
-- `rush test:maestro:ios` : run all Maestro flows on iOS simulator/device (`MAESTRO_DEVICE` can be set)
-
-## Data Cleanup
-
-Maestro runs automatically clean Firebase Maestro test data:
-- before each run
-- after each run
-
-Cleanup script:
-- `maestro/scripts/cleanup-firebase-maestro.js`
-
-## Firebase Local Emulator Suite
-
-By default Maestro runs now boot the Firebase Local Emulator Suite (`auth`, `firestore`, `storage`) and launch API in emulator mode for the test run.
-
-- default behavior: `MAESTRO_USE_FIREBASE_EMULATOR=true`
-- default API lifecycle management: `MAESTRO_MANAGE_API=true`
-- emulator-backed API port: `MAESTRO_API_PORT` (default `3001`)
-
-Useful overrides:
+## Quick start
 
 ```bash
-# Run Maestro without emulator mode (uses your existing API/Firebase setup)
-MAESTRO_USE_FIREBASE_EMULATOR=false rush test:maestro
-
-# Keep emulator mode, but do not auto-start API (if you run API yourself)
-MAESTRO_MANAGE_API=false rush test:maestro
+bash apps/mobile/maestro/scripts/build-test-app.sh ios
 ```
 
-## Preconditions
+```bash
+rush test:regression:mobile
+```
 
-1. Mobile app must be installed and runnable on local simulator/emulator with app id `com.traxettle.app`.
-2. Maestro CLI must be installed locally.
+Options:
+- **Pick a device:** `MAESTRO_DEVICE=<id>`.
+- **Run only some folders:** `MAESTRO_FLOWS="pools settlement"`.
+- **Keep screenshots and logs:** `MAESTRO_MODE=artifacts`. They go to `artifacts/`.
+- **Use emulators and an API you started yourself:** `MAESTRO_USE_FIREBASE_EMULATOR=false` and `MAESTRO_MANAGE_API=false`.

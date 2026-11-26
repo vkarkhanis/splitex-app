@@ -1,0 +1,27 @@
+appId: com.traxettle.app
+name: "Subflow: switch the signed-in user to Pro (internal tier switch)"
+# The test app is built with internal features on, so Profile has the tier switch. Ends on the dashboard.
+---
+- tapOn:
+    id: "dashboard-avatar-menu"
+- tapOn:
+    id: "menu-profile"
+- scrollUntilVisible:
+    element:
+      id: "profile-tier-pro"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "profile-tier-pro"
+- tapOn:
+    text: "OK"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*Current: PRO.*"
+    timeout: 10000
+- runFlow: go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 10000

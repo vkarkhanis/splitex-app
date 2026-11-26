@@ -12,50 +12,29 @@ import {
 import { spacing, radii, fontSizes } from '../theme';
 import { useTheme } from '../context/ThemeContext';
 import { usePurchase } from '../context/PurchaseContext';
+import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL, introOfferText, renewalTerms } from '../utils/subscriptionTerms';
+import { proFeatureList } from '../utils/proFeatures';
+import { useContributorPoolsAvailable } from '../hooks/useContributorPoolsAvailable';
 
-const PRO_FEATURES = [
-  {
-    icon: '✨',
-    title: 'No Ads — Even in Free Version',
-    desc: 'Traxettle is completely ad-free. No banners, no pop-ups, no interruptions — ever.',
-  },
-  {
-    icon: '📅',
-    title: 'Unlimited Events',
-    desc: 'Free plan is limited to 3 events. Go Pro for unlimited events.',
-  },
-  {
-    icon: '💱',
-    title: 'Multi-Currency Settlement',
-    desc: 'Split expenses across currencies with automatic FX conversion at EOD rates.',
-  },
-  {
-    icon: '📊',
-    title: 'Analytics (Coming soon)',
-    desc: 'We’re rebuilding analytics for a future major release to make it more accurate, more useful, and easier to understand.',
-  },
-  {
-    icon: '⚡',
-    title: 'Priority Support',
-    desc: 'Get faster responses and early access to new features.',
-  },
-];
+// What Pro includes; "Group pools" appears once "Several of us" is released (design doc §12).
+const featuresFor = proFeatureList;
 
-function isIndiaLocale(): boolean {
-  try {
-    const locale = Intl.DateTimeFormat().resolvedOptions().locale || '';
-    const normalized = locale.replace('_', '-').toUpperCase();
-    return normalized.endsWith('-IN');
-  } catch {
-    return false;
-  }
+function openLegalLink(url: string) {
+  Linking.openURL(url).catch(() => {});
 }
 
 export default function ProUpgradeScreen({ navigation }: any) {
   const { theme } = useTheme();
   const c = theme.colors;
-  const { isPro, purchasing, priceString, handlePurchase, handleRestore } = usePurchase();
-  const renewalPrice = isIndiaLocale() ? '₹299' : '$5.99';
+  const { isPro, purchasing, priceString, introOffer, handlePurchase, handleRestore } = usePurchase();
+  const PRO_FEATURES = featuresFor(useContributorPoolsAvailable());
+  // Both prices come from the store, so the screen matches what the user is charged. The
+  // offer is only shown to people who can still get it (plan §10A).
+  const intro = introOffer;
+  const offerText = introOfferText(intro, priceString);
+  const purchaseLabel = !intro
+    ? `Subscribe for ${priceString}/year`
+    : intro.price === 0 ? 'Start free trial' : `Subscribe for ${intro.priceString}`;
 
   const handleManageSubscription = () => {
     const url = Platform.OS === 'ios' 
@@ -136,11 +115,11 @@ export default function ProUpgradeScreen({ navigation }: any) {
         <Text style={[styles.priceNote, { color: c.muted }]}>
           Yearly subscription · Cancel anytime · No hidden fees
         </Text>
-        <View style={[styles.offerBanner, { backgroundColor: c.warning + '15' }]}>
-          <Text style={[styles.offerText, { color: c.warning }]}>
-            10% off for your first year. Then renews at {renewalPrice}/year.
-          </Text>
-        </View>
+        {offerText && (
+          <View testID="pro-upgrade-intro-offer" style={[styles.offerBanner, { backgroundColor: c.warning + '15' }]}>
+            <Text style={[styles.offerText, { color: c.warning }]}>{offerText}</Text>
+          </View>
+        )}
       </View>
 
       {/* Features */}
@@ -169,7 +148,7 @@ export default function ProUpgradeScreen({ navigation }: any) {
         {purchasing ? (
           <ActivityIndicator color="#ffffff" />
         ) : (
-          <Text style={styles.purchaseBtnText}>Subscribe for {priceString}/year</Text>
+          <Text style={styles.purchaseBtnText}>{purchaseLabel}</Text>
         )}
       </TouchableOpacity>
 
@@ -183,12 +162,22 @@ export default function ProUpgradeScreen({ navigation }: any) {
         <Text style={[styles.restoreBtnText, { color: c.primary }]}>Restore Purchase</Text>
       </TouchableOpacity>
 
-      {/* Fine print */}
-      <Text style={[styles.finePrint, { color: c.muted }]}>
-        Payment will be charged to your {'\n'}
-        App Store or Google Play account.{'\n'}
-        Subscription renews annually. Cancel anytime.
+      {/* Renewal terms and legal links (required next to auto-renewable subscriptions) */}
+      <Text testID="pro-upgrade-renewal-terms" style={[styles.finePrint, { color: c.muted }]}>
+        {renewalTerms(Platform.OS, priceString)}
       </Text>
+      <View style={styles.legalLinks}>
+        {Platform.OS === 'ios' && (
+          <Text testID="pro-upgrade-terms-link" style={[styles.legalLink, { color: c.primary }]}
+            onPress={() => openLegalLink(TERMS_OF_USE_URL)}>
+            Terms of Use (EULA)
+          </Text>
+        )}
+        <Text testID="pro-upgrade-privacy-link" style={[styles.legalLink, { color: c.primary }]}
+          onPress={() => openLegalLink(PRIVACY_POLICY_URL)}>
+          Privacy Policy
+        </Text>
+      </View>
     </ScrollView>
   );
 }
@@ -275,4 +264,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     lineHeight: 16,
   },
+  legalLinks: { flexDirection: 'row', justifyContent: 'center', gap: spacing.lg, marginTop: spacing.md },
+  legalLink: { fontSize: fontSizes.xs, fontWeight: '600', textDecorationLine: 'underline' },
 });

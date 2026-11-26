@@ -5,6 +5,7 @@ import { getStorage } from 'firebase-admin/storage';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import { applySetMerge, applyUpdate } from '../utils/firestore-merge';
 
 // Load environment variables — check root .env.local first, then local .env
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env.local') });
@@ -163,7 +164,7 @@ function initializeMockServices() {
       return;
     }
     const prev = mockDocs.get(key) || {};
-    mockDocs.set(key, { ...prev, ...clone(value || {}) });
+    mockDocs.set(key, applySetMerge(prev, clone(value || {})));
   };
 
   const getDocData = (docPath: string) => {
@@ -205,7 +206,7 @@ function initializeMockServices() {
       update: async (data: any) => {
         const existing = getDocData(docPath);
         if (!existing) throw new Error('Document does not exist');
-        setDocData(docPath, data || {}, true);
+        mockDocs.set(normalizePath(docPath), applyUpdate(existing, clone(data || {})));
         return { writeTime: new Date() };
       },
       delete: async () => {

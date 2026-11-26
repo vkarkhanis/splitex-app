@@ -1,0 +1,19 @@
+appId: com.traxettle.app
+name: "Subflow: invite someone to the open event"
+# env: EMAIL. Starts and ends on the event's screen.
+---
+- tapOn:
+    id: "event-detail-tab-participants"
+- tapOn:
+    id: "event-detail-open-invite-modal-participants"
+- tapOn:
+    id: "event-detail-invite-email-input"
+- inputText: ${EMAIL}
+- tapOn:
+    text: "Send"
+- tapOn:
+    text: "Send"
+    optional: true
+- extendedWaitUntil:
+    notVisible: "Invite to Event"
+    timeout: 10000

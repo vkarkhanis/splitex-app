@@ -1,0 +1,159 @@
+appId: com.traxettle.app
+name: Pools — a Kitty from creation to settle-up (Pro)
+# One person: switches to Pro, creates a Kitty of ₹1,000 per person, pays in, spends ₹200 from it,
+# and settles up with ₹800 left over.
+---
+- evalScript: ${output.runId = Date.now().toString()}
+- runFlow:
+    file: ../../subflows/sign-up.yaml
+    env:
+      NAME: "Kitty Owner ${output.runId}"
+      EMAIL: "kitty${output.runId}@example.com"
+- runFlow: ../../subflows/switch-to-pro.yaml
+
+# Create the Kitty.
+- tapOn:
+    id: "dashboard-create-event-button"
+- tapOn:
+    id: "create-event-name-input"
+- inputText: "Goa Kitty ${output.runId}"
+- pressKey: Enter
+- scrollUntilVisible:
+    element:
+      id: "create-event-currency-INR"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-currency-INR"
+- scrollUntilVisible:
+    element:
+      id: "funding-pool"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "funding-pool"
+- tapOn:
+    id: "funder-contributors"
+- tapOn:
+    id: "preset-trip_kitty"
+- scrollUntilVisible:
+    element:
+      id: "pool-per-person-input"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "pool-per-person-input"
+- inputText: "1000"
+- runFlow:
+    file: ../../subflows/close-number-pad.yaml
+    env:
+      LABEL: "Each person puts in.*"
+- scrollUntilVisible:
+    element:
+      id: "create-event-submit-button"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-event-submit-button"
+- tapOn:
+    text: "OK"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-tab-expenses"
+    timeout: 20000
+
+# Pay in: the organiser holds the money, so their own payment counts at once.
+- scrollUntilVisible:
+    element:
+      id: "event-detail-pool-card"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "event-detail-pool-card"
+- extendedWaitUntil:
+    visible:
+      id: "pool-contributions"
+    timeout: 20000
+- scrollUntilVisible:
+    element:
+      id: "mark-paid-.*"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "mark-paid-.*"
+    index: 0
+- tapOn:
+    id: "mark-paid-submit"
+- extendedWaitUntil:
+    visible: ".*1,000\\.00.*"
+    timeout: 15000
+
+# Spend ₹200 from the kitty.
+- scrollUntilVisible:
+    element:
+      id: "pool-add-expense"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "pool-add-expense"
+- extendedWaitUntil:
+    visible:
+      id: "paid-with-pool"
+    timeout: 15000
+- tapOn:
+    id: "paid-with-pool"
+- tapOn:
+    id: "create-expense-title-input"
+- inputText: "Snacks ${output.runId}"
+- tapOn:
+    id: "create-expense-amount-input"
+- inputText: "200"
+- runFlow:
+    file: ../../subflows/close-number-pad.yaml
+    env:
+      LABEL: "Amount \\(.*\\)"
+- scrollUntilVisible:
+    element:
+      id: "create-expense-submit-button"
+    direction: DOWN
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "create-expense-submit-button"
+- tapOn:
+    text: "OK"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*800\\.00.*"
+    timeout: 20000
+
+# Settle up: ₹800 left over.
+- scrollUntilVisible:
+    element:
+      id: "pool-settle-up"
+    direction: UP
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "pool-settle-up"
+- extendedWaitUntil:
+    visible:
+      id: "reconcile-figure-result"
+    timeout: 15000
+- assertVisible:
+    id: "reconcile-figure-result"
+    text: ".*800\\.00.*"
+- tapOn:
+    id: "reconcile-submit"
+- extendedWaitUntil:
+    notVisible:
+      id: "reconcile-submit"
+    timeout: 20000

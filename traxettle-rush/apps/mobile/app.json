@@ -3,7 +3,7 @@
     "name": "Traxettle app - by Karkhanis Labs",
     "slug": "traxettle",
     "scheme": "com.traxettle.app",
-    "version": "1.0.33",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -18,6 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.traxettle.app",
+      "usesAppleSignIn": true,
       "icon": "./assets/icon.png",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Traxettle uses your photo library so you can upload payment proof images for settlements.",
@@ -25,15 +26,21 @@
         "NSCameraUsageDescription": "Traxettle uses your camera so you can capture payment proof images.",
         "CFBundleURLTypes": [
           {
-            "CFBundleURLSchemes": ["com.traxettle.app"]
+            "CFBundleURLSchemes": [
+              "com.traxettle.app"
+            ]
           },
           {
             "CFBundleURLName": "Google Sign-In (local / traxettle-test)",
-            "CFBundleURLSchemes": ["com.googleusercontent.apps.603084161476-j4ht8hs7kk6tqqh273q2ks89udmdc3pe"]
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.603084161476-j4ht8hs7kk6tqqh273q2ks89udmdc3pe"
+            ]
           },
           {
             "CFBundleURLName": "Google Sign-In (staging / traxettle-staging)",
-            "CFBundleURLSchemes": ["com.googleusercontent.apps.943648574702-cvgj086ppdcbqgcagrekjs4pekn0q1ok"]
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.943648574702-cvgj086ppdcbqgcagrekjs4pekn0q1ok"
+            ]
           }
         ]
       },
@@ -61,7 +68,9 @@
       "softwareKeyboardLayoutMode": "adjustResize"
     },
     "plugins": [
-      "./plugins/copy-google-service-plist"
+      "./plugins/copy-google-service-plist",
+      "./plugins/ios-release-signing",
+      "expo-apple-authentication"
     ],
     "owner": "vkarkhanis",
     "extra": {

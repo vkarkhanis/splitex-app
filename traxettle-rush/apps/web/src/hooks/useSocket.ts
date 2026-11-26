@@ -58,6 +58,7 @@ export function useEventSocket(
       'invitation:revoked',
       'settlement:generated',
       'settlement:updated',
+      'pool:updated',
     ];
 
     const handlers = eventTypes.map((type) => {
@@ -93,7 +94,7 @@ export function useMultiEventSocket(
     // Join all event rooms
     eventIds.forEach((id) => socket.emit('join-event', id));
 
-    const eventTypes = ['event:updated', 'event:deleted', 'settlement:generated', 'settlement:updated'];
+    const eventTypes = ['event:updated', 'event:deleted', 'settlement:generated', 'settlement:updated', 'pool:updated'];
 
     const handlers = eventTypes.map((type) => {
       const handler = (payload: any) => callbackRef.current(type, payload);

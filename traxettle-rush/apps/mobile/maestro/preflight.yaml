@@ -1,0 +1,35 @@
+appId: com.traxettle.app
+name: Preflight — the app must be talking to the local API
+# Tries to sign in as an account that doesn't exist: a request that changes nothing anywhere.
+# run-maestro.sh then checks that the attempt reached the local API before running any flow,
+# so a test app wired to staging or production can't create data there.
+# env: EMAIL (a made-up address).
+---
+- launchApp:
+    clearState: true
+# The first launch waits for Metro to build the JavaScript bundle.
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 180000
+    optional: true
+- runFlow: subflows/sign-out.yaml
+- tapOn:
+    id: "login-email-input"
+- inputText: ${EMAIL}
+- tapOn:
+    text: "Show password"
+    optional: true
+- tapOn:
+    id: "login-password-input"
+- inputText: "Password123!"
+- pressKey: Enter
+- tapOn:
+    id: "login-submit-button"
+    optional: true
+# Give the request time to arrive; the sign-in fails, as it should.
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 5000
+    optional: true
