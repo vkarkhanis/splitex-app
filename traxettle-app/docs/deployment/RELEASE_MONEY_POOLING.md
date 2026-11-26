@@ -187,6 +187,27 @@ If you sign with your App Store profile (no registered device), add `IOS_PROVISI
 To archive in Xcode instead, use `build-ios.sh xcode` and then `build-ios.sh xcode-done`; see section 5 of
 [DEPLOYMENT_CHANNELS.md](DEPLOYMENT_CHANNELS.md).
 
+**If the upload fails, upload from Organizer, then record the build yourself.** The script records the
+iOS version and build number in `release-versions.json` only when its own upload succeeds. (`xcode-done`
+records it when you archive in Xcode.) A failed upload keeps the archive.
+
+1. In Xcode: **Window → Organizer → Archives** → the archive for this version and build →
+   **Distribute App → App Store Connect → Upload**.
+2. Record the build. The build number is in the archive's name (`Traxettle-<version>-<build>.xcarchive`)
+   and in App Store Connect → TestFlight:
+
+   ```bash
+   bash scripts/version.sh record ios <build number>
+   ```
+
+3. Check that iOS now shows this version as last shipped:
+
+   ```bash
+   npm run version:show
+   ```
+
+Don't rerun `testflight` for the same build: it would bump the build number and archive again.
+
 When the build has processed in TestFlight (10–30 minutes), install it and check:
 - It opens on **production**. Sign in, see your events, and open the Pro screen: it lists **Group pools** and **Expenses in another currency**.
 - With a free account: *Several of us* is locked on Create event (R2).
@@ -216,7 +237,20 @@ The file to upload is `android/app/build/outputs/bundle/release/app-release.aab`
 
 ## 7. Record the release
 
-After both builds have uploaded, from the repository root:
+After both builds have uploaded.
+
+**First check that both builds are recorded,** from `traxettle-rush/apps/mobile`:
+
+```bash
+npm run version:show
+```
+
+- "Last shipped" must show **1.1.0 for iOS** (with its build number) and **1.1.0 for Android** (with its `versionCode`).
+- If iOS still shows the previous version, its upload went through Organizer (or `xcode-done` wasn't run): record it as in step 5.
+- If the builds ran on different Macs, each Mac records only its own platform. Commit both records, or
+  record the missing one with `version.sh record`.
+
+Then, from the repository root:
 
 1. **Commit the version files** the builds changed, on a small branch (as with PR #23), then open a pull request into `stage`:
 
@@ -227,12 +261,18 @@ After both builds have uploaded, from the repository root:
    git push -u origin release/1.1.0
    ```
 
+   If `release/1.1.0` already exists (one platform was committed first), commit the other platform's
+   record on it and push. The open pull request picks it up.
+
    Pull on the other Mac before building there, or it reuses the version and Play rejects the `versionCode`.
-2. **Tag the commit you built**, as with `ios-v1.0.40`:
+2. **Tag the release commit**: the tip of `release/1.1.0`, which is the code you built plus its version
+   files. A hotfix branched from that tag then builds 1.1.1. From the code commit alone, `version.sh` would
+   still see the previous version.
 
    ```bash
-   git tag ios-v1.1.0 <built commit>
-   git tag android-v1.1.0 <built commit>
+   git fetch origin
+   git tag ios-v1.1.0 origin/release/1.1.0
+   git tag android-v1.1.0 origin/release/1.1.0
    git push origin ios-v1.1.0 android-v1.1.0
    ```
 

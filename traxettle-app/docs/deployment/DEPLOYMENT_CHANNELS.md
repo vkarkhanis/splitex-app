@@ -165,7 +165,8 @@ The script writes the production settings (`.env`, restored afterwards), copies 
 Firebase plist, runs `expo prebuild --clean`, archives a Release build with `xcodebuild`
 and uploads it to App Store Connect. The version is shared with Android (see "Versions"
 below), and each run gets a new build number (`yymmddHHMM`; override with `IOS_BUILD_NUMBER`). The archive is kept in Xcode's Organizer, so a failed
-upload can be retried from there. To sign without an Xcode account (e.g. on CI), set
+upload can be retried from there. The script records the build only when its own upload succeeds, so after
+an Organizer upload run `bash scripts/version.sh record ios <build number>`. To sign without an Xcode account (e.g. on CI), set
 `ASC_KEY_PATH`, `ASC_KEY_ID` and `ASC_KEY_ISSUER_ID` for an App Store Connect API key.
 
 Automatic signing archives with a development profile, which needs a registered iPhone or
@@ -251,6 +252,9 @@ before building. You don't edit version numbers by hand.
 - **Build numbers:** iOS uses `yymmddHHMM`. Android's `versionCode` goes up by one for each
   `.aab`; Play rejects a `versionCode` it has seen before.
 - **A failed build** isn't recorded, so the next try reuses its version and `versionCode`.
+- **An iOS build uploaded from Organizer** (after `testflight` failed to upload) isn't recorded either:
+  run `bash scripts/version.sh record ios <build number>`. Check with `npm run version:show` before
+  committing: both platforms should show the release's version as last shipped.
 - **After a successful build**, commit `app.json`, `package.json`, `android/app/build.gradle`
   and `release-versions.json`, then pull on your other Mac before building there. Otherwise
   that Mac reuses a version (and Play rejects the repeated `versionCode`).
