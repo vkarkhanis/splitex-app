@@ -129,7 +129,9 @@ SERVICE_NAME='traxettle-api-prod'
 RUNTIME_SA_NAME='traxettle-api-prod-runtime'
 DOMAIN_NAME=''
 
-APP_URL='https://traxettle.app'
+# The production web app's address, used in every emailed link (sign-in, invitations, events).
+# traxettle.app has no DNS records (checked 2026-11-28); change this only once that domain serves the web app.
+APP_URL='https://traxettle-prod.web.app'
 NODE_ENV_VALUE='production'
 MIN_INSTANCES='1'
 

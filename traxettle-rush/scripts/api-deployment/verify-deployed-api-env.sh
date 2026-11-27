@@ -35,7 +35,7 @@ case "$ENVIRONMENT" in
     DEFAULT_GCP_PROJECT_ID=""
     DEFAULT_REGION="us-central1"
     DEFAULT_SERVICE_NAME="traxettle-api-prod"
-    DEFAULT_EXPECTED_APP_URL="https://traxettle.app"
+    DEFAULT_EXPECTED_APP_URL="https://traxettle-prod.web.app"
     SECRET_FIREBASE_PROJECT_ID="traxettle-prod-firebase-project-id"
     ;;
   *)

@@ -907,6 +907,12 @@ gcloud run services logs read traxettle-api-prod --project traxettle-prod --regi
 - **The checks:** the same as for staging.
 - **Known false alarms:** `verify-deployed-api-env.sh` always reports two, a missing
   `FIREBASE_PROJECT_ID` and a missing `…-firebase-project-id` secret. Everything else must pass.
+- **The production web address:** `APP_URL` must be `https://traxettle-prod.web.app`, because every
+  emailed link is built on it. Until 2026-11-28 it was `https://traxettle.app`, a domain with no DNS
+  records, so sign-in, invitation and event links in emails led nowhere.
+  ```bash
+  gcloud run services describe traxettle-api-prod --project traxettle-prod --region us-central1 --format=yaml | grep -A1 'name: APP_URL'
+  ```
 - **The live app:** open the store app (1.1.0 or 1.2.0) on your phone. Open an event, add an expense
   and delete it. Everything works, and the order stays the same between loads.
 

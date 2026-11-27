@@ -13,7 +13,8 @@ SERVICE_NAME="${SERVICE_NAME:-traxettle-api-prod}"
 RUNTIME_SA_NAME="${RUNTIME_SA_NAME:-traxettle-api-prod-runtime}"
 DOMAIN_NAME="${DOMAIN_NAME:-}"
 
-APP_URL="${APP_URL:-https://traxettle.app}"
+# Used in every emailed link. traxettle.app has no DNS records (2026-11-28); see configure-prod.sh.
+APP_URL="${APP_URL:-https://traxettle-prod.web.app}"
 NODE_ENV_VALUE="${NODE_ENV_VALUE:-production}"
 MIN_INSTANCES="${MIN_INSTANCES:-1}"
 

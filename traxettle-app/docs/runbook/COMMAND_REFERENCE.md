@@ -814,7 +814,7 @@ uploads your **working tree**, committed or not, so deploy from a clean checkout
 | API service | `traxettle-api-staging` | `traxettle-api-prod` (always one instance, always billed) |
 | API URL | `https://traxettle-api-staging-943648574702.us-central1.run.app` | `https://traxettle-api-prod-ncwutlgtga-uc.a.run.app` |
 | Web service | `traxettle-web-staging` | `traxettle-web-prod` |
-| Web URL | `https://traxettle-staging.web.app` | `https://traxettle.app` |
+| Web URL (also the API's `APP_URL`, used in emailed links) | `https://traxettle-staging.web.app` | `https://traxettle-prod.web.app` (`traxettle.app` has no DNS records) |
 | Region | `us-central1` | `us-central1` |
 
 ### 12.1 Before deploying
