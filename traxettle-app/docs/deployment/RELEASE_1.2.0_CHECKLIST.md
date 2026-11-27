@@ -342,9 +342,14 @@ IOS_PROVISIONING_PROFILE="<App Store profile name>" APPLE_TEAM_ID=<team id> bash
 - Near the start it prints `Xcode: Xcode 27.2 … iOS SDK 27.2`. **If it says 26, stop it with Control+C**
   and fix A2.
 - It ends with `Uploaded 1.2.0 (<build number>)` and records the build in `release-versions.json`.
+- **"No Accounts with App Store Connect access … for <team> is required":** the build and signing
+  worked; Xcode 27 just has no Apple account to upload with. That happened for the 1.2.0 release
+  candidate (2026-11-27): Xcode 27 doesn't reuse Xcode 26's sign-in. Open Xcode 27 with no project
+  (`open -a /Applications/Xcode.app`). In Xcode → Settings → **Accounts**, add the Apple ID that has
+  the Admin or App Manager role on the team. Then upload the archive as below, without building again.
 - **If the upload fails,** the archive is kept:
   1. Upload it from Xcode → Window → Organizer → Archives → 1.2.0 → **Distribute App → App Store Connect
-     → Upload**.
+     → Upload**. No project needs to be open.
   2. Record it:
      ```bash
      bash scripts/version.sh record ios <build number>
