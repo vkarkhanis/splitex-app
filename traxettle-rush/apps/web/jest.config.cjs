@@ -12,6 +12,7 @@ module.exports = {
     'src/utils/api.ts',
     'src/hooks/useSocket.ts',
     'src/utils/pool-api.ts',
+    'src/utils/email-link.ts',
     'src/components/pool/**/*.{ts,tsx}',
   ],
   coverageDirectory: 'coverage',
