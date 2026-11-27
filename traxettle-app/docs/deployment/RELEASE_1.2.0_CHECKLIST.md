@@ -696,9 +696,16 @@ Only once 1.1.0 is released (B1), because App Store Connect has one version in p
 
    If the Apple trial (B5) doesn't exist yet, delete the last line.
 4. **Promotional Text:** the B8 text, if you haven't set it already.
-5. **Description:** paste `traxettle-rush/play-store-assets/full-description.txt` **unchanged** (3,545 of
-   4,000 characters). It now includes *"Free trial for new subscribers, where offered"*, which 1.1.0's App
-   Store text left out. If the Apple trial doesn't exist yet, delete that line.
+5. **Description:** paste `traxettle-rush/play-store-assets/full-description.txt` (3,545 characters). It
+   now includes *"Free trial for new subscribers, where offered"*, which 1.1.0's App Store text left out. If
+   the Apple trial doesn't exist yet, delete that line. **Then add these two lines at the very end, in every
+   localization** (3,693 of 4,000 characters in all). App Review rejected 1.1.0 on 2026-11-27 under 3.1.2
+   because the Terms of Use link was missing from the description.
+
+   ```text
+   Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+   Privacy Policy: https://traxettle-prod.web.app/privacy.html
+   ```
 6. **Keywords, Support URL, Marketing URL:** no change.
 7. **Screenshots** (Previews and Screenshots → **View All Sizes in Media Manager**):
    - **iPhone 6.3"** and **iPad 13":** no change;

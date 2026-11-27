@@ -318,7 +318,10 @@ App Store text until the trial offer exists (step 9).
 ```
 
 **Description:** the Play text without its last Pro line (*Free trial for new subscribers, where offered*),
-3,497 of 4,000 characters. Add that line once the trial offer exists.
+3,497 of 4,000 characters. Add that line once the trial offer exists. **End it with the two legal lines
+(Terms of Use (EULA) and Privacy Policy, 3,645 characters in all):** App Review rejected 1.1.0 on 2026-11-27
+under 3.1.2 without the Terms link. The exact text is in `traxettle-rush/app-store-assets/full-description.txt`
+and in [IOS_SUBSCRIPTIONS_SETUP.md](../runbook/IOS_SUBSCRIPTIONS_SETUP.md) §1.5.
 
 **Promotional Text** (optional; 148 of 170 characters, and it can change without a new build):
 

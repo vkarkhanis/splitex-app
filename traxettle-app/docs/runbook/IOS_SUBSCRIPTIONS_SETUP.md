@@ -82,9 +82,18 @@ RevenueCat Products page shows *"Connection issue: App Store Connect API not con
 ### 1.5 App listing items App Review checks (one-time)
 1. **App Privacy → Privacy Policy URL:** `https://traxettle-prod.web.app/privacy.html` (served from `apps/web/public/privacy.html`).
 2. **App Privacy → Data collection:** declare what the app collects. At least: contact info (email, name), user ID, purchase history (subscriptions), photos (receipts and payment proof), and other user content (expenses). None of it is used for tracking.
-3. **Terms of Use (EULA):** either keep Apple's **standard EULA** (no action in the EULA field) **and** add this line at the end of the app **Description**:
-   `Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/`
+3. **Terms of Use (EULA), required on every submission (Guideline 3.1.2; 1.1.0 was rejected for it on 2026-11-27):**
+   either keep Apple's **standard EULA** (no action in the EULA field) **and** end the app **Description** with
+   these two lines, in **every localization**:
+
+   ```text
+   Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+   Privacy Policy: https://traxettle-prod.web.app/privacy.html
+   ```
+
    or upload your own terms under **App Information → License Agreement** and link them instead.
+   The Play description (`play-store-assets/full-description.txt`) has no such lines, so a description
+   pasted straight from it fails this check. `app-store-assets/full-description.txt` already has them.
 
 ### 1.6 Sandbox test account (optional, one-time)
 Only needed to buy on a **simulator** or a development build. TestFlight testers use their own Apple ID in Apple's test environment and are not charged.

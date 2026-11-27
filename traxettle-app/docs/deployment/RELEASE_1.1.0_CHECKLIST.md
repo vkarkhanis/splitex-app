@@ -175,8 +175,17 @@ Stay signed in with your own Apple ID under System Settings → [your name] → 
    New: pool money with your group, choose who can spend and approve, and enter costs in the currency you paid in. Group pools come with Traxettle Pro.
    ```
 
-5. **Description:** copy `traxettle-rush/play-store-assets/full-description.txt` and **delete its line**
-   `• Free trial for new subscribers, where offered`. The result is 3,497 characters.
+5. **Description:** copy `traxettle-rush/play-store-assets/full-description.txt`, **delete its line**
+   `• Free trial for new subscribers, where offered`, and **add these two lines at the very end**
+   (App Review rejected the first 1.1.0 submission on 2026-11-27 under 3.1.2 because the Terms of Use link
+   was missing). The result is 3,645 characters. Do this in every localization.
+
+   ```text
+   Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+   Privacy Policy: https://traxettle-prod.web.app/privacy.html
+   ```
+
+   `traxettle-rush/app-store-assets/full-description.txt` is exactly this text.
 6. **Screenshots:** keep the current ones.
 7. **App Review Information:**
    - **Sign-in:** the username and password stay as they are.
