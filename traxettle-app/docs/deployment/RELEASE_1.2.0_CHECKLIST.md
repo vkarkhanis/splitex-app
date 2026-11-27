@@ -581,21 +581,28 @@ cd "$WT" && git add traxettle-app/docs/runbook/EXPO_58_HAND_TEST.md && git commi
 
 ### H2. Pull request into `stage`
 
-```bash
-gh pr create --repo vkarkhanis/splitex-app --base stage --head chore/expo-58 --title "Expo SDK 58 and the iOS 27 SDK (release 1.2.0)" --body "Moves the mobile app to Expo SDK 58 / React Native 0.88 and builds iOS with Xcode 27.2 (iOS 27 SDK). No feature changes; API and web unchanged. Results: EXPO_58_IOS_27_UPGRADE_PLAN.md §10 and EXPO_58_HAND_TEST.md §2. Includes the 1.2.0 version files."
-```
+1. Open https://github.com/vkarkhanis/splitex-app/compare/stage...chore/expo-58?expand=1 in the browser.
+2. **Title:**
 
-Wait for CI (type checks, unit suites and Playwright on Ubuntu 24.04):
+   ```text
+   Expo SDK 58 and the iOS 27 SDK (release 1.2.0)
+   ```
 
-```bash
-gh pr checks --repo vkarkhanis/splitex-app chore/expo-58 --watch
-```
+3. **Description:**
 
-Then merge with a **merge commit**, never squash or rebase:
+   ```text
+   Moves the mobile app to Expo SDK 58 / React Native 0.88 and builds iOS with Xcode 27.2 (iOS 27 SDK). No feature changes; API and web unchanged. Results: EXPO_58_IOS_27_UPGRADE_PLAN.md §10 and EXPO_58_HAND_TEST.md §2. Includes the 1.2.0 version files.
+   ```
 
-```bash
-gh pr merge --repo vkarkhanis/splitex-app chore/expo-58 --merge
-```
+4. **Create pull request.**
+5. Wait for the CI checks to pass: type checks, unit suites and Playwright, on Ubuntu 24.04.
+6. Merge with **Create a merge commit** (open the arrow next to the merge button). Never squash or
+   rebase.
+
+With the GitHub CLI (`brew install gh`, then `gh auth login` with the account that owns the repo), the
+same steps are `gh pr create --repo vkarkhanis/splitex-app --base stage --head chore/expo-58 --fill`,
+`gh pr checks --repo vkarkhanis/splitex-app chore/expo-58 --watch` and
+`gh pr merge --repo vkarkhanis/splitex-app chore/expo-58 --merge`.
 
 ### H3. Tag the release
 
@@ -742,13 +749,9 @@ a day or two apart, while the vitals stay at 1.1.0's level.
 
 ### J5. Bring `main` up to date
 
-```bash
-gh pr create --repo vkarkhanis/splitex-app --base main --head stage --title "Bring main up to date with stage (1.2.0)" --body "Release 1.2.0 is live."
-```
-
-```bash
-gh pr merge --repo vkarkhanis/splitex-app stage --merge
-```
+1. Open https://github.com/vkarkhanis/splitex-app/compare/main...stage?expand=1.
+2. **Title:** `Bring main up to date with stage (1.2.0)`.
+3. **Create pull request**, then merge it with **Create a merge commit**.
 
 ### J6. Move the other Mac to Xcode 27 for good
 
@@ -791,8 +794,11 @@ it runs in, so it must be exactly `stage`.
 
 ### L1. Merge the fix into `stage`
 
-Through its pull request on GitHub (CI must pass), with **Create a merge commit**. Then check what
-production would get (A5):
+Through its pull request on GitHub, with **Create a merge commit**, once CI passes. For the
+expense-order fix, open https://github.com/vkarkhanis/splitex-app/compare/stage...fix/expense-list-order?expand=1
+once the branch is pushed.
+
+Then check what production would get (A5):
 
 ```bash
 cd "$MAIN" && git switch stage && git pull && git status -sb
