@@ -11,6 +11,7 @@ Part of the regression suite. Setup, running and conventions are in
 - `scripts/run-maestro.sh`: starts the Firebase emulators, the API and Metro. Then it runs `preflight.yaml` and stops unless the app reaches the local API. Then it cleans test data, runs the flows and cleans up. Use it through `rush test:regression:mobile`.
 - `preflight.yaml`: the safety check. It tries to sign in as a made-up account, which changes nothing.
 - `scripts/cleanup-firebase-maestro.js`: removes test users and data from the emulators.
+- `screenshots/`: the App Store screenshot flow (`app-store.yaml`, its own `config.yaml` and `subflows/`). Not part of the regression run. Run it with `scripts/capture-screenshots.sh "<simulator>"`, which seeds demo data with `scripts/seed-screenshots.js` and turns landscape shots upright with `scripts/png-orientation.js`. See [REGRESSION_SUITE.md §6.1](../../../../traxettle-app/docs/runbook/REGRESSION_SUITE.md#61-app-store-screenshots).
 
 ## Quick start
 

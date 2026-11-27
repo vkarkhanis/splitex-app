@@ -14,3 +14,5 @@ Thumbs.db
 *sa*.json
 fb-service-accounts/
 **/fb-service-accounts/
+# App Store screenshots made by apps/mobile/maestro/scripts/capture-screenshots.sh (local only)
+/app-store-assets/

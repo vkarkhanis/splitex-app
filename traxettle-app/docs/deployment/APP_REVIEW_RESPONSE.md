@@ -89,6 +89,9 @@ Thank you!
 
 ## 3. App Review Information → Notes — 3289 of 4,000 characters
 
+For 1.2.0, use the updated notes in [RELEASE_1.2.0_CHECKLIST.md](RELEASE_1.2.0_CHECKLIST.md) I2 step 8
+(new "NEW IN THIS VERSION" paragraph, plus the free-trial sentence in item 5). The text below is 1.1.0's.
+
 ```text
 DEMO ACCOUNTS (production server, sample data pre-loaded)
 Main: the username and password above. Tap "Sign In" (please use the password rather than Apple, Google or the email link). Sign in with Apple also works and creates a new, empty account.

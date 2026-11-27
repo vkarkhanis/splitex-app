@@ -1,0 +1,69 @@
+appId: com.traxettle.app
+name: "Screenshots: sign in and get to the dashboard"
+# env: EMAIL. Like ../../subflows/sign-in.yaml + after-sign-in.yaml, but keeps answering whatever
+# comes up until the dashboard shows. On iPad, iOS's "Save Password?" sheet can appear late, over the
+# PIN screen, after after-sign-in.yaml has stopped looking for it (seen 2026-11-27, iPadOS 26.5).
+---
+- runFlow: ../../subflows/sign-out.yaml
+- tapOn:
+    id: "login-email-input"
+- inputText: ${EMAIL}
+# iOS password autofill swallows typing into a hidden password field: show it first.
+- tapOn:
+    text: "Show password"
+    optional: true
+- tapOn:
+    id: "login-password-input"
+- inputText: "Password123!"
+- pressKey: Enter
+- tapOn:
+    id: "login-submit-button"
+    optional: true
+- repeat:
+    while:
+      notVisible:
+        id: "dashboard-create-event-button"
+    times: 15
+    commands:
+      - extendedWaitUntil:
+          visible: "Not Now"
+          timeout: 3000
+          optional: true
+      - tapOn:
+          text: "Not Now"
+          optional: true
+      - runFlow:
+          when:
+            visible:
+              id: "setup-pin-input"
+          commands:
+            - runFlow: ../../subflows/set-pin.yaml
+      - runFlow:
+          when:
+            visible:
+              id: "unlock-pin-input"
+          commands:
+            - tapOn:
+                id: "unlock-pin-input"
+            - inputText: "1234"
+            - tapOn:
+                id: "unlock-pin-submit-button"
+# The sheet can also come up over the dashboard, and the first-run walkthrough comes up there.
+- extendedWaitUntil:
+    visible: "Not Now"
+    timeout: 3000
+    optional: true
+- tapOn:
+    text: "Not Now"
+    optional: true
+- extendedWaitUntil:
+    visible: "Skip"
+    timeout: 4000
+    optional: true
+- tapOn:
+    text: "Skip"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-create-event-button"
+    timeout: 30000

@@ -1,0 +1,9 @@
+# Maestro config for the App Store screenshot flows (not part of the regression run, which only reads
+# maestro/flows). capture-screenshots.sh passes it with --config.
+flows:
+  - "*"
+platform:
+  ios:
+    # Same as flows/config.yaml: report the whole screen while a React Native modal is open
+    # (the Settlement Details sheet).
+    snapshotKeyHonorModalViews: false

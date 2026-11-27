@@ -400,10 +400,11 @@ cd apps/mobile && EXPO_NO_GIT_STATUS=1 npx expo prebuild --platform android --cl
    - [ ] Its certificate is the upload key:
 
      ```bash
-     keytool -printcert -jarfile apps/mobile/android/app/build/outputs/apk/release/app-release.apk | grep SHA1
+     "$(ls -d ~/Library/Android/sdk/build-tools/* | tail -1)/apksigner" verify --print-certs apps/mobile/android/app/build/outputs/apk/release/app-release.apk | grep -i 'SHA-1'
      ```
 
-     It should show `6A:77:3A:F7:…:AE:26` (DEPLOYMENT_CHANNELS.md, "Signing Keys").
+     It should show `6a773af7…ae26`, which is `6A:77:3A:F7:…:AE:26` (DEPLOYMENT_CHANNELS.md, "Signing
+     Keys"). Not `keytool -printcert -jarfile`: the APK has only v2/v3 signatures, which keytool can't read.
 
 **Pre-existing, out of scope:** the tracked `android/gradle.properties` holds the release keystore password
 (it's also in DEPLOYMENT_CHANNELS.md). The upgrade keeps those lines as they are and adds nothing new. Moving
@@ -568,6 +569,11 @@ a platform that has already shipped the current version).
 
 ## 5. The other Mac
 
+**After milestone B:** for day-to-day work with Xcode 27 (what to rerun after a pull, making every build
+use Xcode 27, proving which SDK a build used, which iOS versions to test on) and for the move to macOS 27,
+follow [runbook/XCODE_27_AND_MACOS_27.md](../runbook/XCODE_27_AND_MACOS_27.md). This section is the
+original setup plan.
+
 **First, look at what's there:**
 
 ```bash
@@ -636,6 +642,11 @@ Nothing is lost: Xcode 26.5 keeps working, and that Mac can still build 1.1.x in
 7. **Pick the Xcode per terminal** with `DEVELOPER_DIR`, or system-wide with `sudo xcode-select -s`.
 
 ### 5.2 Your plan: upgrade that Mac to macOS 27
+
+**Decided (2026-11-27):** upgrade only after 1.2.0 is live on both stores and `chore/expo-58` is merged into
+`stage`. The full procedure, with gates, backups, commands and checks, is
+[runbook/XCODE_27_AND_MACOS_27.md §7](../runbook/XCODE_27_AND_MACOS_27.md#7-upgrading-the-other-mac-to-macos-27).
+The outline below is the original plan.
 
 Only if you want macOS 27 itself. This upgrade doesn't need it. **Plainly: after the upgrade, Xcode 26 won't
 open on that Mac,** so it becomes an Xcode 27-only machine. That's fine for milestone B, but it can no longer
@@ -894,7 +905,34 @@ What implementing milestone A found that this plan didn't predict:
 the `google-services.*` / `GoogleService-Info.*` files and the `rc_*.properties` files aren't on this Mac.
 Do it on the Mac that builds for the stores, before the first Play upload:
 - `bash scripts/build-android.sh debug:staging`;
-- `keytool -printcert -jarfile` on the APK, expecting the upload key SHA-1 `6A:77:…`.
+- `apksigner verify --print-certs` on the APK (not `keytool -printcert -jarfile`, which can't read v2/v3
+  signatures), expecting the upload key SHA-1 `6a773af7…ae26` (`6A:77:…:AE:26`).
+
+Done on 2026-11-27 on the other Mac; see milestone B below.
+
+**Milestone B results (2026-11-27, the other Mac):**
+- **Setup:** macOS 26.7.2, Node 24.21.
+- **Xcode:** 27.2 with the iOS 27.2 SDK, chosen per terminal with `DEVELOPER_DIR`. Xcode 26.6 stays
+  selected for 1.1.x.
+- **Checkout:** the branch in its own worktree, so that Mac's `stage` checkout stays ready for a 1.1.x
+  hotfix.
+
+| Check | Result |
+|---|---|
+| `run.sh quick` | passed |
+| `expo prebuild --platform ios --clean` with Xcode 27.2 | passed; the first `pod install` retried after updating the spec list |
+| iOS Debug build, Xcode 27.2, iOS 27 simulator | builds and runs; **no code, plugin or package changes needed** |
+| Maestro iOS 27 (9 flows, through DeviceHub) | 9 passed |
+| Release check on iOS 27: iPhone 17 Pro, iPad Pro 13", iPhone Duo closed and open | passed: launch, 7-tap staging switch, sign-in, events, cold start, iPad rotation, Duo postures |
+| Android release signing (`debug:staging`, `apksigner`) | upload key SHA-1 matches |
+| Release candidate (1.2.0 on TestFlight) | not yet |
+
+**What Xcode 27 changed for testing:**
+- **DeviceHub replaces Simulator.app.** `build-test-app.sh` already opens it.
+- **The iPhone Duo needs its own runtime.** It runs only on `iOS-27-2-iPhone19-4`, which ships with Xcode
+  27.2. The general iOS 27.0 and 27.2 runtimes don't support it, so create it without naming a runtime.
+- **The Xcode 26 toolchain can't use the iOS 27 runtimes.** With it selected, `simctl` reports the runtime
+  as "not available".
 
 **Pre-existing problems found, not changed:**
 - `app.json`'s Android `SEND` intent filter is malformed (`categories` instead of `category`; the generated

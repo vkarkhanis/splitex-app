@@ -177,6 +177,86 @@ Options:
   - **A run that stops printing and never ends** can be the same crash: the runner's log shows *Exception in thread "main" … Request for viewHierarchy failed, code: 500*, and the `maestro` process hangs. Stop the run (Ctrl+C) and rerun.
   - The runner refuses to start if something already listens on its ports (the API port, 8081 for Metro, the emulators' 8080, 9099 and 9199): a leftover server would answer instead of this run's. It stops everything it started when it ends.
 
+### 6.1 App Store screenshots
+
+One command per simulator captures the App Store screenshots with Maestro. It reuses the runner above (emulators, local API, Metro, the safety check), so the same one-time setup applies. The flows live in `apps/mobile/maestro/screenshots/`, outside `flows/`, so the regression run never runs them.
+
+```bash
+bash apps/mobile/maestro/scripts/capture-screenshots.sh "iPhone 17 Pro Expo58"
+```
+
+```bash
+bash apps/mobile/maestro/scripts/capture-screenshots.sh "iPad Pro 13-inch Expo58"
+```
+
+Before the first run:
+- **The iPad simulator:** create it once, if you don't have it. With no runtime named, `simctl` uses the
+  newest one that supports the iPad:
+  ```bash
+  xcrun simctl create "iPad Pro 13-inch Expo58" com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB
+  ```
+- **The Debug test app:** install it on that simulator with `build-test-app.sh ios "<simulator>"`. The
+  script stops if the app is missing or is a Release build.
+  - **Expo SDK 58:** `build-test-app.sh` doesn't exit after installing. When it prints *Logs for your
+    project will appear below*, the app is installed. Press Control+C, because it keeps port 8081 busy,
+    which the capture needs.
+- **Port 3001:** if your own API holds it, put `MAESTRO_API_PORT=3011` in front of the command.
+
+What it does:
+1. **Sets a clean status bar** (9:41, full signal and battery) with `xcrun simctl status_bar`, and clears it at the end.
+2. **Starts the Firebase emulators on a new, empty data folder,** so the shots never pick up regression data, and nothing is left behind.
+3. **Seeds the demo data** through the local API (`scripts/seed-screenshots.js`): Anita Rao, Priya Nair and Ravi Kumar, with four events. *Flat 4B — November* has its settlement under way (Ravi has paid, Priya hasn't). *Europe Summer Trip* is spent in euros and settled in rupees. *Aarav's 5th Birthday* has a ₹60,000 budget with one spend waiting for approval. *Goa Getaway* has six expenses. Anita is left on the free plan, so the home screen shows the Pro upgrade banner.
+4. **Signs in as Anita** (`demo.anita@example.com`) and takes 8 screenshots (`screenshots/app-store.yaml`): `01-home`, `02-trip-expenses`, `03-add-expense`, `04-settle-up`, `05-budget`, `06-budget-approvals`, `07-multi-currency`, `08-payment-timeline`. The Upgrade to Pro screen is left out: it shows "Analytics (Coming soon)".
+5. **Checks every image's pixel size** against App Store Connect's sizes, picks the folder from it, and copies the set to `<repo root>/app-store-assets/<class>/` (ignored by git through the root `.gitignore`). A set already there is moved to `<class>.previous-<date-time>`.
+
+| Folder | Pixels (portrait) | App Store Connect class | Simulator |
+|---|---|---|---|
+| `iphone-6.3` | 1206 × 2622 (or 1179 × 2556) | iPhone with Dynamic Island (medium display). **Required.** | iPhone 17 Pro |
+| `iphone-6.9` | 1320 × 2868, 1290 × 2796 or 1260 × 2736 | iPhone with Dynamic Island (large display). Optional | iPhone 17 Pro Max |
+| `ipad-13` | 2064 × 2752 (or 2048 × 2732) | iPad 13". **Required**, because the app runs on iPad | iPad Pro 13-inch (M5) |
+| `iphone-duo-closed` | 1398 × 2034 | iPhone Duo, outer display. **Required from April 2027** for apps built with the iOS 27.1 SDK or later | iPhone Duo, closed |
+| `iphone-duo-open` | 2007 × 2853 | iPhone Duo, inner display. Same | iPhone Duo, open |
+
+Landscape sizes are the same numbers swapped. Each class takes 1 to 10 screenshots, as PNG or JPEG with no transparency. Maestro's PNGs have none, and the script stops if one ever does. Source: [Screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications) (checked 2026-11-27).
+
+Options:
+- **Orientation:** iPads default to landscape, like the 2026-11-04 set, and everything else to portrait. Pass `portrait` or `landscape` as the second argument to change it.
+- **Another output folder:** `SCREENSHOTS_OUT=<folder>`.
+- **Keep Maestro's logs:** `MAESTRO_MODE=artifacts`. If the run fails, the script prints the folder that holds what Maestro saved.
+- **Just the data,** for a hand test: start the stack as for any local run, then `node apps/mobile/maestro/scripts/seed-screenshots.js` (it reads `MAESTRO_API_PORT` and refuses any API that isn't on this Mac).
+
+**iPhone Duo (closed, then open).** Run it on the Mac with Xcode 27.2 and the iOS 27.2 runtime. Maestro can't fold the device, so do one run closed and one open, switching in DeviceHub in between. The script works out which one it got from the pixel size.
+1. Select Xcode 27.2 for this shell (skip if `xcode-select -p` already shows it):
+   ```bash
+   export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+   ```
+2. **The simulator.** The other Mac already has one, `iPhone Duo iOS27`. To create it, leave out the
+   runtime:
+   ```bash
+   xcrun simctl create "iPhone Duo iOS27" com.apple.CoreSimulator.SimDeviceType.iPhone-Duo
+   ```
+   The Duo runs only on its own runtime, `iOS-27-2-iPhone19-4`, which comes with Xcode 27.2. The general
+   iOS 27.0 and 27.2 runtimes reject it with "Invalid device type", and with no runtime named, `simctl`
+   picks the Duo's own.
+3. **Install the Debug test app.** This replaces any Release build left from a Release check. When it
+   prints *Logs for your project will appear below*, the app is installed. Press Control+C, because it
+   keeps port 8081 busy.
+   ```bash
+   bash apps/mobile/maestro/scripts/build-test-app.sh ios "iPhone Duo iOS27"
+   ```
+4. **Capture closed.** In DeviceHub, boot **iPhone Duo iOS27** and close it (outer display). Then:
+   ```bash
+   MAESTRO_API_PORT=3011 bash apps/mobile/maestro/scripts/capture-screenshots.sh "iPhone Duo iOS27"
+   ```
+   It should end with `8 screenshots (iphone-duo-closed, 1398x2034)`.
+5. **Capture open.** In DeviceHub, open the device flat (inner display), and run the same command again.
+   It should end with `8 screenshots (iphone-duo-open, 2007x2853)`.
+6. **Look through both folders.**
+   - The images are in `<repo root>/app-store-assets/iphone-duo-closed/` and `iphone-duo-open/`.
+   - If the script stops with *isn't an App Store screenshot size*, the simulator's screen doesn't match
+     Apple's published sizes. Note the size it printed, and check the specifications page again before
+     uploading anything.
+
 ---
 
 ## 7. Coverage map

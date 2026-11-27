@@ -1,0 +1,164 @@
+appId: com.traxettle.app
+name: App Store screenshots
+# Signs in as Anita, whose data scripts/seed-screenshots.js creates, and saves one screenshot per
+# screen, named in App Store order. Run it with scripts/capture-screenshots.sh: it seeds the data, sets
+# the status bar, and copies the PNGs to app-store-assets/<device class>/.
+# Shell env: MAESTRO_SHOTS_ORIENTATION=landscape turns the device to landscape first (the iPad set).
+# The Pro upgrade screen is left out on purpose: it shows "Analytics (Coming soon)".
+---
+- launchApp:
+    clearState: true
+- evalScript: ${output.landscape = typeof MAESTRO_SHOTS_ORIENTATION !== 'undefined' && MAESTRO_SHOTS_ORIENTATION === 'landscape'}
+# Sign in upright: on an iPad in landscape the keyboard covers the PIN screen's Confirm field.
+- setOrientation: PORTRAIT
+# The first launch can wait for Metro to build the JavaScript bundle.
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 180000
+    optional: true
+- runFlow:
+    file: subflows/sign-in-demo.yaml
+    env:
+      EMAIL: "demo.anita@example.com"
+- runFlow:
+    when:
+      true: ${output.landscape}
+    commands:
+      - setOrientation: LANDSCAPE_LEFT
+      - waitForAnimationToEnd:
+          timeout: 5000
+
+# 01 Home: the four events, newest first.
+- extendedWaitUntil:
+    visible: ".*Flat 4B — November.*"
+    timeout: 20000
+- extendedWaitUntil:
+    visible:
+      id: "dashboard-upgrade-pro-banner"
+    timeout: 10000
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: 01-home
+
+# 02 A trip's expenses.
+- runFlow:
+    file: ../subflows/open-event.yaml
+    env:
+      EVENT: "Goa Getaway"
+- extendedWaitUntil:
+    visible: ".*Airport cab.*"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: 02-trip-expenses
+
+# 03 Adding an expense, split equally (not saved).
+- tapOn:
+    id: "event-detail-add-expense-button"
+- tapOn:
+    id: "create-expense-title-input"
+- inputText: "Parasailing at Calangute"
+- tapOn:
+    id: "create-expense-amount-input"
+- inputText: "4500"
+- runFlow:
+    file: ../subflows/close-number-pad.yaml
+    env:
+      LABEL: "Amount \\(.*\\)"
+- extendedWaitUntil:
+    visible: ".*1500.*"
+    timeout: 10000
+# On a phone the third person in "Split between" sits just below the screen: scroll the form up a
+# little, slowly so it doesn't glide on. Where the form fits (iPad) this does nothing. It starts over
+# the labels on the left, away from the switches.
+- swipe:
+    start: 25%, 70%
+    end: 25%, 61%
+    duration: 2000
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: 03-add-expense
+- runFlow: ../subflows/go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-tab-expenses"
+    timeout: 10000
+- runFlow: ../subflows/go-back.yaml
+
+# 04 Settling up: one payment done, one pending.
+- runFlow:
+    file: ../subflows/open-event.yaml
+    env:
+      EVENT: "Flat 4B — November"
+- extendedWaitUntil:
+    visible: "Settlement Details"
+    timeout: 20000
+- extendedWaitUntil:
+    visible: ".*Pending.*"
+    timeout: 10000
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: 04-settle-up
+
+# 08 The payment timeline (Settlement Details).
+- tapOn: "Settlement Details"
+- extendedWaitUntil:
+    visible: ".*431906552810.*"
+    timeout: 10000
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: 08-payment-timeline
+- tapOn: "Close"
+- extendedWaitUntil:
+    notVisible: ".*431906552810.*"
+    timeout: 10000
+- waitForAnimationToEnd:
+    timeout: 3000
+- runFlow: ../subflows/go-back.yaml
+
+# 07 Spent in euros, settled in rupees.
+- runFlow:
+    file: ../subflows/open-event.yaml
+    env:
+      EVENT: "Europe Summer Trip"
+- extendedWaitUntil:
+    visible: ".*Eurail passes.*"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: 07-multi-currency
+- runFlow: ../subflows/go-back.yaml
+
+# 05 An event with a budget.
+- runFlow:
+    file: ../subflows/open-event.yaml
+    env:
+      EVENT: "Aarav's 5th Birthday"
+- extendedWaitUntil:
+    visible:
+      id: "event-detail-pool-card"
+    timeout: 20000
+- extendedWaitUntil:
+    visible: ".*Magician show.*"
+    timeout: 10000
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: 05-budget
+
+# 06 The budget, with a spend waiting for approval.
+- tapOn:
+    id: "event-detail-pool-card"
+- extendedWaitUntil:
+    visible: "Waiting for your approval"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: 06-budget-approvals
+
+- runFlow:
+    when:
+      true: ${output.landscape}
+    commands:
+      - setOrientation: PORTRAIT

@@ -10,12 +10,16 @@ docs/
 │   ├── Functional.md                — every feature, with its status
 │   └── DEVELOPER_OPTIONS_TESTING.md
 ├── deployment/          — Deploying the API and web (Cloud Run), Play Store, App Store
+│   ├── RELEASE_1.2.0_CHECKLIST.md   — release 1.2.0 (Expo 58, iOS 27 SDK) and switching on the free trial
+│   ├── RELEASE_1.1.0_CHECKLIST.md   — release 1.1.0, from testing to the free trial
 │   ├── RELEASE_MONEY_POOLING.md     — the money-pooling release (Phases 1–3), in order
 │   ├── DEPLOYMENT_RUNBOOK.md
 │   ├── DEPLOYMENT_CHANNELS.md
 │   ├── FIRST_RELEASE_CHECKLIST.md
 │   └── APP_REVIEW_RESPONSE.md       — App Review notes and replies
 ├── runbook/             — Running and testing the app
+│   ├── COMMAND_REFERENCE.md         — every command: simulators, Xcode, Android, run modes, builds, deploys
+│   ├── XCODE_27_AND_MACOS_27.md     — working with Xcode 27, and moving a Mac to macOS 27
 │   ├── LOCAL_DEVELOPMENT.md
 │   ├── REGRESSION_SUITE.md          — the automated suite (unit, API, Playwright, Maestro) and CI
 │   ├── MONEY_POOLING_TESTING.md

@@ -18,6 +18,11 @@ METRO_PID=""
 METRO_LOG="$ROOT_DIR/maestro/artifacts/maestro-metro.log"
 # Metro serves the Debug test app's JavaScript (see build-test-app.sh).
 MANAGE_METRO="${MAESTRO_MANAGE_METRO:-true}"
+# Used by capture-screenshots.sh; the regression run leaves them unset:
+# - MAESTRO_FLOWS_ROOT: the folder of flows to run, with its own config.yaml (default maestro/flows).
+# - MAESTRO_BEFORE_FLOWS: a command run after the safety check and cleanup, before the flows (seeding).
+# - MAESTRO_TEST_OUTPUT_DIR: Maestro's --test-output-dir (where takeScreenshot writes).
+FLOWS_ROOT="${MAESTRO_FLOWS_ROOT:-$ROOT_DIR/maestro/flows}"
 
 export FIREBASE_USE_EMULATOR="$USE_FIREBASE_EMULATOR"
 export FIREBASE_PROJECT_ID="$EMULATOR_PROJECT_ID"
@@ -215,26 +220,36 @@ fi
 echo "[maestro-runner] cleanup before run"
 node "$ROOT_DIR/maestro/scripts/cleanup-firebase-maestro.js" || true
 
+if [ -n "${MAESTRO_BEFORE_FLOWS:-}" ]; then
+  echo "[maestro-runner] before the flows: $MAESTRO_BEFORE_FLOWS"
+  if ! sh -c "$MAESTRO_BEFORE_FLOWS"; then
+    echo "[maestro-runner] STOP: the before-flows step failed"
+    exit 1
+  fi
+fi
+
 STATUS=0
 # Every flow under maestro/flows (flows/config.yaml includes the subfolders), or the folders/files
 # in MAESTRO_FLOWS, space-separated and relative to maestro/flows.
 if [ -n "${MAESTRO_FLOWS:-}" ]; then
   FLOW_ARGS=""
-  for f in $MAESTRO_FLOWS; do FLOW_ARGS="$FLOW_ARGS $ROOT_DIR/maestro/flows/$f"; done
+  for f in $MAESTRO_FLOWS; do FLOW_ARGS="$FLOW_ARGS $FLOWS_ROOT/$f"; done
 else
-  FLOW_ARGS="$ROOT_DIR/maestro/flows"
+  FLOW_ARGS="$FLOWS_ROOT"
 fi
 # --config: Maestro only reads flows/config.yaml by itself when given the whole folder, and it holds
 # settings every run needs (see the file).
+set -- --config "$FLOWS_ROOT/config.yaml"
+if [ -n "${MAESTRO_TEST_OUTPUT_DIR:-}" ]; then set -- "$@" --test-output-dir "$MAESTRO_TEST_OUTPUT_DIR"; fi
 if [ "$MODE" = "artifacts" ]; then
   # shellcheck disable=SC2086
-  "$MAESTRO_BIN" test $DEVICE_ARGS -e AUTH_EMULATOR="http://$FIREBASE_AUTH_EMULATOR_HOST" --config "$ROOT_DIR/maestro/flows/config.yaml" $FLOW_ARGS \
+  "$MAESTRO_BIN" test $DEVICE_ARGS -e AUTH_EMULATOR="http://$FIREBASE_AUTH_EMULATOR_HOST" "$@" $FLOW_ARGS \
     --debug-output "$ROOT_DIR/maestro/artifacts" \
     --format junit \
     --output "$ROOT_DIR/maestro/artifacts/junit.xml" || STATUS=$?
 else
   # shellcheck disable=SC2086
-  "$MAESTRO_BIN" test $DEVICE_ARGS -e AUTH_EMULATOR="http://$FIREBASE_AUTH_EMULATOR_HOST" --config "$ROOT_DIR/maestro/flows/config.yaml" $FLOW_ARGS || STATUS=$?
+  "$MAESTRO_BIN" test $DEVICE_ARGS -e AUTH_EMULATOR="http://$FIREBASE_AUTH_EMULATOR_HOST" "$@" $FLOW_ARGS || STATUS=$?
 fi
 
 echo "[maestro-runner] cleanup after run"
