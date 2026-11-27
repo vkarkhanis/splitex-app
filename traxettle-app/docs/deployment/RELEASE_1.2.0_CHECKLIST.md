@@ -664,6 +664,15 @@ Expect `merged into stage`, and 1.2.0 for both platforms.
 
 ### I1. Google Play
 
+0. **Policy status first:** Play Console → **Policy and programs → Policy status**. It must show no issue
+   that rejects updates.
+   - **On 2026-11-27** it showed *"App must use Google Play Billing Library version 8.0.0 or later"* for
+     bundle **34 (1.0.33)**, still active on the **closed testing (Alpha)** track. Play checks every bundle
+     that's active on any track.
+   - **Fix:** Test and release → Testing → Closed testing → **Alpha → Pause track**, or promote 1.2.0 (43)
+     to Alpha too, which replaces it.
+   - **The 1.2.0 bundle itself is fine:** `react-native-purchases` 11 brings RevenueCat Android 11.4.3,
+     which uses Billing Library 9.1.0. 1.1.0 (42) uses 8.x.
 1. **Full description:** no change. It already has the line *"Free trial for new subscribers, where
    offered"*. To check, compare **Grow users → Store presence → Store listings → Default store listing →
    Full description** with `traxettle-rush/play-store-assets/full-description.txt` (3,545 characters).
