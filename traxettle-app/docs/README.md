@@ -69,6 +69,7 @@ mobile build scripts in `traxettle-rush/apps/mobile/scripts/`.
 
 ### Reference
 - **[Firebase Setup](utility/FIREBASE_SETUP.md)** — Auth, Firestore, Storage, service accounts, security rules
+- **[Email-link Sign-in](utility/EMAIL_LINK_SIGN_IN.md)** — the `/auth/email-link` page that hands the email's link to the app; plan for universal links and App Links
 - **[RevenueCat Setup](utility/REVENUECAT_SETUP.md)** — products, entitlement, offering and descriptions
 - **[RevenueCat Integration](utility/REVENUECAT_INTEGRATION_RUNBOOK.md)** — Webhook setup, entitlement mapping, smoke tests
 - **[Tier Entitlement Matrix](utility/TIER_ENTITLEMENT_ENV_MATRIX.md)** — Free/Pro capabilities per environment
