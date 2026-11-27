@@ -241,6 +241,44 @@ describe('GET /api/expenses/event/:eventId', () => {
     expect(res.body.data.length).toBe(1);
     expect(res.body.data[0].title).toBe('Lunch');
   });
+
+  /** A shared expense in evt-1; ids are chosen so that id order is not the expected order. */
+  function seedExpense(id: string, date: string | undefined, createdAt: string, extra: Record<string, any> = {}) {
+    mockExpenses[id] = {
+      eventId: 'evt-1', title: id, amount: 10, currency: 'USD', paidBy: 'mock-user-1',
+      splitType: 'equal', splits: [], attachments: [], isPrivate: false,
+      ...(date ? { date } : {}), createdAt, updatedAt: createdAt, ...extra,
+    };
+  }
+
+  it('lists expenses newest first: by expense date, then by when they were recorded', async () => {
+    // Inserted (and id-ordered) in a different order from the expected one.
+    seedExpense('a-taxi', '2026-11-03', '2026-11-03T09:00:00.000Z');
+    seedExpense('b-hotel', '2026-11-05', '2026-11-05T08:00:00.000Z');
+    seedExpense('c-legacy', undefined, '2026-11-04T12:00:00.000Z'); // saved before expenses had a date
+    seedExpense('d-dinner', '2026-11-05', '2026-11-05T21:00:00.000Z');
+    seedExpense('e-backdated', '2026-11-01', '2026-11-06T10:00:00.000Z'); // entered late for an earlier day
+
+    const res = await request(createApp())
+      .get('/api/expenses/event/evt-1')
+      .set('Authorization', 'Bearer mock-user-1');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((e: any) => e.id)).toEqual(['d-dinner', 'b-hotel', 'c-legacy', 'a-taxi', 'e-backdated']);
+  });
+
+  it('keeps the order after hiding other people\'s private expenses', async () => {
+    seedExpense('p-mine', '2026-11-02', '2026-11-02T10:00:00.000Z', { isPrivate: true });
+    seedExpense('q-theirs', '2026-11-04', '2026-11-04T10:00:00.000Z', { isPrivate: true, paidBy: 'event-owner' });
+    seedExpense('r-shared', '2026-11-03', '2026-11-03T10:00:00.000Z');
+
+    const res = await request(createApp())
+      .get('/api/expenses/event/evt-1')
+      .set('Authorization', 'Bearer mock-user-1');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((e: any) => e.id)).toEqual(['r-shared', 'p-mine']);
+  });
 });
 
 describe('GET /api/expenses/:expenseId', () => {
