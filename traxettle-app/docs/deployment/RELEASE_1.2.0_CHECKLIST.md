@@ -848,6 +848,18 @@ cd "$MAIN/traxettle-rush" && jq --version && gcloud auth list --filter=status:AC
 bash scripts/regression/run.sh quick
 ```
 
+**Staging only: check the RevenueCat Apple key isn't the placeholder.** On 2026-11-27 staging served
+`appl_…CHANGE_ME…`, so purchases on staging failed with "Invalid API key":
+
+```bash
+grep -c 'CHANGE_ME' rc_staging.properties
+```
+
+If it prints more than 0, set `RC_REVENUECAT_APPLE_PUBLIC_KEY` in `rc_staging.properties` to the real Apple
+public key (`appl_…`). One RevenueCat project serves both environments, so it's the same key as in
+`rc_prod.properties`, also shown in RevenueCat → API keys. Each deploy writes it into the
+`…-mobile-config` secret.
+
 `jq` must be installed (without it the API silently runs on mock data), and `gcloud` must be signed in.
 The quick suite must pass. If `git pull` changed any `package.json`, run
 `node common/scripts/install-run-rush.js install` first.

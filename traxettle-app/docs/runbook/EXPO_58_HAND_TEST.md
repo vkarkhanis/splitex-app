@@ -51,22 +51,32 @@ No screen or rule changes.
 
 ## 2. Results
 
+**iOS** (2026-11-27): TestFlight 1.2.0, build 2611271830, built with Xcode 27.2. Tested in the Mac's TestFlight
+app, with H5, H6 and H12 on iOS 27 simulators.
+
 | # | iOS | Android | Notes |
 |---|---|---|---|
-| H1 | | | |
-| H2 | | | |
-| H3 | | | |
-| H4 | | – | |
-| H5 | | | |
-| H6 | | | |
-| H7 | | | |
-| H8 | | | |
-| H9 | | | |
-| H10 | | | |
+| H1 | pass | | |
+| H2 | pass | | |
+| H3 | pass | | |
+| H4 | pass | – | |
+| H5 | pass (app) | | iOS: the app signs in from the link when it receives it (checked with `simctl openurl`, warm and cold). The email's link itself opens a web page that has never existed (pre-existing; fix on `fix/email-link-landing-page`). The email went to spam |
+| H6 | pass | | iOS 27 simulator, warm and cold |
+| H7 | pass | | |
+| H8 | pass | | |
+| H9 | pass | | iOS: price and terms load (RevenueCat 11), Apple's sheet opens, Restore works. The Mac's TestFlight shows the US store, so Apple refuses the purchase for an Indian Apple ID (Mac only). On staging, "Invalid API key": staging serves a placeholder RevenueCat Apple key (fixed by the next staging deploy, checklist L2) |
+| H10 | pass | | |
 | H11 | – | | |
-| H12 | | – | |
+| H12 | pass | – | Milestone B step 7: Release builds with Xcode 27.2 on iPhone 17 Pro, iPad Pro 13" and iPhone Duo (closed and open) |
 
 Anything that fails blocks the pull request into `stage`.
+
+**Found while testing, pre-existing (same in 1.1.0), not blocking:**
+- The email-link sign-in link opens a missing web page, `/auth/email-link`. Fixed by a web-only change.
+- `POST /api/auth/email-link/send` says "sent" even when the email fails, and logs the sign-in link.
+- Staging's `/api/config` served a placeholder RevenueCat Apple key.
+- The 7-tap environment switch doesn't reconfigure RevenueCat: after switching, quit the app fully before
+  testing purchases.
 
 **Known and unchanged, not tested here:**
 - On Android, "share an image into Traxettle" has never worked. The `SEND` intent filter in `app.json`
