@@ -340,10 +340,8 @@ xcrun simctl list devices | grep "iOS"
 4. Test with sandbox environment
 
 #### Universal Links
-1. Configure associated domains capability
-2. Create apple-app-site-association file
-3. Upload to web server
-4. Test deep linking
+Not set up yet. The plan (associated domains, the apple-app-site-association file, the matching
+Android App Links) is in [Email-link sign-in](./EMAIL_LINK_SIGN_IN.md#step-2-later-app-version-universal-links-and-app-links).
 
 ## Next Steps
 

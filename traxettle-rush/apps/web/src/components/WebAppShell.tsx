@@ -351,7 +351,7 @@ const LockActions = styled.div`
 type ProfileData = { userId: string; displayName?: string; email?: string; photoURL?: string };
 const SOFT_LOCK_MS = 5 * 60 * 1000;
 const HARD_LOGOUT_MS = 30 * 60 * 1000;
-const PUBLIC_PATHS = ['/', '/auth/login', '/auth/register', '/auth/forgot-password', '/help'];
+const PUBLIC_PATHS = ['/', '/auth/login', '/auth/register', '/auth/forgot-password', '/auth/email-link', '/help'];
 
 function isProtectedPath(pathname?: string | null): boolean {
   const path = pathname || '/';
