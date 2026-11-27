@@ -306,7 +306,34 @@ Quit Xcode first: the script regenerates the iOS project.
 osascript -e 'if application "Xcode" is running then tell application "Xcode" to quit'
 ```
 
-Use the same profile name and Team ID as for 1.1.0:
+Sign the way 1.1.0 was signed: **automatically**, with the Apple account in Xcode. First check that
+Xcode 27 is signed in. It shares the account with Xcode 26, but it's worth a look:
+
+```bash
+open -a /Applications/Xcode.app
+```
+
+Look at Xcode → Settings → **Accounts**: your Apple ID, with the Traxettle team. Then quit Xcode again.
+
+Your Team ID is the 10 characters in brackets on this line:
+
+```bash
+security find-identity -v -p codesigning | grep "Apple Distribution"
+```
+
+```bash
+APPLE_TEAM_ID=<team id> bash scripts/build-ios.sh testflight
+```
+
+**Only if automatic signing fails** (for example "needs a registered device", or a provisioning error),
+sign manually with your App Store profile. This lists the installed profiles for the app, marks the
+usable one, and prints the command to use (or says how to download one from developer.apple.com):
+
+```bash
+bash scripts/ios-signing-info.sh
+```
+
+Then:
 
 ```bash
 IOS_PROVISIONING_PROFILE="<App Store profile name>" APPLE_TEAM_ID=<team id> bash scripts/build-ios.sh testflight

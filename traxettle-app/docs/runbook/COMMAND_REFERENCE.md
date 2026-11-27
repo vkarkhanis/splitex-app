@@ -349,6 +349,7 @@ The Xcode project is named `TraxettleappbyKarkhanisLabs`, after `app.json`'s nam
 ### 5.5 Signing
 
 ```bash
+cd apps/mobile && bash scripts/ios-signing-info.sh   # certificates + Traxettle profiles, and the build-ios.sh command to use
 security find-identity -v -p codesigning            # should list "Apple Distribution: …"
 ls ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/ ~/Library/MobileDevice/Provisioning\ Profiles/ 2>/dev/null
 security cms -D -i <file>.mobileprovision | plutil -p - | grep -E '"Name"|application-identifier|applesignin|ExpirationDate'
