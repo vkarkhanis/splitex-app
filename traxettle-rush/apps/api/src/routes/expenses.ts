@@ -18,6 +18,7 @@ import { emitToEvent, emitToUser } from '../config/websocket';
 import { notifyEventParticipants } from '../utils/notification-helper';
 import { requireActiveEvent, markStaleIfInReview } from '../utils/event-guards';
 import { EventAccessError, filterVisibleExpenses, requireEventAccess } from '../utils/event-access';
+import { sortExpensesNewestFirst } from '../utils/expense-order';
 
 const router: Router = Router();
 const expenseService = new ExpenseService();
@@ -74,7 +75,8 @@ function alertCustodianIfFlagged(eventId: string, expense: any) {
   }).catch(() => undefined);
 }
 
-// Get expenses for an event (participants only; others' private expenses are hidden)
+// Get expenses for an event (participants only; others' private expenses are hidden),
+// newest first: by expense date, then by when each was recorded.
 router.get('/event/:eventId', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const uid = req.user!.uid;
@@ -83,7 +85,8 @@ router.get('/event/:eventId', requireAuth, async (req: AuthenticatedRequest, res
       expenseService.getEventExpenses(req.params.eventId),
       groupService.getEventGroups(req.params.eventId),
     ]);
-    return res.json({ success: true, data: filterVisibleExpenses(expenses, uid, groups) } as ApiResponse);
+    const visible = sortExpensesNewestFirst(filterVisibleExpenses(expenses, uid, groups));
+    return res.json({ success: true, data: visible } as ApiResponse);
   } catch (err) {
     if (err instanceof EventAccessError) return poolOrAccessError(res, err);
     console.error('GET /expenses/event/:eventId error:', err);

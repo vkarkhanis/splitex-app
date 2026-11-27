@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsMockUser } from '../helpers/auth';
-import { createTestEvent } from '../helpers/api';
+import { apiRequest, createTestEvent } from '../helpers/api';
+import { openEvent } from '../helpers/ui';
 
 test.describe('Expense Management', () => {
   let eventId: string;
@@ -70,6 +71,27 @@ test.describe('Expense Management', () => {
     await page.goto(`/events/${eventId}/expenses/create`);
     await page.getByTestId('split-type-ratio').check();
     await page.waitForTimeout(300);
+  });
+
+  test('lists expenses newest first by expense date', async ({ page }) => {
+    // Fail loudly: a skipped test would hide broken setup.
+    expect(eventId, 'test data should be set up').toBeTruthy();
+    // Recorded in an order that matches neither the expected order nor its reverse.
+    const ids: Record<string, string> = {};
+    for (const [title, date] of [['Middle day', '2026-11-03'], ['Earliest day', '2026-11-01'], ['Latest day', '2026-11-05']]) {
+      const res = await apiRequest('POST', '/api/expenses', {
+        eventId, title, amount: 10, currency: 'USD', splitType: 'equal', date,
+        splits: [{ entityType: 'user', entityId: 'mock-e2e-user', amount: 10 }],
+      });
+      expect(res.success, `create "${title}"`).toBe(true);
+      ids[title] = res.data.id;
+    }
+
+    await openEvent(page, 'mock-e2e-user', eventId);
+    const rows = page.locator('[data-testid^="expense-item-"]');
+    await expect(rows).toHaveCount(3);
+    const shown = await rows.evaluateAll((els) => els.map((el) => el.getAttribute('data-testid')));
+    expect(shown).toEqual(['Latest day', 'Middle day', 'Earliest day'].map((t) => `expense-item-${ids[t]}`));
   });
 
   test('should cancel and go back', async ({ page }) => {
