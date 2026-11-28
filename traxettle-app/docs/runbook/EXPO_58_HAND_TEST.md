@@ -54,29 +54,40 @@ No screen or rule changes.
 **iOS** (2026-11-27): TestFlight 1.2.0, build 2611271830, built with Xcode 27.2. Tested in the Mac's TestFlight
 app, with H5, H6 and H12 on iOS 27 simulators.
 
+**Android** (2026-11-28): 1.2.0 (versionCode 43) from Play internal testing, on the user's phone, plus a
+second phone for the trial check.
+
 | # | iOS | Android | Notes |
 |---|---|---|---|
-| H1 | pass | | |
-| H2 | pass | | |
-| H3 | pass | | |
+| H1 | pass | pass | |
+| H2 | pass | pass | |
+| H3 | pass | pass | |
 | H4 | pass | – | |
-| H5 | pass (app) | | iOS: the app signs in from the link when it receives it (checked with `simctl openurl`, warm and cold). The email's link itself opens a web page that has never existed (pre-existing; fix on `fix/email-link-landing-page`). The email went to spam |
-| H6 | pass | | iOS 27 simulator, warm and cold |
-| H7 | pass | | |
-| H8 | pass | | |
-| H9 | pass | | iOS: price and terms load (RevenueCat 11), Apple's sheet opens, Restore works. The Mac's TestFlight shows the US store, so Apple refuses the purchase for an Indian Apple ID (Mac only). On staging, "Invalid API key": staging serves a placeholder RevenueCat Apple key (fixed by the next staging deploy, checklist L2) |
-| H10 | pass | | |
-| H11 | – | | |
+| H5 | pass (app) | pass | iOS: the app signs in from the link when it receives it (checked with `simctl openurl`, warm and cold). The email's link itself opens a web page that has never existed (pre-existing; fix on `fix/email-link-landing-page`). The email went to spam. Android: passed after the `/auth/email-link` page and production's `APP_URL` fix were deployed |
+| H6 | pass | pass | iOS 27 simulator, warm and cold |
+| H7 | pass | pass | |
+| H8 | pass | pass | |
+| H9 | pass | pass | iOS: price and terms load (RevenueCat 11), Apple's sheet opens, Restore works. The Mac's TestFlight shows the US store, so Apple refuses the purchase for an Indian Apple ID (Mac only). On staging, "Invalid API key": staging serves a placeholder RevenueCat Apple key (fixed by the staging redeploy, checklist L2). Android: price ₹299, Google's sheet opens, Restore moves the subscription to the signed-in user; the 7-day trial shows and starts on a second phone with an account that never subscribed. The user's own Google account gets Play's "Server error" because it still has a cancelled subscription active until 2027-02-28 (Play bills through the account that installed the app) |
+| H10 | pass | pass | |
+| H11 | – | pass | |
 | H12 | pass | – | Milestone B step 7: Release builds with Xcode 27.2 on iPhone 17 Pro, iPad Pro 13" and iPhone Duo (closed and open) |
 
 Anything that fails blocks the pull request into `stage`.
 
 **Found while testing, pre-existing (same in 1.1.0), not blocking:**
-- The email-link sign-in link opens a missing web page, `/auth/email-link`. Fixed by a web-only change.
-- `POST /api/auth/email-link/send` says "sent" even when the email fails, and logs the sign-in link.
-- Staging's `/api/config` served a placeholder RevenueCat Apple key.
-- The 7-tap environment switch doesn't reconfigure RevenueCat: after switching, quit the app fully before
-  testing purchases.
+- **Fixed, deployed to staging and production on 2026-11-28:**
+  - The email-link sign-in link opened a missing web page, `/auth/email-link`. The page was added (PR #33).
+  - Production's `APP_URL` was `https://traxettle.app`, a domain with no DNS records, so every emailed link
+    led nowhere. It's now `https://traxettle-prod.web.app`.
+  - Staging's `/api/config` served a placeholder RevenueCat Apple key. Fixed by the staging redeploy.
+  - Play: a second new-customer offer, `offer-first-year`, competed with `trial-7d`, so the trial never
+    showed. It's deactivated.
+- **Still open:**
+  - `POST /api/auth/email-link/send` says "sent" even when the email fails, and logs the sign-in link.
+  - The 7-tap environment switch doesn't reconfigure RevenueCat: after switching, quit the app fully
+    before testing purchases.
+  - Signing in with Google on an address whose email/password account was never verified removes the
+    password (Firebase's account-linking rule); "Forgot password" restores it.
 
 **Known and unchanged, not tested here:**
 - On Android, "share an image into Traxettle" has never worked. The `SEND` intent filter in `app.json`
