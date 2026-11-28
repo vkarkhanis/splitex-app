@@ -46,6 +46,9 @@ This file is in git, so it's on both Macs once it's pushed. Pull it on a Mac bef
 | **B** | the other Mac moves to macOS 27 | nothing; keep it only as a spare | everything |
 | **C** | – | gone from the other Mac (it doesn't open on macOS 27) | everything |
 
+**On 2026-11-29 the other Mac moved to Xcode 27 as its default early,** while still in phase A. Xcode 26
+stays installed for 1.1.x work and is switched on per terminal ([§3.4](#34-the-setup-in-use-xcode-27-by-default-xcode-26-when-needed)).
+
 Why Xcode 26 stays during phase A: `stage` is still Expo 54. Expo 54 apps built with the iOS 27 SDK don't
 launch, because they don't use the UIScene life cycle. So a 1.1.x hotfix has to be built with Xcode 26
 until Expo 58 is on `stage`. From April 2027, App Store uploads need the iOS 27 SDK, so by then everything
@@ -108,6 +111,9 @@ other Mac avoids all this: each folder keeps its own branch, packages and Xcode.
 ## 3. Using Xcode 27 every time
 
 ### 3.1 Phase A: Xcode 27 inside the worktree, Xcode 26 everywhere else
+
+The other Mac uses [§3.4](#34-the-setup-in-use-xcode-27-by-default-xcode-26-when-needed) instead,
+since 2026-11-29. This section stays as the alternative.
 
 `xcode-select` stays on Xcode 26. Every terminal that is inside the `chore/expo-58` worktree switches to
 Xcode 27 by itself. Add this once to `~/.zshrc` on the other Mac, with your worktree's path in the
@@ -197,6 +203,79 @@ git -C "$HOME/regular-workspace/Traxettle" worktree remove "$HOME/regular-worksp
 `worktree remove` refuses if the worktree has changes. Commit or move them first. Its git-ignored
 release files go with it, and the main checkout has its own copies.
 
+### 3.4 The setup in use: Xcode 27 by default, Xcode 26 when needed
+
+**Chosen on 2026-11-29 for the other Mac**, in place of the phase A hook in §3.1. Xcode 27.2 (and with it
+the iOS 27.2 SDK) is the default for everything. One word switches a terminal to Xcode 26 for 1.1.x work.
+
+**1. Make Xcode 27.2 the default:**
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+xcode-select -p; xcodebuild -version | head -1; xcrun --sdk iphoneos --show-sdk-version
+```
+
+Expect the `Xcode.app` path, `Xcode 27.2` and `27.2`.
+
+**2. Remove the phase A hook,** if you added it from §3.1:
+
+```bash
+sed -i '' '/# >>> traxettle xcode 27 >>>/,/# <<< traxettle xcode 27 <<</d' ~/.zshrc
+```
+
+**3. Add the switches** (once):
+
+```bash
+cat >> ~/.zshrc <<'EOF'
+# >>> xcode switch >>>
+xcode26() { export DEVELOPER_DIR=/Applications/Xcode_26.app/Contents/Developer; xcodebuild -version | head -1; }
+xcode27() { unset DEVELOPER_DIR; xcodebuild -version | head -1; }
+# <<< xcode switch <<<
+EOF
+```
+
+Open a new terminal. Typing `xcode26` switches that terminal to Xcode 26, and `xcode27` (or a new terminal)
+switches it back.
+
+**4. When to use `xcode26`:** for building or testing **Expo 54 code**. That means `stage` before
+`chore/expo-58` is merged, or a hotfix from the `ios-v1.1.0` tag. An Expo 54 app built with the iOS 27 SDK
+doesn't launch, because it doesn't use the UIScene life cycle. `build-ios.sh` prints the Xcode version
+near the start, so stop it if the version is wrong. Android builds don't depend on Xcode.
+
+**A 1.1.x hotfix, start to finish:**
+
+```bash
+git -C "$HOME/regular-workspace/Traxettle" fetch origin --tags
+git -C "$HOME/regular-workspace/Traxettle" worktree add "$HOME/regular-workspace/Traxettle-hotfix" -b hotfix/1.1.1 ios-v1.1.0
+cd "$HOME/regular-workspace/Traxettle-hotfix/traxettle-rush" && node common/scripts/install-run-rush.js install
+xcode26
+```
+
+Copy the git-ignored files into the new worktree, as in
+[COMMAND_REFERENCE §14](COMMAND_REFERENCE.md#14-git-branches-worktrees-and-tags). Then fix the problem and
+build as usual (`build-ios.sh testflight` builds 1.1.1). Test on the `iPhone 17 Pro iOS26` simulator (step 6).
+
+**5. Xcode's window:** open the right one explicitly. Xcode 27.2 is the normal one:
+
+```bash
+open -a /Applications/Xcode_26.app <path>/ios/TraxettleappbyKarkhanisLabs.xcworkspace
+```
+
+That command is for Expo 54 work only.
+
+**6. Make the scripts' default simulator iOS 27.2.** `build-test-app.sh` and others default to a simulator
+named `iPhone 17 Pro`. This renames the old iOS 26 one to `iPhone 17 Pro iOS26` and creates a new
+`iPhone 17 Pro` on iOS 27.2:
+
+```bash
+OLD=$(xcrun simctl list devices | awk '/^-- iOS 26/{f=1;next} /^-- /{f=0} f && /iPhone 17 Pro \(/' | grep -oE '[0-9A-F-]{36}' | head -1); [ -n "$OLD" ] && xcrun simctl rename "$OLD" "iPhone 17 Pro iOS26"; xcrun simctl create "iPhone 17 Pro" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-2
+```
+
+**7. Keep Xcode 26** until 1.2.0 is live on both stores and merged into `stage`. After that nothing
+needs it, and from April 2027 its builds can't be uploaded anyway. Then remove the switches with
+`sed -i '' '/# >>> xcode switch >>>/,/# <<< xcode switch <<</d' ~/.zshrc`, and delete
+`/Applications/Xcode_26.app` when you like.
+
 ---
 
 ## 4. Proving which Xcode and SDK a build used
@@ -236,7 +315,8 @@ users run iOS 27. The app supports iOS 16.4 and later.
 | `iPhone 17 Pro iOS27` | 27.x | Everyday testing and Maestro |
 | `iPad iOS27` | 27.x | iPad layout; App Review tests on iPad |
 | `iPhone Duo iOS27` | 27.2, its own runtime | Duo postures; screenshots from April 2027 |
-| `iPhone 17 Pro iOS26` (create it) | 26.x | Users who haven't updated |
+| `iPhone 17 Pro iOS26` (create it) | 26.x | Users who haven't updated, and 1.1.x work with `xcode26` |
+| `iPhone 17 Pro` | 27.2 | The scripts' default; [§3.4](#34-the-setup-in-use-xcode-27-by-default-xcode-26-when-needed) step 6 makes it iOS 27.2 |
 
 Create the iOS 26 one if you don't have it. Run this in a terminal inside the worktree, so Xcode 27 does
 it; Xcode 27 runs iOS 26 simulators too:
