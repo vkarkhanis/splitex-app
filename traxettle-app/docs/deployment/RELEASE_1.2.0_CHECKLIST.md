@@ -641,11 +641,23 @@ same steps are `gh pr create --repo vkarkhanis/splitex-app --base stage --head c
 The tip of `chore/expo-58` is the code you built plus its version files. A hotfix branched from these tags
 then builds 1.2.1.
 
+**Tag before deleting `chore/expo-58` on GitHub.** The command below reads the branch. Tags already
+pushed are never affected by deleting it.
+
 ```bash
 cd "$WT" && git fetch origin
 git tag ios-v1.2.0 origin/chore/expo-58 && git tag android-v1.2.0 origin/chore/expo-58
 git push origin ios-v1.2.0 android-v1.2.0
 ```
+
+If the branch is already deleted, tag the same commit, which is the second parent of the pull request's
+merge commit on `stage`:
+
+```bash
+git fetch origin && M=$(git log origin/stage --merges --grep 'chore/expo-58' -1 --format=%H) && echo "merge: $M, branch tip: $(git rev-parse --short "$M^2")" && git tag ios-v1.2.0 "$M^2" && git tag android-v1.2.0 "$M^2" && git push origin ios-v1.2.0 android-v1.2.0
+```
+
+Do H4 before deleting the branch as well, because it also reads `origin/chore/expo-58`.
 
 If the shipped version is 1.2.1, use `ios-v1.2.1` and `android-v1.2.1`.
 
